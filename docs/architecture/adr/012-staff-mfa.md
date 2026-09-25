@@ -1,0 +1,28 @@
+# ADR-012 — Mandatory staff TOTP and explicit RBAC
+Date: 2026-09-21. Status: IMPLEMENTED UNDER APPROVED CLIENT DECISION; Phase 3B verification/report controls readiness.
+
+**MFA: APPROVED FOR STAFF V1. Customer MFA: NOT REQUIRED FOR V1. RBAC Matrix: APPROVED FOR V1.** Authority: client's Phase 3B gate-resolution instruction. No change to the three roles, commercial scope or optional customer email-verification policy.
+
+## Decision
+All staff, including owner, must enroll and confirm a vendor-neutral authenticator before privileged access. Password verification establishes only a restricted session. It exposes /auth/me, logout and required MFA endpoints; customer/private staff resources remain denied until MFA completion. The explicit session identity/version/MFA marker is checked by CurrentIdentity and every staff Gate. No permission bypass exists, including for owner.
+
+Use official pragmarx/google2fa 9.1.0 for TOTP and bacon/bacon-qr-code 3.1.1 for locally rendered setup QR. Composer resolved on PHP 8.5.8/Laravel 13.32.0; no custom OTP cryptography or third-party QR service. [TOTP package documentation](https://github.com/antonioribeiro/google2fa) documents one-use verification with verifyKeyNewer. The implementation initializes the prior counter to zero to obtain the accepted step, then persists it under a User row lock. Accept a six-digit 30-second TOTP with a +/-1 step clock window. Never accept a step at or below the last successful one.
+
+Pending enrollment secret exists only in encrypted PostgreSQL session payload, with ten-minute restricted-session/enrollment expiry. Confirmed secret is Laravel-encrypted under external APP_KEY in the existing mfa_secret_ciphertext column. Setup secret/QR are returned only during unconfirmed enrollment, never via a read endpoint after activation. Eight recovery codes use 128 random bits each, individually password-hashed in the existing JSON field; response plaintext is displayed once in component memory. Codes are consumed under row lock; regeneration atomically replaces the whole set.
+
+## Session lifecycle and recent authentication
+Password login rotates session/CSRF and clears all previous MFA trust. Confirmation rotates again, increments auth_version and revokes other sessions so concurrent pending enrollment cannot activate an unrelated secret. MFA challenge rotates the session after valid TOTP/recovery proof. Authenticated staff sessions have 15-minute idle and eight-hour absolute limits; pending sessions expire after ten minutes. Customer limits remain unchanged.
+
+Owner-sensitive actions require complete MFA and password authentication within five minutes. MFA completion inherits the password-verification time; it cannot manufacture a fresh password timestamp. /auth/reauthenticate requires current password plus a fresh TOTP, then renews recent-auth state. Already complete sessions cannot invoke the password-pending challenge as a recent-auth shortcut. Recovery-code regeneration likewise requires password plus a fresh TOTP. User-row and global staff-mutation locks prevent replay and last-owner races. Password resets, role changes, disable and administrative MFA reset invalidate relevant sessions/auth_version. Password reset never disables enrolled MFA.
+
+## Provisioning and recovery
+One-time interactive identity:bootstrap-owner is an audited deployment operation, with hidden password input and no command-line/default password. It refuses once any owner assignment exists, even if disabled. Other staff are provisioned only through an MFA-complete, recently authenticated owner operation; server generates an unusable random initial password and sends encrypted queued recovery instructions so the recipient sets their password. No public endpoint assigns roles; no full management UI is added.
+
+Recovery code login is one-use. Administrative MFA reset requires another complete/recent owner with security.configure, an allowlisted reason, and out-of-band identity verification by the operator. Self-reset is prohibited. Reset clears MFA secret/codes/counter, increments auth_version and deletes sessions/reset tokens; next password sign-in permits only re-enrollment. The last active owner cannot be demoted/disabled; own role/disable mutation is denied. No unauthenticated MFA removal or security questions.
+
+If the sole owner loses the authenticator AND every recovery code, do not weaken public auth or rerun bootstrap. Escalate through the named deployment/security operator's independently verified incident process; no self-service bypass is included. Before launch the client must custody recovery codes and name that incident owner (existing operations gate). A second approved owner may be provisioned if the business chooses; no extra role is invented.
+
+## Schema and permission mapping
+Only users.mfa_last_used_step nullable bigint CHECK >=0 is added beyond approved Phase 3B identity/audit tables. This is a deliberate technical schema amendment for the required replay test, not a customer profile field.
+
+The matrix rows expand slash-separated names into 31 explicit permission identifiers. Owner gets 31, Order Processing gets 11, Inventory/Store gets 4. returns.review means intake, not returns.decide. Availability-only, operational/assigned-order and redacted-actor constraints remain mandatory object/field policies when those future modules are implemented. Predefined capabilities do not implement or authorize broad data access in absent commerce modules. Seeder reconciles exact grants and audits changed sets, without creating users/default passwords or a runtime arbitrary-permission editor.

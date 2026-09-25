@@ -1,0 +1,62 @@
+# PHASE 3F CHECKOUT REPORT
+
+**Implementation baseline v1.0 — 2026-09-23. Formally APPROVED by the subsequent Phase 3G instruction.** Phase 3E remains approved. The client has formally approved A04: tax-exclusive unchanged catalog prices, exact per-line HALF-UP integer-kobo tax, summation of rounded line taxes, separate explicit delivery taxability/rate and deterministic historical unit allocation. Phase 3F implements and verifies that decision. The following results are the Phase 3F completion record. The subsequent client instruction separately authorizes Phase 3G.
+
+## Implementation and approval evidence
+
+| # | Requested report item | Implemented result / evidence |
+|---|---|---|
+| 1 | Migrations | `2026_09_23_000009_create_checkout_foundation.php` creates five checkout/configuration/address tables. Repeated clean migration and rollback/reapply passed in isolated PostgreSQL. Only the additive migration was applied to persistent `iranti_local`; no reset or sample-rate seed. |
+| 2 | Checkout schema | UUID ownership XOR, real cart/variant/configuration FKs, one active attempt per cart/account, bounded snapshots, integer money checks, immutable configuration trigger and composite reservation-membership FK. No order/payment tables or placeholder order IDs. |
+| 3 | State machine | DRAFT → QUOTED → RESERVED; address edits invalidate a quote; source/configuration changes → REVIEW_REQUIRED; deadline/closed hold → EXPIRED; explicit cancellation → CANCELLED. New attempts require explicit action. |
+| 4 | Guest ownership | Separate encrypted HttpOnly SameSite capability cookie; digest-only storage, production Secure, bounded expiry/grace. Cart capability plus stable creation key enables lost-response replay. UUID/email alone never authorizes access. |
+| 5 | Authenticated ownership | Current user/MFA controls access; one active account attempt; account checkout persists across sessions. Guest checkout is not silently transferred during login/cart merge. |
+| 6 | Snapshots | Product name, SKU/options/media, quantity, unit price, source versions, contact/address and tax/delivery calculation are copied. Configuration/catalog changes require review without rewriting historical calculations. |
+| 7 | Delivery model | Nigeria state/FCT list, configured locality overrides, active flags, integer fee, provider/service/source labels and immutable effective versions. Missing/inactive/unknown coverage blocks; no guessed fee or carrier integration. |
+| 8 | Tax model | A04 implemented using exact rational arithmetic and HALF-UP once per complete line. Product tax sums rounded lines. Explicit delivery taxable=false requires null rate; true requires a valid separate rate. Malformed/negative/unsupported/missing policy blocks. |
+| 9 | Totals | Checked server integer arithmetic, NGN decimal-string API amounts. Subtotal + product tax + delivery + delivery tax. Frontend displays authoritative amounts only. All approved example categories and historical unit allocation are documented in [tax.md](tax.md). |
+| 10 | Inventory reservation | Existing `reserveMany` holds every requested line atomically; deterministic existing inventory locks, post-lock source recheck and real reference/membership binding. No partial holds, cart reservation, duplicate inventory implementation or consume operation. |
+| 11 | TTL/expiry | Existing configurable 900-second default; actual inventory deadline exposed. Repeat reads/reserve do not renew. Owned actions reconcile expiry; scheduled `checkout:expire` runs every minute and safely coexists with inventory expiry. |
+| 12 | Cancellation | Owned idempotent cancellation releases active stock, retains snapshots/history and leaves cart contents intact. |
+| 13 | APIs | Begin/read/current/address/validate/reserve/cancel, controlled destinations, own saved addresses and protected owner/MFA configuration publication. Strict field allowlists, version/fingerprint checks and scoped idempotency. See [checkout API guide](checkout.md). |
+| 14 | UI | Branded `/checkout`, valid-cart entry, contact/delivery entry, server item/tax/delivery summary, explicit total confirmation, actual expiry, cancel/restart and readable failure states. No payment action. Browser-found unsaved-address defect fixed: save/recalculate is required before confirmation. |
+| 15 | Saved addresses | Explicit account save/select plus owner-only list/delete endpoints; separate checkout snapshot survives deletion. Guest checkout has no address book. Cross-account access tested; actual browser save and reuse passed. |
+| 16 | Accessibility | Labels/associated errors, focus on error/updated heading, live status, keyboard Tab/Space, visible focus, reduced motion and reflow inspected; automated axe coverage. No modal/drawer added. Screen-reader, physical-device and native browser-zoom certification not claimed. |
+| 17 | Backend tests | Complete PostgreSQL-enabled suite: **126 tests / 2,593 assertions PASS**. PHP 8.5.8; Pint and level-8 Larastan PASS. Includes prior foundation/auth/catalog/cart/inventory/Redis tests. |
+| 18 | PostgreSQL concurrency | Real forked connections: competing last stock, duplicate reserve, cancellation versus independent inventory expiry, same-start configuration publication. All passed, with database constraints and immutable history checks. |
+| 19 | Frontend tests | **107 tests / 13 files PASS** after final UI fix. Clean locked install, formatting, ESLint, TypeScript and default Turbopack production build PASS. Regression test covers unsaved delivery blocking confirmation. |
+| 20 | Responsive/browser QA | Real installed Chrome against built Next.js and Laravel test backend. Address and quote layouts at **320, 375, 768, 1024, 1440px**, no horizontal overflow; tested controls at least 44px. Guest/account flows, server totals, reserve/cancel, saved addresses and cart preservation passed. Details below. |
+| 21 | Security | Negative tests cover IDOR, capability guessing, cross-account checkout/address access, guest-login boundaries, stale/replayed commands, body/price/state tampering, CSRF/origin, missing staff MFA and owner configuration permissions. Safe lifecycle logs exclude address/contact/capabilities. |
+| 22 | Dependency audits | Composer strict validation/audit PASS; npm audit reports zero vulnerabilities. No phase-specific dependency changes. The already approved ESLint 9 EOL exception remains, independently of successful lint/audit. |
+| 23 | Architecture deviations | [ADR-014](../architecture/adr/014-checkout-before-orders.md) explicitly stages checkout before orders with real inventory FKs and maps separate tax/shipping physical tables to one immutable atomic configuration bundle. Latest client approval permits secure database configuration without extra admin UI. Architecture/API/roadmap documents amended; no silent weakening of inventory integrity. |
+| 24 | Remaining non-blocking configuration | Actual approved tax categories/rates/exemptions and delivery tax treatment; complete coverage/prices/provider/source; final production TTL/limits, retention/anonymization, legal invoice content and operational monitoring. No production policy invented. These block live commerce where applicable, not this configurable foundation's approval. |
+| 25 | Readiness for Phase 3G Orders | Phase 3F implementation/verification is complete and ready for approval. A future authorized Phase 3G must atomically bind the owned unexpired attempt/reservation to an order, verify item-set equality and coordinate expiry before payment authority. No order/payment work started. |
+
+## Tax example evidence
+
+These are **DEVELOPMENT CONFIGURATION ONLY**, not approved production percentages. At exact rate `0.1`, bases 1000/1004/1005/1006 produce tax 100/100/101/101 kobo. Unit price 335 × quantity 3 produces base 1005 and line tax 101, not 102. Two 1005 lines yield product tax 202. Delivery 505 at its separately configured `0.1` yields 51; total = 2010 + 202 + 505 + 51 = **2768 kobo**. Explicit non-taxable delivery produces zero delivery tax; a 1005-item checkout totals **1611 kobo**. Historical line tax 11251 allocated across three unit ordinals yields **3751, 3750, 3750**, exactly preserving the original tax. [Tax guide](tax.md) documents inputs, snapshots and operator publication.
+
+## Browser review and fixes
+
+The standard browser-control inventory exposed no browser surface. Review therefore used installed Chrome headless with an isolated profile and CDP, the actual production frontend build on localhost:3030 and the isolated Laravel backend on 127.0.0.1:8030. This exercised real HTTP/session/CSRF behavior with synthetic product/customer data in `iranti_test`, not mocked browser APIs. No browser-only PASS is inferred from DOM unit tests.
+
+- Guest product → cart → checkout → contact/address → server quote → reserve → keyboard cancel passed; cart stayed intact. Synthetic quote was 1662 kobo and visibly marked DEVELOPMENT CONFIGURATION ONLY.
+- All five viewport widths were measured and captured for address and quote states. Screenshots at 320/375/768/1024/1440 were visually inspected across those states. Existing logo, typography, controls and summary retained the approved design; no horizontal overflow or overlapping controls was found.
+- Browser review found that unsaved delivery edits could leave the previous quote confirmable. A minimal frontend guard now disables calculation/confirmation until details are saved/requoted, with an explicit message. Its regression test, full frontend gate and post-build browser inspection passed.
+- Account registration/guest-cart merge, explicit address saving, changed-address re-quote/reservation/cancel and later saved-address selection/reservation/cancel passed. Two test-driver waits initially failed because selecting a new address correctly clears fields and a disabled fieldset does not set the child input's `.disabled` property. The driver was corrected to fill the complete address and inspect `:disabled`; no application defect was inferred from those waits.
+- Real Tab moved from email to recipient with a visible 2px solid focus outline; Space activated cancellation and focus moved to the checkout heading. Validation errors and unsaved-change messages remained readable at 375px. Reduced-motion emulation reported zero transition duration; 200% **CSS zoom** had no overflow. CSS zoom is not a claim about native browser zoom.
+- Automated axe checks exclude contrast. The existing approved brand palette remains in use; no new full contrast certification, live screen-reader, Safari or physical-device review is claimed. No new modal focus trap or ESC-close behavior exists to test.
+
+Runtime evidence is intentionally ignored under `.runtime/checkout-verification/`: backend log, browser results, viewport screenshots and isolated build. Test fixtures use clearly synthetic names/addresses. The final frontend production build was rerun after the only browser-discovered fix. Backend checks were already final; no backend source changed after their successful gate.
+
+## Operational boundary and remaining inputs
+
+The persistent local database received only the additive migration. No tax/delivery configuration was published to `iranti_local`; an owner must explicitly publish a reviewed local sample or approved production bundle following [tax.md](tax.md). Samples cannot be selected or published in production. No production tax policy, carrier serviceability, S3/email/payment integration or deploy readiness is claimed.
+
+Client/business/accounting responsibilities: approved product/exemption treatment, delivery taxability/rate, effective dates, actual coverage/prices/provider/source, invoice and privacy/retention requirements. Developer/operator responsibilities: publish reviewed versioned configuration using owner MFA, verify representative quotes, configure production services/security/monitoring, and implement the later order handoff only after authorization. Configuration is intentionally fail-closed until supplied.
+
+Cleanup verified: task-owned frontend (3030), backend (8030), Chrome debugging (9227) and isolated PostgreSQL (54320) are stopped. The synthetic media fixture was removed. Existing everyday PostgreSQL/Redis/application services were left alone. Ignored test database/profile evidence remains local, not committed.
+
+No Phase 3F implementation blocker remains. Phase 3G remains gated on explicit approval and instruction.
+
+**PHASE 3F READY FOR APPROVAL**

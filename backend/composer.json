@@ -1,0 +1,67 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "iranti/commerce-backend",
+    "type": "project",
+    "description": "IRANTI Africa API foundation",
+    "keywords": [
+        "laravel",
+        "framework"
+    ],
+    "license": "MIT",
+    "require": {
+        "php": "~8.5.0",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "bacon/bacon-qr-code": "^3.0",
+        "laravel/framework": "~13.32.0",
+        "laravel/sanctum": "~4.3.3",
+        "league/flysystem-aws-s3-v3": "^3.25.1",
+        "pragmarx/google2fa": "^9.0",
+        "predis/predis": "^3.0",
+        "ext-gd": "*",
+        "ext-fileinfo": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "1.32.1",
+        "larastan/larastan": "^3.0",
+        "phpunit/phpunit": "13.3.3",
+        "mockery/mockery": "^1.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "test:unit": "@php vendor/bin/phpunit --testsuite Unit",
+        "test:feature": "@php vendor/bin/phpunit --testsuite Feature",
+        "format": "pint",
+        "lint": "pint --test",
+        "analyse": "phpstan analyse --memory-limit=512M",
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {}
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

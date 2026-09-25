@@ -1,0 +1,62 @@
+> Client approval received 2026-09-23: Phase 3G is formally APPROVED. The report below records its pre-payment baseline at completion. Current authorized extension: [Phase 3H payments](phase-3h-report.md).
+
+# PHASE 3G ORDERS REPORT
+
+**Implementation baseline v1.0 — 2026-09-23. READY FOR APPROVAL.** Phase 3F is formally APPROVED. Phase 3G implements durable pre-payment orders only. Phase 3H/payment integration has not begun.
+
+## Decisions and implementation evidence
+
+The requested pre-implementation review covered architecture 08–12, shipping/returns/authentication/RBAC/API, ADR-013/014, Phase 1 order/account requirements, actual checkout/inventory implementations and Git state. Checkout already owns the required snapshots and a hold; orders promote those facts without repricing history or reserving again. Payment/order status remain separate. The client delegated the cancellation choice and explicitly approved the initial guest capability with email recovery deferred; both decisions are recorded in [ADR-015](../architecture/adr/015-checkout-order-promotion.md).
+
+| # | Requested item | Final result |
+|---|---|---|
+| 1 | Migrations | `2026_09_23_000010_create_orders.php` adds four order tables and the checkout promotion marker/active-index adjustment. Clean migrations and rollback/reapply passed in isolated PostgreSQL. The additive migration was applied to guarded persistent `iranti_local`; no reset/sample policy seed. |
+| 2 | Order schema | orders, order_items, order_addresses, order_status_history. UUIDs, unique public reference/checkout/reference, real composite reservation membership FK, exact monetary/quantity checks, owner/grant consistency, immutable commercial/history triggers and bounded lifecycle. No payment-attempt/webhook/shipment/refund/return tables. |
+| 3 | Checkout → order promotion | Owned current RESERVED source, expected version/fingerprint, reconciled cart/catalog/configuration, complete active matching hold and final database-clock deadline. Copy all commercial/contact/address/calculation snapshots atomically and mark checkout promoted. No blind browser values or mutable-source history rendering. |
+| 4 | Order number | IRA- plus 20 cryptographically random uppercase hex characters (80 bits), database unique, stable and separate from UUID. Neither number nor UUID authorizes access; not an invoice-number policy. |
+| 5 | State machine | Only PENDING_PAYMENT → CANCELLED is executable, with approved actor/eligibility/version checks. Expired reservation leaves PENDING_PAYMENT and ineligible, preserving same-order future retry. No arbitrary target status endpoint. |
+| 6 | Payment/order separation | Neutral constrained payment_state=NOT_STARTED and payment.available=false. No paid simulation, provider attempt, initialization, receipt or stock consumption. Phase 3H must extend this state/guard before any external request. |
+| 7 | Reservation relationship | Unique existing inventory reference/generation binding and exact variant/quantity equality. Preserve deadline/hold; checkout mutations/cleanup cannot release an order-owned reservation. Existing inventory expiry continues; order reads reconcile it. Cart/items remain unchanged. |
+| 8 | Guest ownership/access | Client-approved separate encrypted HttpOnly order capability, SHA-256 digest, production Secure/SameSite/host-only/path scope, configurable 24-hour absolute default, no read renewal. Browser-issued grant proved end-to-end. Number/email/login never claims guest orders. Email recovery explicitly deferred. |
+| 9 | Customer history | Authenticated own list/detail with historical items/options/SKU, totals, address/contact, date, number, operational/payment/reservation status and safe status history. Cross-user queries denied before presentation. |
+| 10 | Admin management | MFA + orders.read list/detail, status/UTC-date filters and cursor pagination. Order Processing gets operational views; Inventory denied. Only Super Admin's approved orders.cancel grant permits administrative cancellation. |
+| 11 | Cancellation | Owning account/scoped guest or Super Admin; PENDING_PAYMENT before any payment activity. Expected version/reason; idempotent release, retained order/items/history, no reopening. Other staff denied. |
+| 12 | Status history | Immutable transactionally written OrderCreated/OrderCancelled facts, from/to, actor/source, reason and timestamp, plus audit metadata. Customer history excludes internal actors/reasons. No external event dispatch claimed. |
+| 13 | APIs | POST/GET /orders, GET /orders/{id}, POST /orders/{id}/cancel; admin list/detail and explicit cancellation-only /transitions. Strict body/query allowlists, current identity/MFA, CSRF/origin, no-store, throttling and scoped idempotency. [Exact contract](orders.md). |
+| 14 | Frontend UI | Checkout → unpaid order confirmation/link; `/account/orders`, account detail, scoped `/orders/[order]`, admin list/detail/filter/cancel. Approved branding, textual status and pending-payment wording; no future payment/fulfillment/refund controls. |
+| 15 | Concurrency | Real forked PostgreSQL connections passed: simultaneous same-checkout create (one order/event/hold), cancellation racing duplicate create (no reopen/rehold), expiry holding the reference lock while creation waits (no partial order, release persisted). |
+| 16 | Backend gate | **139 tests / 3,031 assertions PASS**, with infrastructure explicitly enabled. Includes auth/MFA/catalog/inventory/cart/checkout/order/Redis integration, migration reset/reapply, new order security/lifecycle/concurrency tests. Pint PASS; level-8 Larastan PASS; Composer strict validation PASS. |
+| 17 | Frontend gate | Clean locked npm ci PASS; formatting, ESLint and TypeScript PASS; **120 tests / 14 files PASS**; default Turbopack production build PASS after the final navigation fix. |
+| 18 | Responsive QA | Real Chrome, built frontend + Laravel test backend. Guest detail, account list/detail and admin list/detail measured/captured at **320/375/768/1024/1440px**: no horizontal overflow in all 25 combinations. Representative images visually inspected across every width/page family; long names/addresses/references wrap and totals/filters remain readable. |
+| 19 | Security findings | Negative tests passed for cross-user IDOR, guest capability guessing/expiry, number enumeration, email takeover, stale source/version/fingerprint, total/state/owner injection, CSRF/origin, MFA and denied role cells. DB snapshot/history mutation blocked. No unresolved security defect found within executed scope. |
+| 20 | Dependency audits | Composer locked audit: no advisories; npm audit: zero vulnerabilities. No Phase 3G dependency changes. Existing approved ESLint 9 EOL exception remains independently documented. |
+| 21 | Architecture deviations | [ADR-015](../architecture/adr/015-checkout-order-promotion.md): checkout promotion marker instead of new checkout state; retain cart instead of immediate conversion; configuration bundle snapshot instead of separate shipping table; initial guest cookie before deferred emailed proof; immutable status-event journal before an external outbox consumer. Current physical mapping and future obligations are explicit. |
+| 22 | Remaining non-blocking decisions | Production invoice/retention/privacy, final abuse/access TTL tuning, guest email recovery delivery, paid cancellation, fulfillment evidence, payment retry/reacquisition and late-money outcomes. Existing approved production tax/rates/coverage are still required inputs for live commerce. |
+| 23 | Readiness for Phase 3H | Orders foundation is complete and ready for Phase 3G approval. Future payment work requires separate authorization, schema/state extension, verified receipt/amount/currency/reference, matching active reservation and explicit exception handling. No Phase 3H work performed. |
+
+## Browser and accessibility evidence
+
+The browser-control inventory exposed no browser surface. Review used installed Chrome headless/CDP with an isolated profile, real production Next preview at localhost:3030 and Laravel testing backend at 127.0.0.1:8030. Synthetic data only; no real payment, email or carrier request.
+
+- Guest product/cart/checkout/reserve/place → path-scoped order detail passed, including correct 1662-kobo sample total, DEVELOPMENT CONFIGURATION ONLY notice, pending-payment statement and keyboard Space cancellation. Cart stayed intact.
+- Registration merged the existing guest cart without claiming the guest order. Explicit new checkout → account order → history/detail passed. Snapshots included deliberately long product name and address.
+- Owner password + TOTP challenge → admin list/detail/filter/cancellation passed. Filtered empty state remained readable. Backend tests separately prove inventory/order-processing permission denials and customer ownership isolation.
+- Guest detail, account list/detail and admin list/detail each had no horizontal overflow at all five widths. Screenshots retained in ignored `.runtime/order-verification/`; visually inspected examples include guest 320/768, admin list 375, admin detail 1024 and account list 1440. Measurements/captures are distinguished from manual inspection; unviewed captures are not claimed as separate manual visual passes.
+- Actual Tab navigation through native date inputs to Apply filters showed a solid 2px focus outline; Space activated guest cancellation. A pointer/programmatic focus sample initially had no outline, so that sample was not counted as keyboard-focus evidence. Reduced-motion emulation yielded zero transition duration. 200% CSS zoom had no overflow; native browser zoom is not claimed.
+- Automated axe checks exclude color contrast. Labels, semantic lists/status/history/totals, focus/error handling and responsive readability were reviewed. Live screen-reader, native browser zoom, Safari/physical devices and a new full contrast certification remain NOT VERIFIED, not silently marked PASS. No new modal/drawer requires a focus trap or ESC behavior.
+
+## Fixes and regression reconciliation
+
+Review found a navigation gap after promotion: checkout could show the created order without an explicit way to start another purchase. Added a clearly labelled new-checkout action; the current order remains intact and checkout cancellation remains hidden/blocked after promotion. Added a regression test, reran the full frontend gate and inspected the account path using the final built result.
+
+The initial full backend run found an obsolete Phase 3D assertion that order tables must not exist. Phase 3G now owns those tables, so the test instead asserts that inventory operations create **zero order/item records**, while still asserting absent future payment/shipping/return tables. This preserves the inventory boundary. The subsequent unfiltered full suite passed. Final review also standardized status-history timestamps to the documented ISO-8601 API format and added a contract assertion; Pint, Larastan and the complete backend suite passed again. Formatting checks were resolved under repository configuration before the final passing gates; no failed/skipped check is represented as PASS.
+
+## Local operation and limits
+
+Migration 000010 was applied additively to `iranti_local` on port 5432 after isolated verification. No existing data reset and no sample tax/delivery policy publication occurred there. Native services/launcher behavior is unchanged. `ORDER_GUEST_ACCESS_SECONDS=86400` is documented in `.env.example`; no real secret was added. Existing inventory scheduler still matters even though order reads use the authoritative deadline.
+
+No live provider/S3/email/payment/deployment verification is implied. Guest cookie loss/expiry has no self-service recovery until the explicitly deferred email flow is authorized. Production policy inputs remain required; sample rates are not production approval. Phase 3H must block unpaid cancellation atomically when payment activity begins, never trust browser return as paid proof, and treat late/cancelled/mismatched/duplicate funds as exceptions rather than blindly consuming stock or reopening orders.
+
+Cleanup verified: the task-owned frontend (3030), backend (8030), Chrome debugging (9227) and isolated PostgreSQL (54320) are stopped. Synthetic order browser media was removed. Existing everyday services were left untouched; ignored QA logs/screenshots remain local. No commit, deployment or external notification was performed.
+
+**PHASE 3G READY FOR APPROVAL**

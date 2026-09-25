@@ -1,0 +1,31 @@
+{
+  "version_code": "development-example-1",
+  "development_only": true,
+  "payload": {
+    "rounding": "HALF_UP",
+    "product_rules": [
+      {
+        "category": "development-example",
+        "rate": "0.100000000",
+        "label": "DEVELOPMENT CONFIGURATION ONLY"
+      }
+    ],
+    "delivery_tax": {
+      "taxable": true,
+      "rate": "0.100000000",
+      "label": "DEVELOPMENT CONFIGURATION ONLY"
+    },
+    "zones": [
+      {
+        "code": "DEMO_LAGOS",
+        "state_code": "LAGOS",
+        "locality_code": null,
+        "active": true,
+        "amount_minor": "505",
+        "provider_label": "Development example, not a selected provider",
+        "service_label": "Development example delivery",
+        "source_reference": "DEVELOPMENT CONFIGURATION ONLY; not a production tariff"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+# 23 — Media and product images
+Trace: FR-CAT-004, FR-CNT-001/002, NFR03/05/17; ADR-006.
+
+Private S3-compatible object storage is the system of record; application metadata stores opaque object key, MIME, byte size, dimensions, checksum, state, product/variant association, ordering and alt text. No permanent app-container uploads. Public derivatives are delivered through controlled CDN/origin access; original quarantine/evidence/backup objects are never public.
+
+Flow: authorized staff requests upload intent → short-lived signed URL to random quarantine key with size/type constraints → completion endpoint validates object ownership/size/checksum → worker inspects magic bytes and decodes image → bounded decode/re-encode/metadata stripping → generates responsive formats/sizes → marks READY and publishes safe derivatives. Browser MIME/filename is not proof. Reject SVG/HTML/executables initially; accepted raster formats and limits are engineering configuration requiring validation (propose JPEG/PNG/WebP, max 10 MB and 25 megapixels). Decompression bombs and resource-heavy transforms require memory/time limits.
+
+No arbitrary remote URL importer or general image proxy. Next image remotePatterns limited to owned public media origin; width/quality presets bounded. Escape alt/caption text. Require meaningful alt text for informative images, empty alt for decorative instances; product-image responsibility/licensing remains Q31, client branding Q33.
+
+Use immutable content/version keys and long cache lifetime for public derivatives. Replacing media updates metadata references then invalidates catalog, not overwrites cached content in place. Retirement hides references immediately; delayed physical deletion checks no active references and respects recovery retention. A scheduled orphan sweep compares aged upload intents/metadata with storage; never delete freshly processing objects or rely on eventual list consistency as sole proof.
+
+Private return evidence, if approved, uses separate access policy and short signed downloads authorized per order/role. Backup/versioning strategy in [26](26-backup-recovery.md). S3 compatibility tests must verify presigned constraints, metadata, multipart cleanup, lifecycle and recovery capabilities; do not assume every vendor matches AWS behavior.
+
+## Phase 3C implementation note — 2026-09-22
+The implemented constrained S3 upload is a signed POST policy with exact content-length-range, key and type; presigned PUT cannot bind the installed SDK's unsigned Content-Length header. All objects remain private. The owned CDN proxies a controlled API derivative route which checks ready/publication state; staff-only previews retain full session/MFA checks. GD produces bounded WebP derivatives in the media queue. See [product-media.md](../development/product-media.md) for defaults, cleanup, tests and outstanding vendor/CORS/CDN/recovery configuration. This implements the approved constrained-upload/controlled-origin design without a new provider commitment.
