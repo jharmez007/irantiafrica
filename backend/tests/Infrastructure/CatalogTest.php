@@ -3,6 +3,7 @@
 namespace Tests\Infrastructure;
 
 use App\Catalog\MediaStorage;
+use App\Inventory\InventoryService;
 use App\Jobs\ProcessProductImage;
 use App\Models\Product;
 use App\Models\ProductMedia;
@@ -15,15 +16,19 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PragmaRX\Google2FA\Google2FA;
+use Tests\Support\CatalogTaxFixture;
 use Tests\TestCase;
 
 final class CatalogTest extends TestCase
 {
+    use CatalogTaxFixture;
+
     private array $jar = [];
 
     private const PASSWORD = 'Catalog-test-passphrase';
@@ -38,6 +43,7 @@ final class CatalogTest extends TestCase
         $this->assertSame('iranti_test', config('database.connections.pgsql.database'));
         $this->assertContains(config('database.connections.pgsql.host'), ['127.0.0.1', 'localhost']);
         Artisan::call('migrate:fresh', ['--force' => true]);
+        $this->configureCatalogTax();
         config(['session.driver' => 'database', 'session.secure' => false, 'session.encrypt' => true, 'cors.allowed_origins' => ['http://localhost:3000'], 'sanctum.stateful' => ['localhost:3000'], 'cache.prefix' => 'catalog-test-'.bin2hex(random_bytes(8)), 'hashing.bcrypt.rounds' => 4, 'catalog.disk' => 'local']);
         $this->app['hash']->forgetDrivers();
         $this->seed(IdentityPermissionsSeeder::class);
@@ -134,6 +140,33 @@ final class CatalogTest extends TestCase
         }
     }
 
+    public function test_async_media_version_refresh_publication_and_stock_visibility(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->create();
+        $this->assertNotEmpty($p['publication_issues']);
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $p['content_version']])->assertUnprocessable();
+        $p = $this->variant($p);
+        Queue::fake();
+        $media = $this->image($p);
+        $pending = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data');
+        $this->assertNotEmpty($pending['publication_issues']);
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $pending['content_version']])->assertUnprocessable();
+        app()->call([new ProcessProductImage($media), 'handle']);
+        app(InventoryService::class)->initializeStock($p['variants'][0]['id'], 3, 'UAT opening stock', (string) Str::uuid(), $owner);
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $pending['content_version']])->assertStatus(409);
+        $fresh = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data');
+        $this->assertSame([], $fresh['publication_issues']);
+        $this->assertSame(3, $fresh['variants'][0]['inventory']['available']);
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $fresh['content_version']])->assertOk();
+        $this->browser('GET', '/api/v1/products')->assertOk()->assertJsonPath('data.0.slug', $p['slug']);
+        $this->browser('GET', '/api/v1/admin/products?status=published')->assertOk()->assertJsonPath('meta.total', 1);
+        $this->browser('GET', '/api/v1/admin/products?status=draft')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->browser('GET', '/api/v1/products?status=draft')->assertUnprocessable();
+        $this->browser('GET', '/api/v1/admin/tax-categories')->assertOk()->assertJsonCount(2, 'data');
+    }
+
     public function test_simple_product_lifecycle_slug_money_publication_and_audit(): void
     {
         $this->owner();
@@ -184,6 +217,41 @@ final class CatalogTest extends TestCase
         $this->browser('POST', '/api/v1/admin/products/'.$other['id'].'/variants', ['sku' => 'FOREIGN', 'unit_price_minor' => '100', 'option_value_ids' => $values])->assertUnprocessable();
     }
 
+    public function test_draft_option_removal_is_versioned_and_saved_variants_are_only_removed_from_sale(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->create('variant');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Size', 'values' => ['Small', 'Large', 'XL']])->assertOk()->json('data');
+        $size = $p['options'][0];
+        $removedValue = $size['values'][2]['id'];
+        $staleVersion = $p['content_version'];
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'].'/values/'.$removedValue, ['content_version' => $staleVersion])->assertOk()->json('data');
+        $this->assertCount(2, $p['options'][0]['values']);
+        $this->assertDatabaseMissing('option_values', ['id' => $removedValue]);
+        $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'], ['content_version' => $staleVersion])->assertStatus(409);
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Colour', 'values' => ['Red', 'Blue']])->assertOk()->json('data');
+        $colour = $p['options'][1];
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$colour['id'], ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertCount(1, $p['options']);
+        $this->assertDatabaseMissing('product_options', ['id' => $colour['id']]);
+        $p = $this->variant($p, 'SIZE-SMALL', [$p['options'][0]['values'][0]['id']], '450000');
+        $variant = $p['variants'][0];
+        app(InventoryService::class)->initializeStock($variant['id'], 2, 'Catalog removal history test', (string) Str::uuid(), $owner);
+        $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'].'/values/'.$size['values'][0]['id'], ['content_version' => $p['content_version']])->assertStatus(409);
+        $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'], ['content_version' => $p['content_version']])->assertStatus(409);
+        $this->browser('DELETE', '/api/v1/admin/variants/'.$variant['id'])->assertStatus(405);
+        $p = $this->browser('PATCH', '/api/v1/admin/variants/'.$variant['id'], ['status' => 'archived', 'price_version' => $variant['price_version']])->assertOk()->json('data');
+        $this->assertSame('archived', $p['variants'][0]['status']);
+        $this->assertDatabaseHas('product_variants', ['id' => $variant['id'], 'sku' => 'SIZE-SMALL', 'status' => 'archived']);
+        $this->assertDatabaseHas('option_values', ['id' => $size['values'][0]['id']]);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $variant['id']]);
+        $this->assertFalse(ProductVariant::findOrFail($variant['id'])->load('inventory')->isAvailable());
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/variants', ['sku' => 'SIZE-SMALL-2', 'unit_price_minor' => '450000', 'option_value_ids' => [$size['values'][0]['id']]])->assertUnprocessable();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.option_value_removed', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.option_removed', 'subject_id' => $p['id']]);
+    }
+
     public function test_category_hierarchy_memberships_and_cycle_prevention(): void
     {
         $this->owner();
@@ -216,6 +284,7 @@ final class CatalogTest extends TestCase
             $this->enroll($this->staff($role));
             $this->browser('GET', '/api/v1/admin/products')->assertOk();
             $this->browser('POST', '/api/v1/admin/products', ['name' => 'Denied'])->assertForbidden();
+            $this->browser('DELETE', '/api/v1/admin/options/'.Str::uuid(), ['content_version' => 1])->assertForbidden();
             $this->browser('POST', '/api/v1/admin/media/uploads')->assertForbidden();
             $this->browser('POST', '/api/v1/auth/logout');
         }
@@ -441,5 +510,65 @@ final class CatalogTest extends TestCase
         $job->handle(app(MediaStorage::class));
         $this->assertSame('ready', $media->fresh()->status);
         $this->assertSame(1, DB::table('audit_logs')->where('action', 'catalog.media_ready')->where('subject_id', $media->id)->count());
+    }
+
+    public function test_name_only_draft_and_tax_selection_are_separate_from_publication(): void
+    {
+        $this->owner();
+        $p = $this->browser('POST', '/api/v1/admin/products', ['name' => 'Name only'])->assertCreated()->assertJsonPath('data.status', 'draft')->assertJsonPath('data.tax_category_code', null)->json('data');
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => 1])->assertUnprocessable();
+        $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => 1, 'tax_category_code' => 'cheap'])->assertUnprocessable();
+        $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => 1, 'name' => 'Still incomplete'])->assertOk();
+        $this->configureCatalogTax(['standard']);
+        $this->browser('POST', '/api/v1/admin/products', ['name' => 'Automatic treatment'])->assertCreated()->assertJsonPath('data.tax_category_code', 'standard');
+    }
+
+    public function test_missing_tax_blocks_complete_product_publication_until_configured(): void
+    {
+        $this->owner();
+        $p = $this->variant($this->create());
+        $media = $this->image($p);
+        app()->call([new ProcessProductImage($media), 'handle']);
+        $p = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->json('data');
+        $p = $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'], 'tax_category_code' => null])->assertOk()->json('data');
+        $this->assertSame(['Choose a configured tax treatment before publishing.'], $p['publication_issues']);
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $p['content_version']])->assertUnprocessable();
+        $p = $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'], 'tax_category_code' => 'test'])->assertOk()->json('data');
+        $this->publish($p);
+    }
+
+    public function test_archived_product_restores_only_to_draft_with_history_and_stock_preserved(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->variant($this->create());
+        $variantId = $p['variants'][0]['id'];
+        app(InventoryService::class)->initializeStock($variantId, 8, 'Restore test', (string) Str::uuid(), $owner);
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/archive', ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore', ['content_version' => $p['content_version'] - 1])->assertStatus(409);
+        $restored = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore', ['content_version' => $p['content_version']])->assertOk()->assertJsonPath('data.status', 'draft')->assertJsonPath('data.variants.0.inventory.on_hand', 8)->json('data');
+        $this->assertSame($p['name'], $restored['name']);
+        $this->assertSame($variantId, $restored['variants'][0]['id']);
+        $this->assertSame(1, DB::table('inventory_movements')->where('variant_id', $variantId)->count());
+        $this->assertNull(Product::findOrFail($p['id'])->archived_at);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_archived', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_restored', 'subject_id' => $p['id']]);
+        $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertNotFound();
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore', ['content_version' => $restored['content_version']])->assertStatus(409);
+        $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
+        $this->enroll($this->staff('inventory_store'));
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore', ['content_version' => $restored['content_version']])->assertForbidden();
+    }
+
+    public function test_missing_configuration_does_not_block_draft_but_blocks_publication(): void
+    {
+        Artisan::call('migrate:fresh', ['--force' => true]);
+        $this->seed(IdentityPermissionsSeeder::class);
+        $this->browser('GET', '/sanctum/csrf-cookie')->assertNoContent();
+        $this->owner();
+        $this->browser('GET', '/api/v1/admin/tax-categories')->assertOk()->assertJsonPath('data', []);
+        $p = $this->browser('POST', '/api/v1/admin/products', ['name' => 'No configuration draft'])->assertCreated()->assertJsonPath('data.tax_category_code', null)->json('data');
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => 1])->assertUnprocessable();
+        $this->browser('POST', '/api/v1/admin/products', ['name' => 'Arbitrary tax', 'tax_category_code' => 'cheap'])->assertUnprocessable();
     }
 }

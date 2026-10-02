@@ -321,4 +321,42 @@ After the additive migration, the existing queue worker and scheduler also servi
 
 ## Phase 3K transactional email
 
-The launcher worker consumes `identity,default,transactional`. Restart an already-running launcher to load that queue list. Normal local mail is forced to the in-memory sink and cannot send real SMTP messages; commerce notification delivery is disabled by default. See [notification operations](notifications.md) for opt-in local simulation, the relay/status commands, production gates, and [email templates](email-templates.md) for synthetic previews. No email provider is needed for daily local startup.
+The launcher worker consumes `identity,default,transactional`. Restart an already-running launcher to load that queue list. By default, local mail uses the in-memory sink; the optional local-only Mailpit exception below captures mail without external delivery; commerce notification delivery is disabled by default. See [notification operations](notifications.md) for opt-in local simulation, the relay/status commands, production gates, and [email templates](email-templates.md) for synthetic previews. No email provider is needed for daily local startup.
+
+
+## Phase 3N admin UAT and optional Mailpit (2026-09-25)
+
+Use `/admin/products` to list products, `/admin/products/new` to create a draft, and `/admin/products/{id}/edit` for explicit section saves. `/admin/catalog` redirects to Products. Use `/admin/categories` for categories, `/admin/inventory` for opening stock/adjustments, and `/admin/staff` for owner-only staff administration. Product prices are entered in naira (e.g. `4500.50`); the API still stores integer kobo. Tax choices come from existing published checkout configuration; missing configuration is reported, never replaced with guessed tax rates. See [admin UAT report](phase-3n-admin-ux-report.md).
+
+The client approved **optional local-only Mailpit** on 25 September 2026. No package was installed automatically. If you choose to enable it, from the project root:
+
+```sh
+brew install mailpit
+./scripts/serve-mailpit.sh
+```
+
+Keep this additional terminal running; Ctrl-C stops Mailpit. It is separate from `make dev`/`make stop`. The helper binds SMTP to `127.0.0.1:1025`, the inbox to **http://127.0.0.1:8025**, stores captured messages privately under ignored `.runtime/mailpit/`, and discards inherited forwarding/relay environment settings. This service captures sensitive setup/reset links: use synthetic local recipients, keep it bound to loopback, and do not share or commit its database. It never forwards email.
+
+In your **private** `backend/.env`, with `APP_ENV=local`, set:
+
+```dotenv
+LOCAL_MAILPIT_ENABLED=true
+```
+
+Leave production/staging mail settings unchanged. Then clear cached configuration and restart local app workers:
+
+```sh
+cd backend
+/opt/homebrew/bin/php artisan config:clear
+cd ..
+make stop
+make dev
+```
+
+The existing worker consumes `identity,default,transactional,media`; identity invitations/reset requests use the identity queue. Verify the launcher queue list if running an older worker. From `/admin/staff`, confirm your password and a fresh authenticator code, then enter name/email/approved role and send the invitation. Open the setup link from the local inbox; the recipient sets their own password and enrolls MFA. Never set an employee password in the owner UI.
+
+Transactional capture still requires the existing `COMMUNICATIONS_ENABLED` opt-in and approved event/configuration setup described in [notifications.md](notifications.md). Captured commerce mail is recorded as **SIMULATED**, not externally delivered. Testing always uses array mail; staging/production reject the Mailpit transport and retain their existing external-provider controls. With Mailpit disabled, local array mail has no inbox and the Staff UI explains that invitations need local capture or configured email.
+
+To disable capture, set `LOCAL_MAILPIT_ENABLED=false`, clear configuration, restart workers, and stop the foreground helper. Homebrew Mailpit was absent during remediation: **SMTP/inbox delivery NOT VERIFIED**. Test locally after installation; external sender/DNS/provider acceptance remains separate.
+
+References: [Mailpit installation](https://mailpit.axllent.org/docs/install/) and [runtime options](https://mailpit.axllent.org/docs/configuration/runtime-options/).

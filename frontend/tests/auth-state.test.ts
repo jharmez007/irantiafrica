@@ -10,3 +10,14 @@ describe("authentication transitions", () => {
     expect(authenticationDestination("authenticated")).toBe("/account");
   });
 });
+
+it.each(["owner", "order_processing", "inventory_store"])(
+  "routes completed %s staff to administration",
+  (role) => {
+    expect(authenticationDestination("authenticated", [role])).toBe("/admin");
+    expect(authenticationDestination("mfa_required", [role])).toBe("/mfa");
+    expect(authenticationDestination("enrollment_required", [role])).toBe(
+      "/mfa",
+    );
+  },
+);

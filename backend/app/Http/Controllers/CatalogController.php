@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Catalog\CatalogActions;
 use App\Catalog\CatalogRead;
+use App\Catalog\CatalogTax;
 use App\Http\Requests\Catalog\CatalogQuery;
 use App\Http\Requests\Catalog\CatalogRequest;
 use App\Http\Resources\Catalog\AdminProductResource;
 use App\Http\Resources\Catalog\PublicProductResource;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductOption;
 use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +19,13 @@ use Illuminate\Support\Facades\Gate;
 final class CatalogController
 {
     public function __construct(private CatalogActions $actions) {}
+
+    public function taxCategories(): JsonResponse
+    {
+        Gate::authorize('catalog.create_update');
+
+        return response()->json(app(CatalogTax::class)->choices());
+    }
 
     public function index(CatalogQuery $request): JsonResponse
     {
@@ -83,6 +92,14 @@ final class CatalogController
         return $this->adminShow($id);
     }
 
+    public function restore(CatalogRequest $r, string $id): AdminProductResource
+    {
+        Gate::authorize('restore', Product::findOrFail($id));
+        $this->actions->restore($id, (int) $r->validated('content_version'));
+
+        return $this->adminShow($id);
+    }
+
     public function categories(CatalogQuery $r): JsonResponse
     {
         return $this->categoryList($r, false);
@@ -139,6 +156,24 @@ final class CatalogController
         $option = $this->actions->addValues($id, $r->validated('values'));
 
         return $this->adminShow($option->product_id);
+    }
+
+    public function removeOption(CatalogRequest $r, string $id): AdminProductResource
+    {
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
+        $productId = $this->actions->removeOption($id, (int) $r->validated('content_version'));
+
+        return $this->adminShow($productId);
+    }
+
+    public function removeValue(CatalogRequest $r, string $id, string $valueId): AdminProductResource
+    {
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
+        $productId = $this->actions->removeValue($id, $valueId, (int) $r->validated('content_version'));
+
+        return $this->adminShow($productId);
     }
 
     public function createVariant(CatalogRequest $r, string $id): AdminProductResource

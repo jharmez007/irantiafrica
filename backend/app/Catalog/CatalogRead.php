@@ -29,11 +29,14 @@ final class CatalogRead
      */
     public static function filter(Builder $q, array $filters, bool $availablePrices = true): Builder
     {
+        if (! $availablePrices && isset($filters['status'])) {
+            $q->where('status', $filters['status']);
+        }
         if (! empty($filters['q'])) {
             $q->whereRaw("to_tsvector('simple', name || ' ' || slug) @@ plainto_tsquery('simple', ?)", [$filters['q']]);
         }
         if (isset($filters['category'])) {
-            $q->whereHas('categories', fn (Builder $c) => $c->where('slug', $filters['category'])->where('status', 'active'));
+            $q->whereHas('categories', fn (Builder $c) => $c->where('slug', $filters['category'])->when($availablePrices, fn (Builder $category) => $category->where('status', 'active')));
         }
         $q->withMin(['variants as minimum_price' => fn (Builder $v) => $availablePrices ? self::availableVariant($v) : $v->where('status', 'active')], 'unit_price_minor');
         if (isset($filters['min_price']) || isset($filters['max_price'])) {

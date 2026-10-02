@@ -2,17 +2,25 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { authenticationDestination } from "@/lib/auth-state";
 import { useAuth } from "./auth-provider";
 import { Alert, Button } from "@/components/ui";
+import { toast } from "@/lib/toast";
 
 export function AccountBoundary() {
   const { user, loading, error, refresh, logout } = useAuth();
-  const [actionError, setActionError] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   const router = useRouter();
   useEffect(() => {
     if (!loading && !user && !error) router.replace("/login");
     if (user && user.authentication_state !== "authenticated")
       router.replace("/mfa");
+    else if (
+      user &&
+      authenticationDestination(user.authentication_state, user.roles) ===
+        "/admin"
+    )
+      router.replace("/admin");
   }, [loading, user, error, router]);
   if (loading)
     return (
@@ -39,6 +47,15 @@ export function AccountBoundary() {
     return (
       <main id="main-content" className="account-layout container">
         <Link href="/mfa">Complete sign-in</Link>
+      </main>
+    );
+  if (
+    authenticationDestination(user.authentication_state, user.roles) ===
+    "/admin"
+  )
+    return (
+      <main id="main-content">
+        <Link href="/admin">Open administration</Link>
       </main>
     );
   return (
@@ -72,21 +89,25 @@ export function AccountBoundary() {
           <dt>Email</dt>
           <dd>{user.email}</dd>
         </dl>
-        {actionError && <Alert tone="error">{actionError}</Alert>}
         <div className="form-actions">
           <Button
             variant="secondary"
             type="button"
+            disabled={signingOut}
             onClick={async () => {
+              if (signingOut) return;
+              setSigningOut(true);
               try {
                 await logout();
                 router.replace("/login");
               } catch {
-                setActionError("Unable to sign out. Please retry.");
+                toast.error("Unable to sign out. Please try again.");
+              } finally {
+                setSigningOut(false);
               }
             }}
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
         </div>
       </section>

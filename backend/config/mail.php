@@ -14,7 +14,7 @@ return [
     |
     */
 
-    'default' => in_array(env('APP_ENV', 'local'), ['local', 'testing'], true) ? 'array' : env('MAIL_MAILER', 'array'),
+    'default' => in_array(env('APP_ENV', 'local'), ['local', 'testing'], true) ? (env('APP_ENV', 'local') === 'local' && env('LOCAL_MAILPIT_ENABLED', false) ? 'mailpit' : 'array') : env('MAIL_MAILER', 'array'),
 
     /*
     |--------------------------------------------------------------------------
@@ -36,6 +36,7 @@ return [
     */
 
     'mailers' => [
+        'mailpit' => ['transport' => 'smtp', 'scheme' => 'smtp', 'host' => '127.0.0.1', 'port' => 1025, 'timeout' => 5],
 
         'smtp' => [
             'transport' => 'smtp',

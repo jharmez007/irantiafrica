@@ -1,10 +1,12 @@
 "use client";
+import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
-import { Button, Price } from "@/components/ui";
+import { Button, Price, Modal } from "@/components/ui";
 import { orderRequest } from "@/lib/order-api";
+import { toast } from "@/lib/toast";
 import type { Attempt } from "./payment-panel";
 type AdminAttempt = Attempt & {
   order_id: string;
@@ -39,6 +41,7 @@ export function AdminPayments() {
     items: AdminAttempt[];
     next_cursor: string | null;
   } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
@@ -91,6 +94,8 @@ export function AdminPayments() {
         setRows((r) =>
           r ? { ...r, items: r.items.map((a) => (a.id === id ? data : a)) } : r,
         );
+      if (reconcile && generation === seq.current)
+        toast.success("Payment review updated");
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Payment could not be checked.",
@@ -120,59 +125,124 @@ export function AdminPayments() {
               ? "Payment attempts, newest first."
               : "No payment attempts."}
           </p>
-          <ul className="order-list">
-            {rows?.items.map((a) => (
-              <li className="order-card" key={a.id}>
-                <h2>
+          <AdminTable
+            label="Payments"
+            columns={[
+              "Reference",
+              "Order / customer",
+              "Amount",
+              "Provider",
+              "Status",
+              "Created",
+              "Action",
+            ]}
+            empty={rows.items.length === 0}
+          >
+            {rows.items.map((a) => (
+              <tr key={a.id}>
+                <th scope="row">{a.reference}</th>
+                <td>
                   <Link href={`/admin/orders/${a.order_id}`}>
                     {a.order_number}
                   </Link>
-                </h2>
-                <p>Reference: {a.reference}</p>
-                <p>
-                  {a.status} · {a.method} · <Price value={a.amount_minor} />
-                </p>
-                <p>
-                  Created: {a.created_at} · Last checked:{" "}
-                  {a.last_checked_at ?? "Not checked"}
-                </p>
-                <p>
-                  Checks: {a.checks} · Next check:{" "}
-                  {a.next_check_at ?? "Manual review or terminal result"}
-                </p>
-                {a.financial_hold && <p>Financial hold — review required.</p>}
-                {a.review_reason && <p>Review: {a.review_reason}</p>}
-                {a.receipts.map((r, i) => (
-                  <p key={i}>
-                    Receipt {r.currency} {r.amount_minor} minor units ·{" "}
-                    {r.channel} ·{" "}
-                    {r.applied_at ? "Applied" : "Unapplied — review required"} ·{" "}
-                    {r.verification_source} · {r.verified_at}
-                  </p>
-                ))}
-                <div className="order-actions">
-                  <Button disabled={busy} onClick={() => void inspect(a.id)}>
+                  <small className="admin-cell-note">
+                    Customer details in order
+                  </small>
+                </td>
+                <td>
+                  <Price value={a.amount_minor} />
+                </td>
+                <td>Paystack · {a.method}</td>
+                <td>
+                  <StatusBadge value={a.status} />
+                  {(a.financial_hold || a.review_reason) && (
+                    <p>
+                      <StatusBadge
+                        value="requires_review"
+                        label="Review required"
+                      />
+                    </p>
+                  )}
+                </td>
+                <td>{new Date(a.created_at).toLocaleDateString("en-NG")}</td>
+                <td>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setSelected(a.id);
+                      void inspect(a.id);
+                    }}
+                  >
                     View history
                   </Button>
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
+          <Modal
+            open={!!selected}
+            onClose={() => {
+              if (!busy) setSelected(null);
+            }}
+            title="Payment details"
+          >
+            {rows.items
+              .filter((a) => a.id === selected)
+              .map((a) => (
+                <div key={a.id}>
+                  <p>Reference: {a.reference}</p>
+                  <p>
+                    <Link href={`/admin/orders/${a.order_id}`}>
+                      {a.order_number}
+                    </Link>
+                  </p>
+                  <p>
+                    <StatusBadge value={a.status} /> ·{" "}
+                    <Price value={a.amount_minor} />
+                  </p>
+                  {error && <p role="alert">{error}</p>}
+                  {a.financial_hold && <p>Financial hold — review required.</p>}
+                  {a.review_reason && (
+                    <p>
+                      Review:{" "}
+                      {a.review_reason.replaceAll("_", " ").toLowerCase()}
+                    </p>
+                  )}
+                  <p>Last checked: {a.last_checked_at ?? "Not checked"}</p>
+                  <p>
+                    Next check:{" "}
+                    {a.next_check_at ?? "Manual review or final result"}
+                  </p>
+                  {a.receipts.map((r, i) => (
+                    <p key={i}>
+                      Receipt <Price value={r.amount_minor} /> ·{" "}
+                      {r.applied_at ? "Applied" : "Unapplied — review required"}
+                    </p>
+                  ))}
                   <Button
                     disabled={busy}
                     onClick={() => void inspect(a.id, true)}
                   >
-                    Verify with provider
+                    {busy ? "Checking…" : "Verify with provider"}
                   </Button>
+                  <h3>History</h3>
+                  {!a.history ? (
+                    <p role="status">Loading payment history…</p>
+                  ) : (
+                    <ul>
+                      {a.history.map((h, i) => (
+                        <li key={i}>
+                          {h.created_at} ·{" "}
+                          {h.outcome.replaceAll("_", " ").toLowerCase()} ·{" "}
+                          <StatusBadge value={h.status} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {a.history && (
-                  <ul>
-                    {a.history.map((h, i) => (
-                      <li key={i}>
-                        {h.created_at} · {h.source} · {h.outcome} · {h.status}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
+              ))}
+          </Modal>
           {rows?.next_cursor && (
             <Button onClick={() => void load(rows.next_cursor!)}>
               Next page

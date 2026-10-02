@@ -1,11 +1,17 @@
 "use client";
+import {
+  AdminTable,
+  AdminPagination,
+  StatusBadge,
+} from "@/components/admin/primitives";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
-import { Button } from "@/components/ui";
+import { Button, Select } from "@/components/ui";
 import { ReturnSummary } from "./returns-panel";
 import { returnRequest, type ReturnRecord } from "@/lib/returns-api";
+import { toast } from "@/lib/toast";
 
 function Review({
   record,
@@ -28,7 +34,6 @@ function Review({
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [dispositions, setDispositions] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const alive = useRef(false);
@@ -40,8 +45,8 @@ function Review({
     };
   }, []);
   useEffect(() => {
-    if (error || notice) feedback.current?.focus();
-  }, [error, notice]);
+    if (error) feedback.current?.focus();
+  }, [error]);
   const labels: Record<string, string> = {
     review: "Start review",
     approve: "Approve return",
@@ -60,7 +65,6 @@ function Review({
     lock.current = true;
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       if (
         ["refund", "submit", "reconcile"].includes(action) &&
@@ -106,7 +110,7 @@ function Review({
       if (alive.current) {
         changed(next);
         setAction("");
-        setNotice("Action recorded. Review the updated return summary.");
+        toast.success("Action recorded", "Review the updated return summary.");
       }
     } catch (e) {
       if (alive.current) setReauthenticated(false);
@@ -132,7 +136,7 @@ function Review({
         role={error ? "alert" : "status"}
         id={`feedback-${record.id}`}
       >
-        {error || notice}
+        {error}
       </div>
       <form
         method="post"
@@ -303,11 +307,14 @@ function Review({
     </article>
   );
 }
-export function AdminReturns() {
+export function AdminReturns({ id }: { id?: string } = {}) {
   const { user, loading } = useAuth();
   return (
     <AdminShell
-      title="Returns & refunds"
+      title={id ? "Return detail" : "Returns & refunds"}
+      parent={
+        id ? { label: "Returns & refunds", href: "/admin/returns" } : undefined
+      }
       description="Review requested items, record physical receipt and inspection, and approve refunds."
     >
       {loading ? (
@@ -317,22 +324,52 @@ export function AdminReturns() {
           Sign in with staff MFA to review returns.{" "}
           <Link href="/login">Sign in</Link>
         </p>
+      ) : id ? (
+        <ReturnDetail id={id} key={id} />
       ) : (
         <ReturnQueue key={user.id} />
       )}
     </AdminShell>
   );
 }
+export function ReturnDetail({ id }: { id: string }) {
+  const [record, setRecord] = useState<ReturnRecord | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    returnRequest<ReturnRecord>(`/admin/returns/${id}`)
+      .then((r) => {
+        if (alive) setRecord(r);
+      })
+      .catch((e) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  return (
+    <>
+      {error && <p role="alert">{error}</p>}
+      {record ? (
+        <Review record={record} changed={setRecord} />
+      ) : (
+        !error && <p role="status">Loading return…</p>
+      )}
+    </>
+  );
+}
 export function ReturnQueue() {
   const [rows, setRows] = useState<ReturnRecord[] | null>(null);
   const [page, setPage] = useState(1);
   const [last, setLast] = useState(1);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let alive = true;
     returnRequest<{ returns: ReturnRecord[]; last_page: number }>(
-      `/admin/returns?page=${page}`,
+      `/admin/returns?page=${page}${status ? "&status=" + status : ""}`,
     )
       .then((d) => {
         if (alive) {
@@ -344,54 +381,87 @@ export function ReturnQueue() {
       .catch((e) => {
         if (alive) {
           setRows(null);
-          setError(e instanceof Error ? e.message : "Unable to load returns.");
+          setError(e.message);
         }
       });
     return () => {
       alive = false;
     };
-  }, [page, revision]);
+  }, [page, status, revision]);
   return (
     <div className="returns-panel">
-      <Button onClick={() => setRevision((r) => r + 1)}>Refresh returns</Button>
+      <div className="admin-filters">
+        <label>
+          Return status
+          <Select
+            value={status}
+            onChange={(e) => {
+              setRows(null);
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All requests</option>
+            {[
+              ["SUBMITTED", "Requested"],
+              ["UNDER_REVIEW", "Under review"],
+              ["APPROVED", "Approved"],
+              ["RECEIVED", "Received"],
+              ["REJECTED", "Rejected"],
+              ["CLOSED", "Closed"],
+            ].map(([value, label]) => (
+              <option value={value} key={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <Button variant="secondary" onClick={() => setRevision((r) => r + 1)}>
+          Refresh returns
+        </Button>
+      </div>
       {error && <p role="alert">{error}</p>}
-      {!rows && !error && <p role="status">Loading returns…</p>}
-      {rows?.length === 0 && <p>No return requests.</p>}
-      {rows?.map((r) => (
-        <Review
-          key={r.id}
-          record={r}
-          changed={(next) =>
-            setRows(
-              (previous) =>
-                previous?.map((p) => (p.id === next.id ? next : p)) ?? null,
-            )
-          }
-        />
-      ))}
-      <nav aria-label="Return queue pages">
-        <Button
-          disabled={page <= 1}
-          onClick={() => {
-            setRows(null);
-            setPage((p) => p - 1);
-          }}
-        >
-          Previous page
-        </Button>
-        <span>
-          Page {page} of {last}
-        </span>
-        <Button
-          disabled={page >= last}
-          onClick={() => {
-            setRows(null);
-            setPage((p) => p + 1);
-          }}
-        >
-          Next page
-        </Button>
-      </nav>
+      <AdminTable
+        label="Returns"
+        columns={[
+          "Items",
+          "Requester",
+          "Submitted",
+          "Status",
+          "Refund",
+          "Action",
+        ]}
+        loading={!rows && !error}
+        empty={rows?.length === 0}
+        emptyText="No return requests."
+        pagination={
+          <AdminPagination
+            page={page}
+            last={last}
+            change={(p) => {
+              setRows(null);
+              setPage(p);
+            }}
+          />
+        }
+      >
+        {rows?.map((r) => (
+          <tr key={r.id}>
+            <th scope="row">{r.items.map((i) => i.name).join(", ")}</th>
+            <td>{r.requester}</td>
+            <td>{new Date(r.submitted_at).toLocaleDateString("en-NG")}</td>
+            <td>
+              <StatusBadge value={r.status} />
+            </td>
+            <td>
+              {r.refund ? <StatusBadge value={r.refund.status} /> : "No refund"}
+            </td>
+            <td>
+              <Link href={`/admin/returns/${r.id}`}>Review return</Link>
+            </td>
+          </tr>
+        ))}
+      </AdminTable>
     </div>
   );
 }

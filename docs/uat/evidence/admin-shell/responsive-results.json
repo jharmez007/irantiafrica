@@ -1,0 +1,602 @@
+[
+  {
+    "width": 320,
+    "path": "/admin",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Dashboard"
+  },
+  {
+    "width": 320,
+    "path": "/admin/products",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Products"
+  },
+  {
+    "width": 320,
+    "path": "/admin/products/new",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Add Product"
+  },
+  {
+    "width": 320,
+    "path": "/admin/products/{id}/edit",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Edit product"
+  },
+  {
+    "width": 320,
+    "path": "/admin/categories",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Categories"
+  },
+  {
+    "width": 320,
+    "path": "/admin/inventory",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Inventory"
+  },
+  {
+    "width": 320,
+    "path": "/admin/orders",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Orders"
+  },
+  {
+    "width": 320,
+    "path": "/admin/payments",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Payments"
+  },
+  {
+    "width": 320,
+    "path": "/admin/returns",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Returns & refunds"
+  },
+  {
+    "width": 320,
+    "path": "/admin/staff",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Staff"
+  },
+  {
+    "width": 320,
+    "path": "/admin/reports",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Reports"
+  },
+  {
+    "width": 320,
+    "path": "/admin/notifications",
+    "overflow": false,
+    "viewport": 320,
+    "scroll": 320,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Notifications"
+  },
+  {
+    "width": 375,
+    "path": "/admin",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Dashboard"
+  },
+  {
+    "width": 375,
+    "path": "/admin/products",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Products"
+  },
+  {
+    "width": 375,
+    "path": "/admin/products/new",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Add Product"
+  },
+  {
+    "width": 375,
+    "path": "/admin/products/{id}/edit",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Edit product"
+  },
+  {
+    "width": 375,
+    "path": "/admin/categories",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Categories"
+  },
+  {
+    "width": 375,
+    "path": "/admin/inventory",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Inventory"
+  },
+  {
+    "width": 375,
+    "path": "/admin/orders",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Orders"
+  },
+  {
+    "width": 375,
+    "path": "/admin/payments",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Payments"
+  },
+  {
+    "width": 375,
+    "path": "/admin/returns",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Returns & refunds"
+  },
+  {
+    "width": 375,
+    "path": "/admin/staff",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Staff"
+  },
+  {
+    "width": 375,
+    "path": "/admin/reports",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Reports"
+  },
+  {
+    "width": 375,
+    "path": "/admin/notifications",
+    "overflow": false,
+    "viewport": 375,
+    "scroll": 375,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Notifications"
+  },
+  {
+    "width": 768,
+    "path": "/admin",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Dashboard"
+  },
+  {
+    "width": 768,
+    "path": "/admin/products",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Products"
+  },
+  {
+    "width": 768,
+    "path": "/admin/products/new",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Add Product"
+  },
+  {
+    "width": 768,
+    "path": "/admin/products/{id}/edit",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Edit product"
+  },
+  {
+    "width": 768,
+    "path": "/admin/categories",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Categories"
+  },
+  {
+    "width": 768,
+    "path": "/admin/inventory",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Inventory"
+  },
+  {
+    "width": 768,
+    "path": "/admin/orders",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Orders"
+  },
+  {
+    "width": 768,
+    "path": "/admin/payments",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Payments"
+  },
+  {
+    "width": 768,
+    "path": "/admin/returns",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Returns & refunds"
+  },
+  {
+    "width": 768,
+    "path": "/admin/staff",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Staff"
+  },
+  {
+    "width": 768,
+    "path": "/admin/reports",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Reports"
+  },
+  {
+    "width": 768,
+    "path": "/admin/notifications",
+    "overflow": false,
+    "viewport": 768,
+    "scroll": 768,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Notifications"
+  },
+  {
+    "width": 1024,
+    "path": "/admin",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Dashboard"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/products",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Products"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/products/new",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Add Product"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/products/{id}/edit",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Edit product"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/categories",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Categories"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/inventory",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Inventory"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/orders",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Orders"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/payments",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Payments"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/returns",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Returns & refunds"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/staff",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Staff"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/reports",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Reports"
+  },
+  {
+    "width": 1024,
+    "path": "/admin/notifications",
+    "overflow": false,
+    "viewport": 1024,
+    "scroll": 1024,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Notifications"
+  },
+  {
+    "width": 1440,
+    "path": "/admin",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Dashboard"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/products",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Products"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/products/new",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Add Product"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/products/{id}/edit",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Edit product"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/categories",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Categories"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/inventory",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Inventory"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/orders",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Orders"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/payments",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Payments"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/returns",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Returns & refunds"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/staff",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Staff"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/reports",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Reports"
+  },
+  {
+    "width": 1440,
+    "path": "/admin/notifications",
+    "overflow": false,
+    "viewport": 1440,
+    "scroll": 1440,
+    "violations": [],
+    "signedIn": true,
+    "heading": "Notifications"
+  }
+]

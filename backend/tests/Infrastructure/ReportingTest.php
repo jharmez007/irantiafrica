@@ -492,15 +492,15 @@ final class ReportingTest extends TestCase
         $z = $this->variant(1);
         app(InventoryService::class)->adjustStock($z->id, -1, 'Sold out fixture', (string) Str::uuid(), $this->owner, (string) DB::table('inventory')->where('variant_id', $z->id)->value('version'));
         // Existing threshold configuration; reporting performs no writes.
-        DB::table('inventory')->where('variant_id', $v->id)->update(['low_stock_threshold' => 5]);
+        app(InventoryService::class)->setLowStockThreshold($v->id, 5, $this->owner);
         $missing = ProductVariant::create(['product_id' => $v->product_id, 'sku' => 'NO-BALANCE', 'option_signature' => 'unique', 'unit_price_minor' => '500', 'status' => 'active']);
         $report = app(StockReport::class)->read(1);
-        $this->assertSame(2, $report['counts']->low_stock);
+        $this->assertSame(1, $report['counts']->low_stock);
         $this->assertSame(1, $report['counts']->out_of_stock);
         $this->assertSame(1, $report['counts']->uninitialized);
         $unknown = collect($report['items'])->firstWhere('variant_id', $missing->id);
         $this->assertNull($unknown['on_hand']);
-        $this->assertCount(2, app(StockReport::class)->read(1, 'low')['items']);
+        $this->assertCount(1, app(StockReport::class)->read(1, 'low')['items']);
         $s = $this->prepared();
         $stock = DB::table('inventory')->where('reserved', 3)->first();
         $entry = collect(app(StockReport::class)->read(1)['items'])->firstWhere('variant_id', $stock->variant_id);

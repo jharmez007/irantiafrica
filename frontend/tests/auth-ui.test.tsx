@@ -6,6 +6,7 @@ import { AuthForm } from "../src/components/auth-form";
 import { MfaScreen } from "../src/components/mfa-screen";
 import { AccountBoundary } from "../src/components/account-boundary";
 import type { Identity } from "../src/lib/auth-api";
+import { toast } from "../src/lib/toast";
 
 const mocks = vi.hoisted(() => ({
   user: null as Identity | null,
@@ -111,6 +112,7 @@ describe("branded authentication forms", () => {
       "/reset-password#email=customer%40example.test&token=secret-reset-token",
     );
     mocks.request.mockResolvedValue({ message: "Password changed." });
+    const success = vi.spyOn(toast, "success");
     const user = userEvent.setup();
     render(<AuthForm mode="reset" />);
     expect(window.location.hash).toBe("");
@@ -132,11 +134,12 @@ describe("branded authentication forms", () => {
         password_confirmation: "A new unique passphrase",
       }),
     );
-    expect((await screen.findByRole("status")).textContent).toContain(
+    expect(success).toHaveBeenCalledWith(
+      "Password changed",
       "Password changed.",
     );
   });
-  it("preserves recovery-code challenge mode and the successful account redirect", async () => {
+  it("preserves recovery-code challenge mode and the successful staff redirect", async () => {
     mocks.user = {
       ...customer,
       roles: ["owner"],
@@ -161,7 +164,7 @@ describe("branded authentication forms", () => {
         recovery: true,
       }),
     );
-    expect(mocks.replace).toHaveBeenCalledWith("/account");
+    expect(mocks.replace).toHaveBeenCalledWith("/admin");
   });
   it("shows recovery codes once after staff enrollment and clears them on acknowledgement", async () => {
     mocks.user = {
@@ -191,7 +194,7 @@ describe("branded authentication forms", () => {
       screen.getByRole("button", { name: "I have saved my codes" }),
     );
     expect(screen.queryByText("one-time-recovery-code")).toBeNull();
-    expect(mocks.replace).toHaveBeenCalledWith("/account");
+    expect(mocks.replace).toHaveBeenCalledWith("/admin");
   });
   it("shows only approved customer account details and preserves logout", async () => {
     mocks.user = customer;
@@ -209,4 +212,22 @@ describe("branded authentication forms", () => {
     expect(mocks.logout).toHaveBeenCalledOnce();
     expect(mocks.replace).toHaveBeenCalledWith("/login");
   });
+});
+
+it.each(["owner", "order_processing", "inventory_store"])(
+  "lands signed-in %s staff in administration",
+  async (role) => {
+    mocks.user = { ...customer, roles: [role] };
+    render(<AuthForm mode="login" />);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/admin"));
+  },
+);
+it("keeps the customer account overview and redirects staff visits to administration", async () => {
+  mocks.user = customer;
+  const view = render(<AccountBoundary />);
+  expect(screen.getByRole("heading", { name: "Your account" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Order history" })).toBeTruthy();
+  mocks.user = { ...customer, roles: ["owner"] };
+  view.rerender(<AccountBoundary />);
+  await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/admin"));
 });

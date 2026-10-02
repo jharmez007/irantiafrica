@@ -6,7 +6,7 @@ Status: **TEMPORARY EXCEPTION / DEFERRED MIGRATION**
 The client explicitly authorizes temporarily retaining **ESLint 9.39.5** after strict resolution of ESLint 10 failed. The architecture target remains **ESLint 10.x**. This supersedes the earlier remediation stop condition and removes EOL alone as an acceptance blocker. It does not authorize Phase 3B.
 
 ## Compatibility evidence
-The stable baseline eslint-config-next 16.3.5 accepts ESLint >=9 but brings plugins whose published peer ranges exclude 10:
+The patched baseline eslint-config-next 16.3.6 accepts ESLint >=9 but brings plugins whose published peer ranges exclude 10:
 
 | Package | Version | ESLint peer range |
 |---|---|---|
@@ -32,7 +32,7 @@ Reopen this ADR automatically at the **first** of:
 
 These are revisit triggers individually, not a requirement to wait for all three plugins. Review official npm package peer metadata and official Next.js/ESLint release notes at each dependency update, weekly during active development, and before production. Record the review date and result in this ADR. Once the graph supports migration, resolve with strict peers and rerun every frontend gate before updating the baseline. If still incompatible at production review, production approval requires a fresh explicit risk decision; this exception cannot silently roll over. No speculative monitoring package is installed.
 
-Last review: 2026-09-20; next scheduled review: 2026-09-27, or an earlier trigger. Owner: project developer/technical lead. This is a documented engineering/release gate, not an assertion that an external release watcher is deployed.
+Last review: **2026-10-02**. With Next.js and eslint-config-next 16.3.6 installed, `npm install eslint@10 --dry-run --strict-peer-deps --no-save` failed `ERESOLVE` on official `eslint-plugin-import@2.32.0`'s ESLint 9 upper peer bound. ESLint remains 9.39.5; no force, peer bypass, plugin replacement or rule removal was used. Recheck weekly during active development and before production. Owner: project developer/technical lead. This is a documented engineering/release gate, not an assertion that an external release watcher is deployed.
 
 ## CI policy
 Warn about this approved exception without an EOL-only failure. Pin check, install, lint, formatting, type checks, tests, build and audit remain blocking. The security gate is npm audit's default nonzero exit for reported vulnerabilities (all severities); no advisory suppression is introduced. Hosted execution remains unverified until a remote exists.

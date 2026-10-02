@@ -42,6 +42,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class])->
 });
 
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'throttle:identity-staff'])->prefix('admin/staff')->group(function (): void {
+    Route::get('/', [StaffController::class, 'index'])->middleware('can:staff.provision');
     Route::post('/', [StaffController::class, 'provision'])->middleware('can:staff.provision');
     Route::patch('/{id}/roles', [StaffController::class, 'role'])->whereUuid('id')->middleware('can:roles.assign');
     Route::post('/{id}/disable', [StaffController::class, 'disable'])->whereUuid('id')->middleware('can:staff.provision');
@@ -67,14 +68,18 @@ Route::middleware('throttle:catalog-public')->group(function (): void {
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'throttle:catalog-admin'])->prefix('admin')->group(function (): void {
     $c = CatalogController::class;
     Route::get('/products', [$c, 'adminIndex']);
+    Route::get('/tax-categories', [CatalogController::class, 'taxCategories']);
     Route::post('/products', [$c, 'createProduct'])->middleware('can:catalog.create_update');
     Route::get('/products/{id}', [$c, 'adminShow'])->whereUuid('id');
     Route::patch('/products/{id}', [$c, 'updateProduct'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/products/{id}/publication', [$c, 'publication'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/archive', [$c, 'archive'])->whereUuid('id')->middleware('can:catalog.publish_archive');
+    Route::post('/products/{id}/restore', [$c, 'restore'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/options', [$c, 'addOption'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/products/{id}/variants', [$c, 'createVariant'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/options/{id}/values', [$c, 'addValues'])->whereUuid('id')->middleware('can:catalog.create_update');
+    Route::delete('/options/{id}', [$c, 'removeOption'])->whereUuid('id')->middleware('can:catalog.create_update');
+    Route::delete('/options/{id}/values/{valueId}', [$c, 'removeValue'])->whereUuid('id')->whereUuid('valueId')->middleware('can:catalog.create_update');
     Route::patch('/variants/{id}', [$c, 'updateVariant'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::get('/categories/{slug}', [CatalogController::class, 'categoryShow'])->where('slug', '[a-z0-9-]+');
     Route::get('/categories', [$c, 'adminCategories']);

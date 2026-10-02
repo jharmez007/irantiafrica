@@ -183,7 +183,7 @@ Common columns: **id (PK), created_at, updated_at**, exactly as defined above.
 | description | text | N | '' |
 | kind | varchar(16) | N | — |
 | status | varchar(16) | N | 'draft' |
-| tax_category_code | varchar(64) | N | — |
+| tax_category_code | varchar(64) | Y | Unresolved drafts; publication and checkout require a current configured rule |
 | content_version | integer | N | 1 |
 | published_at | timestamptz | Y | NULL |
 | archived_at | timestamptz | Y | NULL |

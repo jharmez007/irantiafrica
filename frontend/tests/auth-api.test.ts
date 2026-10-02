@@ -68,6 +68,20 @@ describe("browser authentication transport", () => {
     );
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("reports a CSRF mismatch without replaying a protected write", async () => {
+    vi.stubGlobal("document", { cookie: "XSRF-TOKEN=proof" });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: "CSRF_MISMATCH" } }, { status: 419 }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      catalogAdmin("/products/p", "PATCH", { name: "Updated" }),
+    ).rejects.toMatchObject({ status: 419 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("preserves forbidden status and safe errors", async () => {
     vi.stubGlobal(
       "fetch",

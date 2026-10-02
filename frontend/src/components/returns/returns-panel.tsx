@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Price } from "@/components/ui";
+import { toast } from "@/lib/toast";
 import { type OrderRecord } from "@/lib/order-api";
 import {
   returnRequest,
@@ -83,7 +84,6 @@ export function ReturnSummary({ record }: { record: ReturnRecord }) {
 export function ReturnsPanel({ order }: { order: OrderRecord }) {
   const [data, setData] = useState<ReturnList | null>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("DAMAGED_PRODUCT");
   const [explanation, setExplanation] = useState("");
@@ -122,7 +122,6 @@ export function ReturnsPanel({ order }: { order: OrderRecord }) {
     lock.current = true;
     setBusy(true);
     setError("");
-    setNotice("");
     key.current ??= crypto.randomUUID();
     try {
       await returnRequest(
@@ -139,7 +138,10 @@ export function ReturnsPanel({ order }: { order: OrderRecord }) {
         setQuantities({});
         setExplanation("");
         key.current = null;
-        setNotice("Return requested. Staff will review the selected items.");
+        toast.success(
+          "Return requested",
+          "Staff will review the selected items.",
+        );
       }
     } catch (e) {
       if (alive.current)
@@ -155,7 +157,6 @@ export function ReturnsPanel({ order }: { order: OrderRecord }) {
       <div ref={errorRef} tabIndex={-1} role="alert" id="return-error">
         {error}
       </div>
-      <p role="status">{notice}</p>
       {!data && !error && <p role="status">Loading return eligibility…</p>}
       {!data && error && (
         <Button

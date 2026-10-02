@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, authRequest } from "@/lib/auth-api";
 import { useAuth } from "./auth-provider";
+import { toast } from "@/lib/toast";
 import { AuthLayout } from "@/components/brand/layouts";
 import {
   Alert,
@@ -27,7 +28,7 @@ export function MfaScreen() {
   const [recovery, setRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
     if (user && !user.roles?.length) router.replace("/account");
@@ -49,7 +50,6 @@ export function MfaScreen() {
     event.preventDefault();
     setBusy(true);
     setError("");
-    setNotice("");
     const data = Object.fromEntries(
       new FormData(event.currentTarget),
     ) as Record<string, string>;
@@ -66,7 +66,8 @@ export function MfaScreen() {
       } else if (state === "mfa_required") {
         await authRequest("/auth/mfa/challenge", { ...data, recovery });
         await refresh();
-        router.replace("/account");
+        toast.success("Sign-in verified");
+        router.replace("/admin");
       } else if (data.action === "regenerate") {
         const result = await authRequest<{ recovery_codes: string[] }>(
           "/auth/mfa/recovery-codes",
@@ -79,7 +80,7 @@ export function MfaScreen() {
           password: data.password,
           code: data.code,
         });
-        setNotice("Sign-in confirmed.");
+        toast.success("Sign-in confirmed");
       }
     } catch (failure) {
       setError(
@@ -136,7 +137,7 @@ export function MfaScreen() {
             type="button"
             onClick={() => {
               setCodes([]);
-              router.replace("/account");
+              router.replace("/admin");
             }}
           >
             I have saved my codes
@@ -261,24 +262,28 @@ export function MfaScreen() {
         </div>
       )}
       {error && <Alert tone="error">{error}</Alert>}
-      {notice && <Alert tone="success">{notice}</Alert>}
       <nav className="auth-links" aria-label="Account security navigation">
-        {enrolled && <Link href="/account">Your account</Link>}
+        {enrolled && <Link href="/admin/account">Staff account</Link>}
         <Button
           variant="quiet"
           type="button"
+          disabled={signingOut}
           onClick={async () => {
+            if (signingOut) return;
+            setSigningOut(true);
             try {
               await logout();
               setCodes([]);
               setSetup(null);
               router.replace("/login");
             } catch {
-              setError("Unable to sign out. Please retry.");
+              toast.error("Unable to sign out. Please try again.");
+            } finally {
+              setSigningOut(false);
             }
           }}
         >
-          Sign out
+          {signingOut ? "Signing out…" : "Sign out"}
         </Button>
       </nav>
     </AuthLayout>

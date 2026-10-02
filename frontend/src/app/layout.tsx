@@ -4,6 +4,7 @@ import "./globals.css";
 import { StorefrontChrome } from "@/components/brand/storefront-chrome";
 import { CartProvider } from "@/components/cart/cart-provider";
 import { AuthProvider } from "@/components/auth-provider";
+import { ToastProvider } from "@/components/toast-provider";
 
 export const metadata: Metadata = {
   title: {
@@ -24,11 +25,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          <CartProvider>
-            <StorefrontChrome>{children}</StorefrontChrome>
-          </CartProvider>
-        </AuthProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <CartProvider>
+              <StorefrontChrome>{children}</StorefrontChrome>
+            </CartProvider>
+          </AuthProvider>
+        </ToastProvider>
       </body>
     </html>
   );

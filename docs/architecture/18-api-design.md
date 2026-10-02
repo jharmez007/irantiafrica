@@ -31,7 +31,7 @@ Idempotency-Key required for order placement, payment initialization, returns, r
 | Shipping | POST /shipping/quotes; GET /orders/{id}/shipment | Quote through same contract; owned tracking |
 | Returns | POST /orders/{id}/returns; GET /returns/{id} | Own/scoped order, policy and quantity checks |
 | Admin catalog | GET, POST /admin/products; GET, PATCH /admin/products/{id} | Granular catalog permissions |
-| Admin catalog | POST /admin/products/{id}/publication; /archive | Explicit state commands; historical rows retained |
+| Admin catalog | POST /admin/products/{id}/publication; /archive; /restore | Explicit state commands; historical rows retained |
 | Admin variants/options | POST /admin/products/{id}/variants; PATCH /admin/variants/{id}; POST /admin/products/{id}/options | Same-product/completeness/version checks |
 | Admin categories | GET, POST /admin/categories; PATCH /admin/categories/{id} | Catalog permissions; cycle checks |
 | Admin media | POST /admin/media/uploads; /admin/media/{id}/complete; DELETE /admin/media/{id} | Presigned quarantine, validate then publish, soft retirement |

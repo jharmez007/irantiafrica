@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { authenticationDestination } from "@/lib/auth-state";
 import { authRequest, type Identity } from "@/lib/auth-api";
 import { useAuth } from "./auth-provider";
+import { toast } from "@/lib/toast";
 import { AuthLayout } from "@/components/brand/layouts";
 import {
   Alert,
@@ -31,7 +32,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const router = useRouter();
   const { user, loading, refresh } = useAuth();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const recovery = useRef({ email: "", token: "" });
   useEffect(() => {
@@ -45,13 +45,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
   }, [mode]);
   useEffect(() => {
     if (!loading && user && (mode === "login" || mode === "register"))
-      router.replace(authenticationDestination(user.authentication_state));
+      router.replace(
+        authenticationDestination(user.authentication_state, user.roles),
+      );
   }, [loading, user, mode, router]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
-    setMessage("");
     const values = Object.fromEntries(
       new FormData(event.currentTarget),
     ) as Record<string, string>;
@@ -63,9 +64,19 @@ export function AuthForm({ mode }: { mode: Mode }) {
       );
       if (mode === "login" || mode === "register") {
         await refresh();
-        router.replace(authenticationDestination(result.authentication_state));
+        if (result.authentication_state === "authenticated")
+          toast.success(
+            mode === "login" ? "Signed in successfully" : "Account created",
+          );
+        else toast.info("Continue with staff verification");
+        router.replace(
+          authenticationDestination(result.authentication_state, result.roles),
+        );
       } else {
-        setMessage(result.message ?? "Request completed.");
+        toast.success(
+          mode === "forgot" ? "Recovery request received" : "Password changed",
+          result.message,
+        );
         if (mode === "reset") await refresh();
       }
     } catch (error) {
@@ -157,7 +168,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </>
         )}
         {error && <Alert tone="error">{error}</Alert>}
-        {message && <Alert tone="success">{message}</Alert>}
         <div className="form-actions">
           <Button disabled={busy} type="submit">
             {busy

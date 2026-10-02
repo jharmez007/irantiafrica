@@ -35,12 +35,14 @@ type DialogProps = {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  className?: string;
 };
 function Dialog({
   open,
   onClose,
   title,
   children,
+  className = "",
   drawer = false,
 }: DialogProps & { drawer?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -61,7 +63,7 @@ function Dialog({
   return (
     <dialog
       ref={ref}
-      className={drawer ? "dialog drawer" : "dialog modal"}
+      className={`${drawer ? "dialog drawer" : "dialog modal"} ${className}`.trim()}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();

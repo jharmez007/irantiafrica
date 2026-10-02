@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckoutError } from "@/lib/checkout-api";
 import { Button } from "@/components/ui";
 import { orderRequest, type OrderRecord, type Shipment } from "@/lib/order-api";
+import { toast } from "@/lib/toast";
 
 function safeLink(value: string | null): string | null {
   if (!value) return null;
@@ -108,7 +109,6 @@ export function FulfilmentPanel({
     });
   }
   const [note, setNote] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
@@ -133,7 +133,6 @@ export function FulfilmentPanel({
     lock.current = true;
     setBusy(true);
     setError("");
-    setMessage("");
     try {
       const result = await orderRequest<OrderRecord>(
         `/admin/orders/${order.id}/${action === "save" ? "shipment" : action}`,
@@ -150,7 +149,7 @@ export function FulfilmentPanel({
       if (!mounted.current) return;
       changed(result);
       setNote("");
-      setMessage(
+      toast.success(
         action === "save"
           ? "Shipment details saved."
           : action === "processing"
@@ -214,7 +213,7 @@ export function FulfilmentPanel({
             role={error ? "alert" : "status"}
             id="fulfilment-feedback"
           >
-            {error || message}
+            {error}
           </div>
           {actions?.save && (
             <form

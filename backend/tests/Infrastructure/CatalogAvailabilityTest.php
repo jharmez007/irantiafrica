@@ -16,10 +16,13 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\CatalogTaxFixture;
 use Tests\TestCase;
 
 final class CatalogAvailabilityTest extends TestCase
 {
+    use CatalogTaxFixture;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -30,6 +33,7 @@ final class CatalogAvailabilityTest extends TestCase
         $this->assertSame('iranti_test', config('database.connections.pgsql.database'));
         $this->assertContains(config('database.connections.pgsql.host'), ['127.0.0.1', 'localhost']);
         Artisan::call('migrate:fresh', ['--force' => true]);
+        $this->configureCatalogTax();
         config(['catalog.disk' => 'local', 'cache.limiter' => 'array']);
         Storage::fake('local');
     }

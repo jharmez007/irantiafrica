@@ -1,0 +1,167 @@
+[
+  {
+    "width": 320,
+    "product": {
+      "width": 320,
+      "overflow": false,
+      "triggerVisible": true,
+      "box": {
+        "left": 95.34375,
+        "right": 271.34375,
+        "top": 714.4375,
+        "bottom": 768.4375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["Restore"],
+      "violations": []
+    }
+  },
+  {
+    "width": 320,
+    "account": {
+      "overflow": false,
+      "box": {
+        "left": 132,
+        "right": 308,
+        "top": 56.6875,
+        "bottom": 187.859375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["My account", "Security / MFA", "Logout"]
+    }
+  },
+  {
+    "width": 375,
+    "product": {
+      "width": 375,
+      "overflow": false,
+      "triggerVisible": true,
+      "box": {
+        "left": 150.34375,
+        "right": 326.34375,
+        "top": 714.4375,
+        "bottom": 768.4375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["Restore"],
+      "violations": []
+    }
+  },
+  {
+    "width": 375,
+    "account": {
+      "overflow": false,
+      "box": {
+        "left": 187,
+        "right": 363,
+        "top": 56.6875,
+        "bottom": 187.859375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["My account", "Security / MFA", "Logout"]
+    }
+  },
+  {
+    "width": 768,
+    "product": {
+      "width": 768,
+      "overflow": false,
+      "triggerVisible": true,
+      "box": {
+        "left": 529.34375,
+        "right": 705.34375,
+        "top": 443.75,
+        "bottom": 497.75
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["Restore"],
+      "violations": []
+    }
+  },
+  {
+    "width": 768,
+    "account": {
+      "overflow": false,
+      "box": {
+        "left": 574,
+        "right": 750,
+        "top": 56.6875,
+        "bottom": 187.859375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["My account", "Security / MFA", "Logout"]
+    }
+  },
+  {
+    "width": 1024,
+    "product": {
+      "width": 1024,
+      "overflow": false,
+      "triggerVisible": true,
+      "box": {
+        "left": 775.34375,
+        "right": 951.34375,
+        "top": 447.75,
+        "bottom": 501.75
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["Restore"],
+      "violations": []
+    }
+  },
+  {
+    "width": 1024,
+    "account": {
+      "overflow": false,
+      "box": {
+        "left": 820,
+        "right": 996,
+        "top": 56.6875,
+        "bottom": 187.859375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["My account", "Security / MFA", "Logout"]
+    }
+  },
+  {
+    "width": 1440,
+    "product": {
+      "width": 1440,
+      "overflow": false,
+      "triggerVisible": true,
+      "box": {
+        "left": 1191.609375,
+        "right": 1367.609375,
+        "top": 427.78125,
+        "bottom": 481.78125
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["Restore"],
+      "violations": []
+    }
+  },
+  {
+    "width": 1440,
+    "account": {
+      "overflow": false,
+      "box": {
+        "left": 1236,
+        "right": 1412,
+        "top": 56.6875,
+        "bottom": 187.859375
+      },
+      "visible": true,
+      "aria": true,
+      "actions": ["My account", "Security / MFA", "Logout"]
+    }
+  }
+]

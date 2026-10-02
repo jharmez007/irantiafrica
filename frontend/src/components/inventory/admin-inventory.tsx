@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
-import { Alert, Badge, Button, Input, Textarea } from "@/components/ui";
+import { Alert, Badge, Button, Input, Textarea, Modal } from "@/components/ui";
 
 import { useAuth } from "@/components/auth-provider";
 import { ApiError } from "@/lib/auth-api";
 import { catalogAdmin } from "@/lib/catalog-admin-api";
+import { toast } from "@/lib/toast";
 import {
   inventoryPermissions,
   type InventoryEntry,
@@ -22,6 +24,7 @@ type Review = {
   delta: number;
   after: number;
 };
+type InventoryModal = "adjust" | "history" | "stock" | null;
 
 function Pagination({
   meta,
@@ -56,26 +59,47 @@ function Pagination({
 }
 
 export function AdminInventory() {
+  const [productContext, setProductContext] = useState<string | null>(null);
+  const [locationReady, setLocationReady] = useState(false);
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q") ?? "";
+    queueMicrotask(() => {
+      setProductContext(params.get("product"));
+      setSearch(q);
+      setQuery(q);
+      setLocationReady(true);
+    });
+  }, []);
+  const productReturn =
+    productContext &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      productContext,
+    )
+      ? `/admin/products/${productContext}/edit`
+      : null;
   const { user, loading } = useAuth();
   const permissions = inventoryPermissions(user?.roles);
   const authorized =
+    locationReady &&
     !loading &&
     user?.authentication_state === "authenticated" &&
     permissions.read;
   const [result, setResult] = useState<InventoryPage<InventoryEntry> | null>(
     null,
   );
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [listingLoading, setListingLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modal, setModal] = useState<InventoryModal>(null);
   const [selected, setSelected] = useState<InventoryEntry | null>(null);
   const [movements, setMovements] =
     useState<InventoryPage<InventoryMovement> | null>(null);
   const [movementPage, setMovementPage] = useState(1);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [modalError, setModalError] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [review, setReview] = useState<Review | null>(null);
@@ -108,23 +132,13 @@ export function AdminInventory() {
   useEffect(() => {
     if (!authorized || !selectedId) return;
     let active = true;
-    Promise.all([
-      catalogAdmin<{ data: InventoryEntry }>(`/inventory/${selectedId}`),
-      permissions.quantities
-        ? catalogAdmin<InventoryPage<InventoryMovement>>(
-            `/inventory/${selectedId}/movements?page=${movementPage}&per_page=20`,
-          )
-        : Promise.resolve(null),
-    ])
-      .then(([entry, history]) => {
-        if (active) {
-          setSelected(entry.data);
-          setMovements(history);
-        }
+    catalogAdmin<{ data: InventoryEntry }>(`/inventory/${selectedId}`)
+      .then((entry) => {
+        if (active) setSelected(entry.data);
       })
       .catch((e: unknown) => {
         if (active)
-          setError(
+          setModalError(
             e instanceof Error
               ? e.message
               : "Unable to load this stock record.",
@@ -133,10 +147,62 @@ export function AdminInventory() {
     return () => {
       active = false;
     };
-  }, [authorized, selectedId, permissions.quantities, movementPage, reload]);
+  }, [authorized, selectedId, reload]);
 
-  function choose(entry: InventoryEntry) {
+  useEffect(() => {
+    if (
+      !authorized ||
+      !selectedId ||
+      modal !== "history" ||
+      !permissions.quantities
+    )
+      return;
+    let active = true;
+    catalogAdmin<InventoryPage<InventoryMovement>>(
+      `/inventory/${selectedId}/movements?page=${movementPage}&per_page=20`,
+    )
+      .then((history) => {
+        if (active) setMovements(history);
+      })
+      .catch((e: unknown) => {
+        if (active)
+          setModalError(
+            e instanceof Error ? e.message : "Unable to load stock movements.",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    authorized,
+    selectedId,
+    modal,
+    permissions.quantities,
+    movementPage,
+    reload,
+  ]);
+
+  function resetModal() {
+    setModal(null);
+    setSelectedId(null);
+    setSelected(null);
+    setMovements(null);
+    setMovementPage(1);
+    setAmount("");
+    setReason("");
+    setReview(null);
+    previousReview.current = null;
+    setModalError("");
+  }
+  function closeModal() {
+    if (!busy) resetModal();
+  }
+  function choose(
+    entry: InventoryEntry,
+    nextModal: Exclude<InventoryModal, null>,
+  ) {
     if (selectedId === entry.variant_id) setReload((value) => value + 1);
+    setModal(nextModal);
     setSelectedId(entry.variant_id);
     setSelected(null);
     setMovements(null);
@@ -145,13 +211,12 @@ export function AdminInventory() {
     setReason("");
     setReview(null);
     previousReview.current = null;
-    setError("");
-    setNotice("");
+    setModalError("");
   }
   function prepare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!permissions.manage || !selected) return;
-    setError("");
+    setModalError("");
     const quantity = Number(amount);
     const opening = selected.initialized === false;
     const after = (selected.on_hand ?? 0) + quantity;
@@ -165,13 +230,13 @@ export function AdminInventory() {
       after > 2147483647 ||
       !reason.trim()
     ) {
-      setError(
+      setModalError(
         "Enter a whole-number stock change and a reason. Stock cannot fall below the reserved quantity or exceed 2,147,483,647.",
       );
       return;
     }
     if (!opening && !selected.version) {
-      setError("Refresh this stock record before adjusting it.");
+      setModalError("Refresh this stock record before adjusting it.");
       return;
     }
     if (review) return;
@@ -201,34 +266,27 @@ export function AdminInventory() {
   async function confirm() {
     if (!review || !permissions.manage || busy) return;
     setBusy(true);
-    setError("");
-    setNotice("");
+    setModalError("");
     try {
       await catalogAdmin(review.path, "POST", review.payload, {
         "Idempotency-Key": review.key,
       });
-      setReview(null);
-      previousReview.current = null;
-      setAmount("");
-      setReason("");
-      setSelected(null);
-      setMovements(null);
+      resetModal();
       setListingLoading(true);
       setReload((value) => value + 1);
-      setNotice("Stock change saved. Inventory is being refreshed.");
+      toast.success("Stock change saved", "Inventory is being refreshed.");
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setReview(null);
         previousReview.current = null;
         setSelected(null);
-        setMovements(null);
         setListingLoading(true);
         setReload((value) => value + 1);
-        setError(
+        setModalError(
           "The stock record changed or this action is no longer valid. Review the refreshed quantities before confirming a new change.",
         );
       } else {
-        setError(
+        setModalError(
           e instanceof Error
             ? e.message
             : "Unable to save the change. Retry the same reviewed change.",
@@ -255,6 +313,13 @@ export function AdminInventory() {
     return <Alert tone="error">You do not have inventory access.</Alert>;
   return (
     <div className="catalog-admin admin-workspace">
+      {productReturn && (
+        <Link className="product-back-link" href={productReturn}>
+          ← Back to{" "}
+          {result?.data.find((entry) => entry.product_id === productContext)
+            ?.product_name ?? "product"}
+        </Link>
+      )}
       <p>
         {permissions.manage
           ? "Record opening stock and reasoned stock adjustments."
@@ -278,7 +343,6 @@ export function AdminInventory() {
           </Button>
         </Alert>
       )}
-      {notice && <Alert tone="success">{notice}</Alert>}
       <form
         className="admin-form-grid"
         onSubmit={(event) => {
@@ -307,56 +371,80 @@ export function AdminInventory() {
       )}
       {result && (
         <>
-          <div className="inventory-table admin-table">
-            <table>
-              <caption>Stock by product SKU</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Product and SKU</th>
-                  <th scope="col">Availability</th>
-                  {permissions.quantities && (
-                    <>
-                      <th scope="col">On hand</th>
-                      <th scope="col">Reserved</th>
-                      <th scope="col">Available quantity</th>
-                      <th scope="col">Low stock</th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {result.data.map((entry) => (
-                  <tr key={entry.variant_id}>
-                    <th scope="row">
-                      <Button
-                        disabled={busy || listingLoading}
-                        onClick={() => choose(entry)}
-                      >
-                        {entry.product_name} — {entry.sku}
-                      </Button>
-                    </th>
+          <AdminTable
+            label="Stock by product SKU"
+            columns={[
+              "Product",
+              "SKU",
+              ...(permissions.quantities
+                ? ["On hand", "Reserved", "Available", "Low stock"]
+                : []),
+              "Status",
+              "Actions",
+            ]}
+            loading={listingLoading}
+            empty={result.data.length === 0}
+          >
+            {result.data.map((entry) => (
+              <tr key={entry.variant_id}>
+                <th scope="row" className="admin-inventory-product">
+                  <Button
+                    variant="quiet"
+                    disabled={busy || listingLoading}
+                    onClick={() =>
+                      choose(
+                        entry,
+                        permissions.manage
+                          ? "adjust"
+                          : permissions.quantities
+                            ? "history"
+                            : "stock",
+                      )
+                    }
+                  >
+                    {entry.product_name} — {entry.sku}
+                  </Button>
+                </th>
+                <td>{entry.sku}</td>
+                {permissions.quantities && (
+                  <>
                     <td>
-                      <Badge>
-                        {entry.available ? "In stock" : "Out of stock"}
-                      </Badge>
+                      {entry.initialized ? entry.on_hand : "Not initialized"}
                     </td>
-                    {permissions.quantities && (
-                      <>
-                        <td>
-                          {entry.initialized
-                            ? entry.on_hand
-                            : "Not initialized"}
-                        </td>
-                        <td>{entry.reserved ?? "—"}</td>
-                        <td>{entry.available_quantity ?? "—"}</td>
-                        <td>{entry.low_stock ? "Low stock" : "—"}</td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    <td>{entry.reserved ?? "—"}</td>
+                    <td>{entry.available_quantity ?? "—"}</td>
+                    <td>{entry.low_stock ? "Low stock" : "—"}</td>
+                  </>
+                )}
+                <td>
+                  <StatusBadge
+                    value={entry.available ? "active" : "out_of_stock"}
+                    label={entry.available ? "In stock" : "Out of stock"}
+                  />
+                </td>
+                <td>
+                  <Button
+                    variant="secondary"
+                    disabled={busy || listingLoading}
+                    onClick={() =>
+                      choose(entry, permissions.manage ? "adjust" : "stock")
+                    }
+                  >
+                    {permissions.manage ? "Adjust stock" : "View stock"}
+                  </Button>
+                  {permissions.quantities && (
+                    <Button
+                      variant="quiet"
+                      disabled={busy || listingLoading}
+                      onClick={() => choose(entry, "history")}
+                    >
+                      View history
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
           <Pagination
             label="Inventory pagination"
             meta={result.meta}
@@ -368,142 +456,248 @@ export function AdminInventory() {
           />
         </>
       )}
-      {selectedId && !selected && <p role="status">Loading stock record…</p>}
-      {selected && (
-        <section className="admin-panel">
-          <h2>
-            {selected.product_name} — {selected.sku}
-          </h2>
-          <p>
-            Product: {selected.product_status}. SKU: {selected.variant_status}.
-          </p>
-          <p>
-            <Badge>{selected.available ? "In stock" : "Out of stock"}</Badge>
-          </p>
-          {permissions.quantities && (
-            <dl className="inventory-summary">
-              <dt>On hand</dt>
-              <dd>
-                {selected.initialized ? selected.on_hand : "Not initialized"}
-              </dd>
-              <dt>Reserved</dt>
-              <dd>{selected.reserved ?? "—"}</dd>
-              <dt>Available quantity</dt>
-              <dd>{selected.available_quantity ?? "—"}</dd>
-              <dt>Low-stock threshold</dt>
-              <dd>{selected.low_stock_threshold ?? "—"}</dd>
-            </dl>
+      {selectedId && (modal === "adjust" || modal === "stock") && (
+        <Modal
+          open
+          onClose={closeModal}
+          title={modal === "adjust" ? "Adjust Stock" : "Stock availability"}
+          className="inventory-adjust-modal"
+        >
+          {modalError && <Alert tone="error">{modalError}</Alert>}
+          {!selected && !modalError && (
+            <p role="status">Loading stock record…</p>
           )}
-          {permissions.manage && selected.initialized !== undefined && (
-            <form className="admin-form-grid" onSubmit={prepare}>
-              <h3>
-                {selected.initialized ? "Adjust stock" : "Record opening stock"}
-              </h3>
-              <label>
-                {selected.initialized ? "Quantity change" : "Opening quantity"}
-                <Input
-                  name="amount"
-                  required
-                  inputMode="numeric"
-                  value={amount}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setAmount(event.target.value);
-                    setReview(null);
-                    previousReview.current = null;
-                  }}
-                />
-              </label>
-              {selected.initialized && (
+          {selected && (
+            <div className="inventory-modal-content">
+              <div className="inventory-modal-context">
+                <h3>{selected.product_name}</h3>
+                <p>SKU: {selected.sku}</p>
                 <p>
-                  Enter a positive quantity to add stock or a negative quantity
-                  to remove stock.
+                  <Badge>
+                    {selected.available ? "In stock" : "Out of stock"}
+                  </Badge>
+                  <span>
+                    Product {selected.product_status}; variant{" "}
+                    {selected.variant_status}
+                  </span>
                 </p>
+              </div>
+              {permissions.quantities && (
+                <dl className="inventory-modal-summary">
+                  <div>
+                    <dt>On hand</dt>
+                    <dd>
+                      {selected.initialized
+                        ? selected.on_hand
+                        : "Not initialized"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Reserved</dt>
+                    <dd>{selected.reserved ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Available</dt>
+                    <dd>{selected.available_quantity ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Low-stock threshold</dt>
+                    <dd>{selected.low_stock_threshold ?? "—"}</dd>
+                  </div>
+                </dl>
               )}
-              <label>
-                Reason
-                <Textarea
-                  name="reason"
-                  required
-                  maxLength={500}
-                  value={reason}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setReason(event.target.value);
-                    setReview(null);
-                    previousReview.current = null;
-                  }}
-                />
-              </label>
-              <Button disabled={busy}>Review stock change</Button>
-            </form>
-          )}
-          {permissions.manage && review && (
-            <section
-              className="admin-panel admin-confirmation"
-              aria-label="Review stock change"
-            >
-              <h3>Confirm stock change</h3>
-              <p>SKU: {selected.sku}</p>
-              <p>
-                Quantity change: {review.delta > 0 ? "+" : ""}
-                {review.delta}
-              </p>
-              <p>New on-hand quantity: {review.after}</p>
-              <p>Reason: {review.payload.reason}</p>
-              <Button disabled={busy} onClick={() => void confirm()}>
-                {busy ? "Saving stock change…" : "Confirm stock change"}
-              </Button>
-              <Button disabled={busy} onClick={() => setReview(null)}>
-                Cancel review
-              </Button>
-            </section>
-          )}
-          {permissions.quantities && (
-            <section className="admin-panel">
-              <h3>Stock movement history</h3>
-              {!movements && <p role="status">Loading stock movements…</p>}
-              {movements?.data.length === 0 && <p>No stock movements yet.</p>}
-              {movements?.data.map((movement) => (
-                <article key={movement.id}>
-                  <h4>{movement.kind}</h4>
-                  <p>
-                    <time dateTime={movement.created_at}>
-                      {new Date(movement.created_at).toLocaleString("en-NG")}
-                    </time>
-                  </p>
-                  <p>
-                    On-hand change: {movement.on_hand_delta}; reserved change:{" "}
-                    {movement.reserved_delta}.
-                  </p>
-                  <p>
-                    On hand after: {movement.on_hand_after}; reserved after:{" "}
-                    {movement.reserved_after}.
-                  </p>
-                  <p>
-                    {permissions.manage
-                      ? movement.reason
-                      : "Operational stock movement"}
-                  </p>
-                  {permissions.manage && movement.actor && (
-                    <p>Recorded by: {movement.actor.name}</p>
-                  )}
-                </article>
-              ))}
-              {movements && (
-                <Pagination
-                  label="Movement pagination"
-                  meta={movements.meta}
-                  busy={busy}
-                  go={(next) => {
-                    setMovementPage(next);
-                    setMovements(null);
-                  }}
-                />
+              {modal === "adjust" &&
+                permissions.manage &&
+                selected.initialized !== undefined &&
+                (!review ? (
+                  <form className="inventory-adjust-form" onSubmit={prepare}>
+                    <div>
+                      <label htmlFor="inventory-amount">
+                        {selected.initialized
+                          ? "Quantity change"
+                          : "Opening quantity"}
+                      </label>
+                      <Input
+                        id="inventory-amount"
+                        name="amount"
+                        type="number"
+                        step="1"
+                        required
+                        aria-describedby="inventory-amount-hint"
+                        value={amount}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          if (next && !/^-?\d*$/.test(next)) return;
+                          setAmount(next);
+                          setReview(null);
+                          previousReview.current = null;
+                        }}
+                      />
+                      <p id="inventory-amount-hint" className="field-hint">
+                        {selected.initialized
+                          ? "Use a positive number to add stock or a negative number to remove stock."
+                          : "Enter a positive whole number for the opening stock balance."}
+                      </p>
+                    </div>
+                    <div>
+                      <label htmlFor="inventory-reason">Reason</label>
+                      <Textarea
+                        id="inventory-reason"
+                        name="reason"
+                        required
+                        maxLength={500}
+                        value={reason}
+                        disabled={busy}
+                        onChange={(event) => {
+                          setReason(event.target.value);
+                          setReview(null);
+                          previousReview.current = null;
+                        }}
+                      />
+                    </div>
+                    <div className="inventory-modal-actions">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={closeModal}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={busy}>
+                        Review stock change
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <section
+                    className="inventory-review"
+                    aria-labelledby="inventory-review-title"
+                  >
+                    <h3 id="inventory-review-title">Review stock change</h3>
+                    <p>SKU: {selected.sku}</p>
+                    <p>
+                      Quantity change: {review.delta > 0 ? "+" : ""}
+                      {review.delta}
+                    </p>
+                    <p>New on-hand quantity: {review.after}</p>
+                    <p>Reason: {review.payload.reason}</p>
+                    <div className="inventory-modal-actions">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          setReview(null);
+                          setModalError("");
+                        }}
+                      >
+                        Cancel review
+                      </Button>
+                      <Button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void confirm()}
+                      >
+                        {busy ? "Saving stock change…" : "Confirm stock change"}
+                      </Button>
+                    </div>
+                  </section>
+                ))}
+              {modal === "stock" && (
+                <div className="inventory-modal-actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={closeModal}
+                  >
+                    Close
+                  </Button>
+                </div>
               )}
-            </section>
+            </div>
           )}
-        </section>
+        </Modal>
+      )}
+      {selectedId && modal === "history" && permissions.quantities && (
+        <Modal
+          open
+          onClose={closeModal}
+          title="Stock movement history"
+          className="inventory-history-modal"
+        >
+          {modalError && <Alert tone="error">{modalError}</Alert>}
+          <div className="inventory-modal-context">
+            <h3>{selected?.product_name ?? "Loading product…"}</h3>
+            <p>SKU: {selected?.sku ?? "…"}</p>
+          </div>
+          {!movements && !modalError && (
+            <p role="status">Loading stock movements…</p>
+          )}
+          {movements && (
+            <>
+              <AdminTable
+                label="Stock movement history"
+                columns={[
+                  "Date / time",
+                  "Movement",
+                  "On-hand change",
+                  "Reserved change",
+                  "On hand after",
+                  "Reserved after",
+                  "Reason",
+                  "Recorded by",
+                ]}
+                empty={movements.data.length === 0}
+                emptyText="No stock movements yet."
+              >
+                {movements.data.map((movement) => (
+                  <tr key={movement.id}>
+                    <th scope="row">
+                      <time dateTime={movement.created_at}>
+                        {new Date(movement.created_at).toLocaleString("en-NG")}
+                      </time>
+                    </th>
+                    <td>{movement.kind.replaceAll("_", " ")}</td>
+                    <td>
+                      {movement.on_hand_delta > 0 ? "+" : ""}
+                      {movement.on_hand_delta}
+                    </td>
+                    <td>
+                      {movement.reserved_delta > 0 ? "+" : ""}
+                      {movement.reserved_delta}
+                    </td>
+                    <td>{movement.on_hand_after}</td>
+                    <td>{movement.reserved_after}</td>
+                    <td>
+                      {permissions.manage
+                        ? movement.reason
+                        : "Operational stock movement"}
+                    </td>
+                    <td>
+                      {permissions.manage ? (movement.actor?.name ?? "—") : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </AdminTable>
+              <Pagination
+                label="Movement pagination"
+                meta={movements.meta}
+                busy={busy}
+                go={(next) => {
+                  setMovementPage(next);
+                  setMovements(null);
+                  setModalError("");
+                }}
+              />
+            </>
+          )}
+          <div className="inventory-modal-actions">
+            <Button type="button" variant="secondary" onClick={closeModal}>
+              Close
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

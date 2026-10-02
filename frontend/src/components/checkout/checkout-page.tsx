@@ -11,6 +11,7 @@ import {
 import { Button, Container, Input, Price } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { useCart } from "@/components/cart/cart-provider";
+import { toast } from "@/lib/toast";
 import {
   CheckoutError,
   checkoutRequest,
@@ -208,11 +209,9 @@ export function CheckoutPage() {
         }
       }
       intent.current = null;
-      setNotice(
-        kind === "reserve"
-          ? "Your items are reserved. Payment is not available yet."
-          : "Checkout updated.",
-      );
+      if (kind === "reserve")
+        setNotice("Your items are reserved. Payment is not available yet.");
+      else toast.success("Checkout updated");
       heading.current?.focus();
       void refreshCart();
     } catch (e) {

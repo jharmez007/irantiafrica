@@ -1,4 +1,5 @@
 import { csrfCookie } from "./auth-api";
+import { reportSessionFailure } from "./session-events";
 import type { CatalogImage } from "./catalog";
 export type CartLine = {
   id: string;
@@ -68,8 +69,9 @@ export async function cartRequest(
     cache: "no-store",
     body: payload ? JSON.stringify(payload) : undefined,
   });
-  const body = await response.json();
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    reportSessionFailure(response.status, `/cart${suffix}`);
     const fields = body.error?.fields as Record<string, string[]> | undefined;
     throw new CartApiError(
       response.status,

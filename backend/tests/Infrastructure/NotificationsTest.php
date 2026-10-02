@@ -27,6 +27,7 @@ use Database\Seeders\IdentityPermissionsSeeder;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Mail\MailManager;
+use Illuminate\Mail\SentMessage;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -588,6 +589,25 @@ final class NotificationsTest extends TestCase
         } finally {
             Queue::connection('redis')->clear($queue);
         }
+    }
+
+    public function test_mailpit_capture_remains_simulated_and_cannot_be_used_in_staging(): void
+    {
+        $o = $this->paid();
+        $payload = app(NotificationContent::class)->snapshot('OrderCreated', $o->id, null, now()->toIso8601String());
+        $this->app->instance('env', 'local');
+        config(['mail.default' => 'mailpit']);
+        $message = \Mockery::mock(SentMessage::class);
+        $message->shouldReceive('getMessageId')->once()->andReturn('local-capture-fixture');
+        Mail::shouldReceive('mailer')->once()->with('mailpit')->andReturnSelf();
+        Mail::shouldReceive('to')->once()->with($o->contact_email)->andReturnSelf();
+        Mail::shouldReceive('send')->once()->andReturn($message);
+        $transport = app(MailTransport::class);
+        $this->assertSame('SIMULATED', $transport->send($o->contact_email, $payload, (string) Str::uuid())['status']);
+        $this->app->instance('env', 'staging');
+        config(['communications.frontend_origin' => 'https://shop.example.test']);
+        $this->assertSame('MAILER_NOT_APPROVED', $transport->send($o->contact_email, $payload, (string) Str::uuid())['code']);
+        $this->app->instance('env', 'testing');
     }
 
     public function test_staging_requires_override_and_local_cannot_send_externally(): void

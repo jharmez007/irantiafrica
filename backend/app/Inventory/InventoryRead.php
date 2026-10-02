@@ -31,7 +31,7 @@ final class InventoryRead
             $data += ['initialized' => $row->inventory_id !== null,
                 'on_hand' => (int) $row->on_hand, 'reserved' => (int) $row->reserved,
                 'available_quantity' => $quantity, 'low_stock_threshold' => (int) $row->low_stock_threshold,
-                'low_stock' => $row->inventory_id !== null && $quantity <= (int) $row->low_stock_threshold,
+                'low_stock' => $row->inventory_id !== null && $quantity > 0 && $quantity <= (int) $row->low_stock_threshold,
                 'version' => $row->version === null ? null : (string) $row->version];
         }
 

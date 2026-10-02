@@ -2,6 +2,7 @@
 
 namespace App\Catalog;
 
+use App\Checkout\CheckoutConfiguration;
 use App\Models\Category;
 use App\Models\OptionValue;
 use App\Models\Product;
@@ -17,6 +18,8 @@ final class CatalogActions
     /** Serialize catalog writes at this launch scale; never take this lock in inventory workflows. */
     public function lock(): void
     {
+        // Configuration precedes catalog/product locks, matching checkout lock order.
+        CheckoutConfiguration::lock();
         DB::select('SELECT pg_advisory_xact_lock(310031)');
     }
 
@@ -53,6 +56,17 @@ final class CatalogActions
                 }
             }
             $before = $id ? $this->productSnapshot($product) : [];
+            $choices = app(CatalogTax::class)->choices()['data'];
+            if (isset($data['tax_category_code']) && ! in_array($data['tax_category_code'], array_column($choices, 'code'), true)) {
+                $this->invalid('tax_category_code', 'Choose an available tax treatment or leave it unresolved for this draft.');
+            }
+            if (! array_key_exists('tax_category_code', $data) && ! $product->tax_category_code && count($choices) === 1) {
+                $data['tax_category_code'] = $choices[0]['code'];
+            }
+            if (! $id) {
+                $data['kind'] ??= 'simple';
+            }
+
             if (array_key_exists('description', $data) && $data['description'] === null) {
                 $data['description'] = '';
             }
@@ -178,6 +192,40 @@ final class CatalogActions
         });
     }
 
+    public function removeOption(string $id, int $version): string
+    {
+        return DB::transaction(function () use ($id, $version): string {
+            $this->lock();
+            $option = ProductOption::findOrFail($id);
+            $product = Product::lockForUpdate()->findOrFail($option->product_id);
+            abort_if($product->content_version !== $version, 409);
+            abort_if($product->status !== 'draft' || $product->variants()->exists(), 409);
+            $option->values()->delete();
+            $option->delete();
+            $product->increment('content_version');
+            CatalogAudit::record('option_removed', 'product', $product->id, ['option_id' => $id]);
+
+            return $product->id;
+        });
+    }
+
+    public function removeValue(string $optionId, string $valueId, int $version): string
+    {
+        return DB::transaction(function () use ($optionId, $valueId, $version): string {
+            $this->lock();
+            $option = ProductOption::findOrFail($optionId);
+            $product = Product::lockForUpdate()->findOrFail($option->product_id);
+            abort_if($product->content_version !== $version, 409);
+            abort_if($product->status !== 'draft' || $product->variants()->exists(), 409);
+            $value = $option->values()->whereKey($valueId)->firstOrFail();
+            $value->delete();
+            $product->increment('content_version');
+            CatalogAudit::record('option_value_removed', 'product', $product->id, ['option_id' => $optionId, 'value_id' => $valueId]);
+
+            return $product->id;
+        });
+    }
+
     /** @param array<string, mixed> $data */
     public function variant(string $productId, array $data, ?string $id = null): ProductVariant
     {
@@ -234,20 +282,44 @@ final class CatalogActions
         abort_if($product->content_version !== (int) $data['content_version'], 409);
     }
 
-    public function publishable(Product $product): void
+    /** @return list<string> */
+    public function publicationIssues(Product $product): array
     {
-        if (trim($product->description) === '' || ! $product->categories()->where('status', 'active')->exists() || ! $product->media()->where('status', 'ready')->exists()) {
-            $this->invalid('publication', 'A description, active category and ready image are required.');
+        $issues = [];
+        if (! $product->tax_category_code || ! in_array($product->tax_category_code, array_column(app(CatalogTax::class)->choices()['data'], 'code'), true)) {
+            $issues[] = 'Choose a configured tax treatment before publishing.';
         }
-        $variants = $product->variants()->where('status', 'active')->with('selections')->get();
+        if (trim($product->description) === '') {
+            $issues[] = 'Add a description.';
+        }
+        if (! $product->categories->contains('status', 'active')) {
+            $issues[] = 'Select at least one active category.';
+        }
+        if (! $product->media->contains('status', 'ready')) {
+            $issues[] = 'Add an image and wait for it to finish processing.';
+        }
+        $variants = $product->variants->where('status', 'active');
         if ($variants->isEmpty() || ($product->kind === 'simple' && ($variants->count() !== 1 || $variants->first()->option_signature !== ''))) {
-            $this->invalid('publication', 'At least one complete active SKU is required.');
+            $issues[] = 'Add a complete active variant with a SKU and price.';
         }
-        $optionCount = $product->options()->count();
+        $optionCount = $product->options->count();
         foreach ($variants as $variant) {
             if ($product->kind === 'variant' && ($optionCount === 0 || $variant->selections->count() !== $optionCount)) {
-                $this->invalid('publication', 'Variant options are incomplete.');
+                $issues[] = 'Choose a value for every variant option.';
+                break;
             }
+        }
+
+        return $issues;
+    }
+
+    public function publishable(Product $product): void
+    {
+        // Reload within the write transaction; never authorize from a cached projection.
+        $product->load(['categories', 'media', 'variants.selections', 'options']);
+        $issues = $this->publicationIssues($product);
+        if ($issues !== []) {
+            throw ValidationException::withMessages(['publication' => $issues]);
         }
     }
 
@@ -270,6 +342,24 @@ final class CatalogActions
             $product->content_version++;
             $product->save();
             CatalogAudit::record($archive ? 'product_archived' : 'product_published', 'product', $id, ['before' => $before, 'after' => $product->only(['status', 'content_version'])]);
+
+            return $product;
+        });
+    }
+
+    public function restore(string $id, int $version): Product
+    {
+        return DB::transaction(function () use ($id, $version): Product {
+            $this->lock();
+            $product = Product::lockForUpdate()->findOrFail($id);
+            $this->version($product, ['content_version' => $version]);
+            abort_unless($product->status === 'archived', 409);
+            $before = $product->only(['status', 'content_version']);
+            $product->status = 'draft';
+            $product->archived_at = null;
+            $product->content_version++;
+            $product->save();
+            CatalogAudit::record('product_restored', 'product', $id, ['before' => $before, 'after' => $product->only(['status', 'content_version'])]);
 
             return $product;
         });

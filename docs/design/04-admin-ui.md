@@ -1,47 +1,65 @@
 # Administration UI
 
-Phase 3C.5 visual baseline · 2026-09-23
+Phase 3N admin shell remediation · 2026-09-25 · developer implementation; client retest pending. Supersedes the earlier top-navigation/inline-editor presentation. The approved storefront and business rules remain unchanged.
 
-## Scope
+## Shared application shell
 
-This phase refines the existing staff workspace, catalog administration and inventory screens. It changes presentation, shared controls and navigation metadata. It does not introduce inventory business logic, commerce workflows, new permissions or backend contracts. Authentication, mandatory staff MFA, CSRF handling, server authorization, API payloads and existing transaction behavior remain intact.
+`app/admin/layout.tsx` owns one persistent `AdminFrame`, composed of a desktop sidebar, utility top bar and main content landmark. Individual pages render `AdminShell` from `components/admin/admin-page.tsx` for their title, description, breadcrumbs, primary action and content width. Navigation is never repeated inside individual operational pages.
 
-## Operational layout
+The desktop sidebar is sticky and independently scrollable, 224px expanded and 76px collapsed. The single compact supplied Iranti brand mark links to Admin. Collapse retains accessible link names and hover titles and stores only the preference in local storage; denied browser storage does not prevent navigation. One local stroked SVG icon set supplements text; no icon package was installed. Current location uses `aria-current=page`, a border/marker, weight and background, including nested edit/detail routes.
 
-`AdminShell` provides a distinct staff header, workspace identity, navigation, a skip link and one page-level heading. Storefront merchandising sections and editorial imagery do not appear inside the operational workspace. The staff landing page presents links to existing catalog and inventory tools after its existing access check succeeds.
+Below 1024px the sidebar becomes a native modal drawer, opened from the top bar. It has a labelled trigger, backdrop, explicit forward/reverse Tab boundary wrapping, Escape dismissal and focus return; selecting a destination closes it. The menu remains usable at 320px. The utility bar shows staff name/role and an Account disclosure with My account, Security/MFA and Logout through the existing authentication provider. No role-changing controls appear there.
 
-The design uses the shared warm neutral surfaces, primary green header and restrained borders. Body typography is used for dense section headings and controls. Forms are limited in width, with two columns where space permits and a single column on small screens. Record lists, product media previews and inventory tables favor readable information over decorative cards. Wide tables scroll within their own container instead of forcing page overflow.
+## Navigation and permissions
 
-Shared `Button`, `Input`, `Select`, `Textarea`, `Checkbox`, `Badge` and `Alert` primitives replace page-specific control styles. Buttons preserve native form submission behavior. Product and media statuses remain visible as text inside badges; color is supplementary. Archival and image retirement actions use the destructive button variant, which does not use brand orange. Existing loading, empty, validation and conflict messages remain available.
+| Group | Destinations | Existing grant |
+|---|---|---|
+| Overview | Dashboard | reports.orders, reports.sales or reports.stock |
+| Commerce | Products | catalog.read_internal |
+| Commerce | Categories | catalog.create_update |
+| Commerce | Inventory | inventory.read |
+| Commerce | Orders, including fulfilment in each order | orders.read |
+| Commerce | Payments | payments.reconcile; order-processing staff use approved order payment summaries instead |
+| Commerce | Returns & refunds | returns.read |
+| Management | Staff | staff.provision |
+| Management | Reports | approved report grant |
+| Management | Notifications | audit.read |
 
-## Catalog preservation
+The navigation reads the authenticated identity's permissions and requires completed MFA. Laravel remains authoritative on direct requests, fields and mutations. No new permission, empty Settings destination, separate fulfilment service or notification-sending feature was introduced. Fulfilment remains within the approved order detail workflow.
 
-The catalog screen retains product creation and editing, category membership, generic option values, variants, SKU pricing, media upload and ordering, publication and archival. Existing category pagination and membership preservation are unchanged. Product IDs, content versions, price versions, upload validation and other request data are unchanged.
+## Page hierarchy and routes
 
-Owner-only mutation controls remain owner-only. The order-processing and inventory/store roles retain their existing read-only catalog view. Customer and incomplete-MFA access boundaries remain in place. Presentation is not an authorization boundary: Laravel policies and approved permissions continue to enforce access.
+- Dashboard `/admin`: summary cards for available sales/orders/stock/returns/payment/notification data, with links to operations; no filter form.
+- Reports `/admin/reports`: existing scoped operational reports and filters. Notifications `/admin/notifications`: existing safe delivery-health projection; no recipient/payload/secret exposure.
+- Products `/admin/products`: searchable/filterable paginated table; Add Product in the header; secondary row actions in a disclosure.
+- Product creation `/admin/products/new` and editing `/admin/products/{id}/edit`: readable General/Pricing or Variants/Media/Inventory section selection, with section forms retained while switching. Desktop status/readiness/last-saved/publish/archive panel remains separate from editing. On mobile it follows the selected form. SEO is omitted because no approved editable SEO workflow exists.
+- Categories `/admin/categories`: table; `/admin/categories/new` and `/admin/categories/{id}/edit` contain one category form, not a form under every row.
+- Inventory `/admin/inventory`: operational table with approved role-specific quantities; one selected stock record in a modal for adjustment/history. The existing movement/confirmation/idempotency workflow is retained. Product editing only links to inventory.
+- Orders `/admin/orders`: filtered operational table linking to `/admin/orders/{id}`; detail retains summary, contact, items, payment, fulfilment, history and returns access. Customer order presentation is unchanged.
+- Payments `/admin/payments`: table, one selected payment/history dialog and the existing provider-verification action.
+- Returns `/admin/returns`: server-filtered queue by existing return states; `/admin/returns/{id}` hosts one review workflow. Refund state is a separate column, not an invented return state.
+- Staff `/admin/staff`: table first, invitation dialog, sensitive row actions in a disclosure and existing confirmation dialogs. Recent password/TOTP confirmation remains required. No employee-password field.
 
-## Existing inventory preservation
+## Tables and forms
 
-The inventory screen receives shared controls, table styling, status badges and a consistent confirmation panel. Its existing role behavior is retained:
+`AdminTable` supplies semantic headers, caption, focusable labelled overflow region, loading skeleton and empty state. Pagination is provided through its slot/shared `AdminPagination` or the existing cursor controls. Products, Categories, Inventory, Orders, Payments, Returns and Staff use it. Reports retain their existing semantic report tables. Tables scroll inside bounded containers; grid children explicitly permit shrinking so tables cannot widen the document.
 
-| Role             | Existing visible controls                                                |
-| ---------------- | ------------------------------------------------------------------------ |
-| Owner            | Stock quantities, movement history and existing opening/adjustment forms |
-| Inventory/store  | Read-only quantities and operational movement history                    |
-| Order processing | Availability only, without numeric balances or history                   |
+List pages have a wide content bound (1480px maximum). Creation/category forms have a 940px page bound and 880px form bound; product editing allocates a separate 260px status column. Forms group labelled controls in two columns where useful and one on narrow screens. Inputs are approximately 38px high; multiline textareas are reserved for descriptions/reasons. Product media previews have an explicit height so image wrappers cannot overlap metadata/upload forms.
 
-**Phase 3D status update (2026-09-23):** the existing inventory surfaces now have a completed and verified backend under accepted ADR-013 revision 2. Phase 3D is ready for its separate approval; see the [inventory report](../development/phase-3d-report.md). The Phase 3C.5 UI design is unchanged.
+API contracts remain stable. Category counts, customer identities in payment/list projections, and staff last activity are not supplied by current list APIs: the UI links to the existing product/order detail rather than fabricating values or fetching whole datasets for counts. Variant option names remain in product editing; inventory identifies the variant by SKU. Refund Pending is not a server return-status filter; refund state is displayed alongside the existing request-state filters.
 
-The stock review still shows the intended change and resulting on-hand quantity. Existing idempotency keys, retry handling, conflict refreshes, validation and server requests are unchanged. This design phase does not alter reservation, allocation or stock calculations.
+## Status, action and feedback system
 
-## Account and security separation
+`StatusBadge` presents a readable label and symbol with restrained semantic surface/border styling. State meaning never relies on color alone. Primary actions are Save/Publish/Add; secondary actions are Back/Cancel/Search/View; destructive actions are Archive/Disable, separated and confirmed. Buttons size to their label rather than filling grid cells. Financial actions still follow server-provided eligibility and recent-auth rules.
 
-Customer account navigation includes only the existing overview, collection link and conditional staff/security links. It does not add deferred order history, addresses or wishlist screens. Authentication and MFA use the branded auth layout, with visible labels, password affordances and unchanged security flows. Private auth, account and administration routes explicitly remain `noindex`.
+`ActionMenu` uses a keyboard-operable native disclosure with an accessible label and Escape closure. Native `Modal`/`Drawer` retain focus trapping, Escape handling and trigger-focus restoration. Shared alerts provide assertive errors and polite success feedback; section/table loading avoids replacing the whole workspace. No API exception, SQL, token or provider payload is displayed. Existing backend errors remain translated by the request adapters.
 
-## Accessibility and implementation hooks
+Admin semantic tokens (`--admin-sidebar`, `--admin-sidebar-active`, `--admin-surface`, `--admin-border`, `--admin-muted`, `--admin-table-header`) derive from approved green/cream/charcoal and restrained orange focus accents. New visual overrides are scoped to `.admin-frame`; customer storefront styling and approved business behavior are not redesigned.
 
-Native labels, buttons, inputs, fieldsets, table headers and navigation landmarks are retained. Error alerts expose `role="alert"`; nonurgent notices expose `role="status"`. No meaning depends on color alone. The shared focus treatment and reduced-motion rules apply to these routes.
+## Verification and acceptance
 
-Primary CSS hooks are `admin-shell`, `admin-header`, `admin-main`, `admin-page-heading`, `admin-workspace`, `admin-tool-grid`, `admin-panel`, `admin-form-grid`, `admin-record`, `admin-record-media`, `admin-table`, `admin-pagination` and `admin-confirmation`. Account pages use `account-layout container`, `account-header`, `account-nav`, `account-panel` and `account-details`.
+See the current shell addendum in [Phase 3N admin UX report](../development/phase-3n-admin-ux-report.md), the [defect register](../uat/02-defect-register.md), and its linked screenshot evidence. Developer browser automation, accessibility checks and regression results are distinct from human/client acceptance. Phase 3N remains open; Phase 3O is not authorized.
 
-Regression coverage verifies existing catalog and inventory controls alongside authentication payloads, MFA routing, reset-token fragment handling, recovery-code behavior and customer/staff navigation. Visual and accessibility verification limits are recorded in [Responsive and accessibility review](05-responsive-accessibility.md).
+## Phase 3N catalog follow-up — 2026-09-25
+
+Products now separate the primary Edit action from a labelled ellipsis disclosure, without a second Edit inside it. Only applicable Publish/Archive/View storefront/Restore actions appear. Restore has a confirmation and returns to Draft for review. Draft saving remains independent of publication readiness. Tax selection shows approved business labels only; a sole current rule is automatic, multiple rules use a controlled optional dropdown, and missing configuration produces a non-blocking draft notice. Staff land in `/admin` after MFA and have profile/security access through the utility menu; customers retain `/account`.

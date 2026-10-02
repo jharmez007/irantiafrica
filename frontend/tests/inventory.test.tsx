@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { AdminInventory } from "../src/components/inventory/admin-inventory";
 import { ApiError } from "../src/lib/auth-api";
 import type { InventoryEntry } from "../src/lib/inventory";
+import { toast } from "../src/lib/toast";
 
 const mocks = vi.hoisted(() => ({
   auth: {
@@ -53,12 +54,38 @@ beforeEach(() => {
   mocks.api.mockImplementation(async (path: string) => respond(path));
 });
 afterEach(cleanup);
+afterEach(() => window.history.pushState({}, "", "/"));
+it("keeps a direct return path when inventory is opened from a product", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  window.history.pushState({}, "", `/admin/inventory?q=WOVEN-1&product=${id}`);
+  mocks.api.mockImplementation(async (path: string) =>
+    respond(path, { ...entry, product_id: id }),
+  );
+  render(<AdminInventory />);
+  const back = await screen.findByRole("link", {
+    name: "← Back to Woven textile",
+  });
+  expect(back.getAttribute("href")).toBe(`/admin/products/${id}/edit`);
+  expect(mocks.api).toHaveBeenCalledWith(expect.stringContaining("q=WOVEN-1"));
+});
 async function selectEntry() {
   const user = userEvent.setup();
-  await user.click(
-    await screen.findByRole("button", { name: "Woven textile — WOVEN-1" }),
-  );
-  await screen.findByRole("heading", { name: "Woven textile — WOVEN-1" });
+  const role = mocks.auth.user?.roles[0];
+  const action =
+    role === "owner"
+      ? "Adjust stock"
+      : role === "inventory_store"
+        ? "View history"
+        : "View stock";
+  await user.click(await screen.findByRole("button", { name: action }));
+  await screen.findByRole("dialog", {
+    name:
+      role === "owner"
+        ? "Adjust Stock"
+        : role === "inventory_store"
+          ? "Stock movement history"
+          : "Stock availability",
+  });
   return user;
 }
 async function reviewAdjustment() {
@@ -69,6 +96,137 @@ async function reviewAdjustment() {
   return user;
 }
 describe("inventory administration", () => {
+  it("opens separate adjustment and history modals with labelled numeric input", async () => {
+    render(<AdminInventory />);
+    const user = await selectEntry();
+    const adjust = screen.getByRole("dialog", { name: "Adjust Stock" });
+    const quantity = within(adjust).getByRole("spinbutton", {
+      name: "Quantity change",
+    });
+    expect(quantity.getAttribute("type")).toBe("number");
+    expect(quantity.getAttribute("step")).toBe("1");
+    expect(quantity.getAttribute("aria-describedby")).toBe(
+      "inventory-amount-hint",
+    );
+    await user.type(quantity, "abc");
+    expect((quantity as HTMLInputElement).value).toBe("");
+    await user.type(quantity, "-4");
+    expect((quantity as HTMLInputElement).value).toBe("-4");
+    expect(
+      within(adjust).getByText(
+        "Use a positive number to add stock or a negative number to remove stock.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(adjust).queryByRole("table", { name: "Stock movement history" }),
+    ).toBeNull();
+    expect(
+      mocks.api.mock.calls.some(([path]) =>
+        String(path).includes("/movements?"),
+      ),
+    ).toBe(false);
+    await user.click(within(adjust).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    const history = await screen.findByRole("dialog", {
+      name: "Stock movement history",
+    });
+    expect(
+      within(history).getByRole("table", { name: "Stock movement history" }),
+    ).toBeTruthy();
+    expect(within(history).queryByRole("spinbutton")).toBeNull();
+    expect(
+      within(history).getByRole("columnheader", { name: "Recorded by" }),
+    ).toBeTruthy();
+    await user.click(within(history).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("resets entered values, review and validation errors when adjustment closes", async () => {
+    render(<AdminInventory />);
+    const user = await selectEntry();
+    const quantity = screen.getByRole("spinbutton", {
+      name: "Quantity change",
+    });
+    await user.type(quantity, "0");
+    await user.type(screen.getByLabelText("Reason"), "Count correction");
+    await user.click(
+      screen.getByRole("button", { name: "Review stock change" }),
+    );
+    expect(screen.getByRole("alert").textContent).toContain("whole-number");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Adjust stock" }));
+    const reopened = await screen.findByRole("dialog", {
+      name: "Adjust Stock",
+    });
+    expect(
+      (
+        within(reopened).getByRole("spinbutton", {
+          name: "Quantity change",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("");
+    expect(
+      (within(reopened).getByLabelText("Reason") as HTMLTextAreaElement).value,
+    ).toBe("");
+    expect(within(reopened).queryByRole("alert")).toBeNull();
+    expect(
+      within(reopened).queryByRole("button", { name: "Confirm stock change" }),
+    ).toBeNull();
+  });
+  it("pages a structured history table without opening adjustment", async () => {
+    mocks.api.mockImplementation(async (path: string) => {
+      if (path.includes("/movements?")) {
+        const page = Number(
+          new URLSearchParams(path.split("?")[1]).get("page"),
+        );
+        return {
+          data: [
+            {
+              id: `movement-${page}`,
+              kind: "adjustment",
+              on_hand_delta: -3,
+              reserved_delta: 0,
+              on_hand_after: 97,
+              reserved_after: 2,
+              reason: "Damaged units removed",
+              actor: { id: "owner", name: "Owner Person" },
+              created_at: "2026-09-22T10:00:00Z",
+            },
+          ],
+          meta: { ...meta, current_page: page, last_page: 2, total: 2 },
+        };
+      }
+      return respond(path);
+    });
+    render(<AdminInventory />);
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "View history" }),
+    );
+    const history = await screen.findByRole("dialog", {
+      name: "Stock movement history",
+    });
+    expect(within(history).getByText("Damaged units removed")).toBeTruthy();
+    expect(within(history).getByText("Owner Person")).toBeTruthy();
+    expect(within(history).queryByRole("spinbutton")).toBeNull();
+    await user.click(
+      within(
+        within(history).getByRole("navigation", {
+          name: "Movement pagination",
+        }),
+      ).getByRole("button", { name: "Next" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith(
+        "/inventory/variant/movements?page=2&per_page=20",
+      ),
+    );
+    expect(await within(history).findByText("Page 2 of 2")).toBeTruthy();
+    expect(
+      within(history).getByRole("columnheader", { name: "On hand after" }),
+    ).toBeTruthy();
+  });
   it("requires staff MFA and refuses customer access before fetching", () => {
     mocks.auth.user = {
       authentication_state: "mfa_required",
@@ -155,6 +313,7 @@ describe("inventory administration", () => {
     ).toBeTruthy();
   });
   it("requires owner review and reuses the idempotency key for an unchanged retry", async () => {
+    const success = vi.spyOn(toast, "success");
     let attempts = 0;
     mocks.api.mockImplementation(async (path: string, method?: string) => {
       if (method === "POST" && attempts++ === 0)
@@ -172,6 +331,7 @@ describe("inventory administration", () => {
       screen.getByRole("button", { name: "Confirm stock change" }),
     );
     await screen.findByRole("alert");
+    expect(screen.getByRole("dialog", { name: "Adjust Stock" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Cancel review" }));
     await user.click(
       screen.getByRole("button", { name: "Review stock change" }),
@@ -179,9 +339,13 @@ describe("inventory administration", () => {
     await user.click(
       screen.getByRole("button", { name: "Confirm stock change" }),
     );
-    await screen.findByText(
-      "Stock change saved. Inventory is being refreshed.",
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(
+        "Stock change saved",
+        "Inventory is being refreshed.",
+      ),
     );
+    expect(screen.queryByRole("dialog")).toBeNull();
     const writes = mocks.api.mock.calls.filter(
       ([, method]) => method === "POST",
     );
@@ -205,6 +369,7 @@ describe("inventory administration", () => {
       screen.getByRole("button", { name: "Confirm stock change" }),
     );
     await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "Cancel review" }));
     await user.clear(screen.getByLabelText("Quantity change"));
     await user.type(screen.getByLabelText("Quantity change"), "-4");
     expect(
@@ -349,4 +514,14 @@ describe("inventory administration", () => {
       ),
     );
   });
+});
+
+// jsdom needs the native dialog open/close state; focus behavior is checked in Chrome.
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
 });

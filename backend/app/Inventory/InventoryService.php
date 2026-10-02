@@ -51,6 +51,42 @@ final class InventoryService
         return $this->manual($variantId, $delta, $reason, $key, $actor, $expectedVersion);
     }
 
+    /** Configure an alert threshold without changing physical or reserved stock. */
+    public function setLowStockThreshold(string $variantId, int $threshold, User $actor): Inventory
+    {
+        $variantId = self::uuid($variantId);
+        if ($threshold < 0 || $threshold > StockMath::MAX) {
+            throw new InvalidArgumentException('Low-stock threshold must be between zero and the stock limit.');
+        }
+
+        return $this->transaction(function () use ($variantId, $threshold, $actor): Inventory {
+            $currentActor = User::query()->lockForUpdate()->findOrFail($actor->id);
+            abort_unless($currentActor->hasPermission('inventory.adjust'), 403);
+            ProductVariant::query()->lockForUpdate()->findOrFail($variantId);
+            $stock = Inventory::where('variant_id', $variantId)->lockForUpdate()->firstOrFail();
+            if ($stock->low_stock_threshold === $threshold) {
+                return $stock;
+            }
+            if ($stock->version === '9223372036854775807') {
+                throw new InventoryConflict('STOCK_LIMIT_EXCEEDED', 'The inventory version limit requires maintenance.');
+            }
+            $previous = $stock->low_stock_threshold;
+            $stock->low_stock_threshold = $threshold;
+            $stock->version = (string) ((int) $stock->version + 1);
+            $stock->save();
+            DB::table('audit_logs')->insert([
+                'id' => (string) Str::uuid7(), 'actor_user_id' => $currentActor->id, 'actor_type' => 'user',
+                'action' => 'inventory.threshold_changed', 'subject_type' => 'inventory',
+                'subject_id' => $stock->id, 'outcome' => 'success', 'reason' => 'Low-stock alert threshold configured',
+                'changes' => json_encode(['variant_id' => $variantId, 'from' => $previous, 'to' => $threshold], JSON_THROW_ON_ERROR),
+                'request_id' => request()->attributes->get('request_id') ?? (string) Str::uuid7(),
+                'occurred_at' => now(), 'created_at' => now(),
+            ]);
+
+            return $stock;
+        });
+    }
+
     /**
      * Internal callers retain referenceId AND generation across retries. A new hold
      * requires an explicitly incremented generation, never an ambiguous replay.
@@ -273,7 +309,8 @@ final class InventoryService
                     throw new InventoryConflict('INVENTORY_ALREADY_INITIALIZED', 'Opening stock already exists; use an adjustment.');
                 }
                 $stock = new Inventory;
-                $stock->forceFill(['variant_id' => $variantId, 'on_hand' => 0, 'reserved' => 0, 'low_stock_threshold' => 0, 'version' => '1']);
+                $stock->forceFill(['variant_id' => $variantId, 'on_hand' => 0, 'reserved' => 0,
+                    'low_stock_threshold' => (int) config('inventory.low_stock_threshold'), 'version' => '1']);
             } else {
                 if ($stock === null) {
                     throw new InventoryConflict('INVENTORY_NOT_INITIALIZED', 'Opening stock must be established first.');

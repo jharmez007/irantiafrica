@@ -1,4 +1,5 @@
 import { ApiError, csrfCookie } from "./auth-api";
+import { reportSessionFailure } from "./session-events";
 export async function catalogAdmin<T>(
   path: string,
   method = "GET",
@@ -37,8 +38,9 @@ export async function catalogAdmin<T>(
     },
   );
   if (r.status === 204) return undefined as T;
-  const body = await r.json();
-  if (!r.ok)
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    reportSessionFailure(r.status, path);
     throw new ApiError(
       r.status,
       Object.values(body.error?.fields ?? {})
@@ -50,6 +52,7 @@ export async function catalogAdmin<T>(
             ? "You do not have permission for this action."
             : "The request failed. Please sign in or try again."),
     );
+  }
   return body as T;
 }
 export async function uploadImage(

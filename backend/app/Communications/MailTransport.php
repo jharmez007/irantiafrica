@@ -13,8 +13,9 @@ final class MailTransport
     public function send(string $recipient, array $payload, string $id): array
     {
         $mode = app()->environment();
-        $mailer = in_array($mode, ['local', 'testing'], true) ? 'array' : config('mail.default');
-        $simulated = $mailer === 'array';
+        $mailer = $mode === 'testing' ? 'array' : ($mode === 'local' ? (config('mail.default') === 'mailpit' ? 'mailpit' : 'array') : config('mail.default'));
+        $capture = $mode === 'local' && $mailer === 'mailpit';
+        $simulated = $mailer === 'array' || $capture;
         try {
             NotificationContent::origin();
             if (! filter_var($recipient, FILTER_VALIDATE_EMAIL) || preg_match('/[\r\n]/', $recipient)) {

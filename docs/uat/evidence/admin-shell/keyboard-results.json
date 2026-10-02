@@ -1,0 +1,46 @@
+[
+  {
+    "name": "Drawer takes focus",
+    "data": true
+  },
+  {
+    "name": "Drawer contains repeated Tab navigation",
+    "data": true
+  },
+  {
+    "name": "Drawer axe violations",
+    "data": []
+  },
+  {
+    "name": "Escape closes drawer",
+    "data": true
+  },
+  {
+    "name": "Focus returns to menu trigger",
+    "data": true
+  },
+  {
+    "name": "Visible focus",
+    "data": true
+  },
+  {
+    "name": "Collapse persists",
+    "data": true
+  },
+  {
+    "name": "Collapsed sidebar survives route navigation",
+    "data": true
+  },
+  {
+    "name": "Reduced motion non-smooth scrolling",
+    "data": true
+  },
+  {
+    "name": "200% CSS zoom no page overflow",
+    "data": true
+  },
+  {
+    "name": "Media form stays inside gallery tile",
+    "data": true
+  }
+]

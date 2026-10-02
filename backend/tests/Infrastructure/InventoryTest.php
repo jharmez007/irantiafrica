@@ -171,6 +171,31 @@ final class InventoryTest extends TestCase
         $this->assertSame(2, DB::table('audit_logs')->where('action', 'like', 'inventory.%')->count());
     }
 
+    public function test_threshold_configuration_is_audited_idempotent_and_does_not_move_stock(): void
+    {
+        $owner = $this->staff();
+        $variant = $this->variant();
+        $this->initialize($owner, $variant, 5);
+        $service = app(InventoryService::class);
+        $original = $this->stock($variant);
+        $configured = $service->setLowStockThreshold($variant->id, 5, $owner);
+        $this->assertSame(5, $configured->low_stock_threshold);
+        $this->assertSame(5, $configured->on_hand);
+        $this->assertSame(0, $configured->reserved);
+        $this->assertSame((string) ((int) $original->version + 1), $configured->version);
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'inventory.threshold_changed')->count());
+        $this->assertSame(1, InventoryMovement::where('variant_id', $variant->id)->count());
+        $service->setLowStockThreshold($variant->id, 5, $owner);
+        $this->assertSame($configured->version, $this->stock($variant)->version);
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'inventory.threshold_changed')->count());
+        try {
+            $service->setLowStockThreshold($variant->id, 5, User::factory()->create(['password' => self::PASSWORD]));
+            $this->fail('An unprivileged user changed the threshold.');
+        } catch (HttpExceptionInterface $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+    }
+
     public function test_adjustment_cannot_remove_reserved_stock_underflow_or_overflow(): void
     {
         $owner = $this->staff();

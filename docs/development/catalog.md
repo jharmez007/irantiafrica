@@ -17,6 +17,7 @@ A product contains name, stable slug, plain-text description, kind, editorial st
 - Published products remain editable within these completeness rules. A content-version mismatch returns 409. Price/status changes require the current variant price version.
 - Archival is explicit and retains product, options, variants, media metadata and reserved slugs/SKUs. There is no product DELETE endpoint or blanket soft deletion. Archived products cannot be edited or republished through the current commands.
 - Option definitions must be completed before the first variant is created. Additional values may be appended to existing options. Existing option labels, selections and SKUs are immutable through the API; create a replacement product when its selectable structure changes materially.
+- Phase 3N UAT adds versioned removal of an option value or a whole option only while the product is Draft and has no saved variants. After any variant exists, option/value removal returns 409 to preserve combination signatures, stock, carts and historical references. The owner can instead archive individual variants through the existing versioned status update; this retains SKU, inventory and commerce history and excludes the variant from new purchases. Archived combinations remain reserved, so later generation adds only genuinely new combinations and cannot duplicate or overwrite old SKU/price records.
 - Variant archival/restoration changes catalog state, never inventory. Archiving the last active SKU of a published product is rejected. An archived combination can be restored; it cannot be duplicated under another SKU.
 
 The backend decides visibility. Public reads require publication, an active category, an active variant and ready media. Draft/archived products return 404. Phase 3C does not claim stock availability: zero-stock hiding, allocation and purchase eligibility await Phase 3D. The UI has no cart action and says ordering is not yet available.
@@ -43,6 +44,7 @@ All paths below are relative to `/api/v1`. JSON success uses `data`; paginated l
 | POST `/admin/products/{id}/publication`, `/archive` | `catalog.publish_archive`; content version required |
 | POST `/admin/products/{id}/options` | `catalog.create_update`; name/position and explicit values |
 | POST `/admin/options/{id}/values` | `catalog.create_update`; append values |
+| DELETE `/admin/options/{id}/values/{valueId}`, DELETE `/admin/options/{id}` | `catalog.create_update`; current content version; Draft and no saved variants only |
 | POST `/admin/products/{id}/variants` | `catalog.create_update`; SKU, minor-unit price and exact value IDs |
 | PATCH `/admin/variants/{id}` | `catalog.create_update`; price/status and price version |
 | GET `/admin/categories` | `catalog.read_internal` |
@@ -65,7 +67,7 @@ Product reads eagerly load categories, options/values, variants/selections and m
 
 Next SSR uses `CATALOG_INTERNAL_READ_KEY` on a private request header to receive a distinct bounded 3000/minute renderer budget. Unknown/forged headers retain the 120/minute public IP budget. This key changes no visibility or staff authorization and is never a NEXT_PUBLIC variable or forwarded browser credential. Both application environments must share a strong key; the setup script creates it without printing/rotating existing secrets. Production API routing must preserve the edge's trusted client-IP model; never trust arbitrary forwarded headers. These budgets are engineering defaults, not a capacity/SLA claim.
 
-Routes: `/products`, `/products/[slug]`, `/categories/[slug]`, `/search`, plus `/shop` redirecting to `/products`; admin catalog is `/admin/catalog`. Server-rendered public content has titles/descriptions, canonical URLs, Open Graph, sitemap and robots rules. Search and filtered catalog URLs are noindex. Product JSON-LD includes only known identity/description/images/URL; no invented offer availability, ratings or reviews. It escapes `<` before embedding. Private areas retain noindex.
+Routes: `/products`, `/products/[slug]`, `/categories/[slug]`, `/search`, plus `/shop` redirecting to `/products`; admin products use `/admin/products`, `/admin/products/new`, `/admin/products/{id}/edit`, with categories at `/admin/categories`; `/admin/catalog` redirects to Products. Server-rendered public content has titles/descriptions, canonical URLs, Open Graph, sitemap and robots rules. Search and filtered catalog URLs are noindex. Product JSON-LD includes only known identity/description/images/URL; no invented offer availability, ratings or reviews. It escapes `<` before embedding. Private areas retain noindex.
 
 Forms have labels, semantic fieldsets, focus indicators, validation/status messages and keyboard-operable native selects. Variant selection displays actual SKU prices and distinguishes nonexistent catalog combinations. Responsive WebP images use explicit dimensions, meaningful alt text and deduplicated srcset widths. Client branding and full device/screen-reader acceptance remain outstanding.
 
@@ -76,3 +78,18 @@ At this launch scale, catalog mutations use PostgreSQL advisory transaction lock
 Audit records product/category before/after fields, sorted memberships, bounded description previews/length/hash, price/status changes, publication/archive, options/values, media lifecycle and alt/order changes. No public-read noise or credentials/upload signatures are logged. Long descriptions are deliberately not an unlimited content-version archive.
 
 Phase 3D must implement its approved variant-before-inventory lock order when adding stock-sensitive checks. The current catalog-only publication action does not pretend to validate stock. Preserve historical variant IDs and future order snapshots; financial FKs must restrict deletion as designed.
+
+
+## Phase 3N operational remediation — 2026-09-25
+
+See [root cause, revised UI and current retest evidence](phase-3n-admin-ux-report.md). Admin reads now include safe inventory summaries, last-updated timestamps and backend-derived publication issues. `GET /api/v1/admin/tax-categories` requires `catalog.create_update` and projects code/label from current checkout configuration; it does not create tax policy. Admin product lists also accept `status=draft|published|archived` and any existing category slug; public status filters remain prohibited.
+
+The editor uses exact string/BigInt naira-to-kobo conversion and explicit section saves. Media status polls every three seconds while processing, pauses for hidden pages, pending writes or unsaved General edits, and stops with a retry instruction after 60 checks. Publication uses the refreshed content version; the backend still rejects stale writes and incomplete setup. On-hand/reserved/available are summaries only: inventory changes use the existing service. Stock is **not** a publication prerequisite; positive available stock controls public listing/search eligibility. No hard deletion, catalog schema change or commerce policy change was introduced.
+
+## Phase 3N draft, tax and restore correction — 2026-09-25
+
+Draft creation requires only a product name; type defaults to simple. Description, categories, SKU/price, media and tax may remain incomplete. The optional tax choice must come from current published configuration; no arbitrary strings. A sole configured treatment is applied on save for new/unassigned products; multiple choices use friendly labels. See [tax rules and migration](tax.md#phase-3n-catalog-workflow-correction--2026-09-25). Backend readiness, publication and published edits require a current configured treatment, description, active category, ready image and complete active SKU/variant configuration. Opening stock still governs availability rather than publication.
+
+`POST /api/v1/admin/products/{id}/restore` uses the existing `catalog.publish_archive` permission, session/MFA/CSRF middleware, content-version check and transactional audit. Only archived records restore, always to Draft. It clears `archived_at`, advances `content_version`, retains prior publication time/history, and does not touch product data, media, variant status, SKU reservations, inventory balances/ledger or historical orders. Stale/repeated/out-of-state requests conflict; explicit publication is required afterward. No deletion or implicit stock write occurs.
+
+The Products table has one dedicated Edit link/button and a labelled ellipsis disclosure for state-valid secondary actions. Draft: Publish when ready, Archive. Published: View storefront, Archive. Archived: Restore with confirmation. The editor also exposes Restore to Draft. Missing configuration guidance never disables draft Save.

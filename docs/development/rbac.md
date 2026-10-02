@@ -27,10 +27,11 @@ After reviewing migration target/environment:
 3. Bootstrap succeeds only when no owner assignment exists (including disabled owners), inside the staff advisory lock. It appends service audit events. Bootstrap owner must sign in and confirm MFA before staff access.
 4. Further staff creation uses POST /api/v1/admin/staff from an MFA-complete owner with recent authentication. Body: name, email, one approved role. Initial password is random and undisclosed; an encrypted queued recovery notification lets the recipient set a password, then enroll MFA. Configure SMTP/identity worker before onboarding real staff.
 
-No full staff-management UI was built. Controlled API/service operations:
+Phase 3N operational completion adds owner-only `/admin/staff`: paginated/searchable staff, setup invitations, approved role assignment, disable and MFA reset. The existing recent password/TOTP confirmation and server gates remain mandatory. No new provisioning mechanism or permission is introduced. Local invitation capture is optional; see [local setup](local-setup.md#phase-3n-admin-uat-and-optional-mailpit-2026-09-25). Controlled API/service operations:
 
 | Endpoint | Gate / additional safeguards |
 |---|---|
+| GET /api/v1/admin/staff | staff.provision + recent auth; name/email/role/status/MFA-enrolled boolean only, no secrets; search/pagination |
 | POST /api/v1/admin/staff | staff.provision + recent auth; validated role only; audit |
 | PATCH /api/v1/admin/staff/{uuid}/roles | roles.assign + recent auth; no self-change, no arbitrary permissions, last-owner guard; revoke sessions/reset tokens |
 | POST /api/v1/admin/staff/{uuid}/disable | staff.provision + recent auth; no self-disable, last-owner guard; revoke sessions/reset tokens |
@@ -47,3 +48,9 @@ Events: owner_bootstrapped, staff_created, role_assigned, role_changed, staff_di
 
 ## Verification
 The test matrix independently enumerates every approved grant and tests all 93 role/capability cells through backend gates after MFA. Additional tests cover unapproved permissions, password-only owner denial, customers, self-escalation, role payload injection, recent auth, last-owner defense, session revocation and administrative reset. See [final report](phase-3b-report.md) for executed totals and limits.
+
+## Phase 3N staff landing correction — 2026-09-25
+
+The shared `/login` routes authenticated owner/order-processing/inventory-store identities to `/admin`; incomplete enrollment or MFA challenge still goes to `/mfa`, then to `/admin`. Enrollment recovery codes must be acknowledged before leaving. Registered customers continue to `/account`; that route remains their account/order area. Staff visiting its overview are redirected to administration. The admin Account menu links to `/admin/account` for the existing read-only name/email profile and `/mfa` for security. This changes presentation routing only; backend identity, session, MFA and permission checks remain authoritative.
+
+Phase 3N logout, 401/419 handling and toast/inline-feedback usage are documented in [auth-session-toast.md](auth-session-toast.md).

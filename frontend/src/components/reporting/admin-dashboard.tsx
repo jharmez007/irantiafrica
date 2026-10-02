@@ -107,7 +107,9 @@ function Card({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-export function AdminDashboard() {
+export function AdminDashboard({
+  mode = "reports",
+}: { mode?: "overview" | "reports" | "notifications" } = {}) {
   const { user, loading } = useAuth();
   const permissions = user?.permissions ?? [];
   const available = [
@@ -194,7 +196,20 @@ export function AdminDashboard() {
   const page = paged && "pagination" in paged ? paged.pagination : null;
   return (
     <AdminShell
-      title="Operational dashboard"
+      title={
+        mode === "overview"
+          ? "Dashboard"
+          : mode === "notifications"
+            ? "Notifications"
+            : "Reports"
+      }
+      actions={
+        mode === "overview" ? (
+          <Link className="button button--secondary" href="/admin/reports">
+            View reports
+          </Link>
+        ) : undefined
+      }
       description="Basic sales, order and stock reporting for your role."
     >
       {loading ? (
@@ -206,110 +221,114 @@ export function AdminDashboard() {
         </p>
       ) : (
         <>
-          <nav className="report-links" aria-label="Operational tools">
-            <Link href="/admin/catalog">Catalog</Link>
-            {permissions.includes("orders.read") && (
-              <Link href="/admin/orders">Orders</Link>
-            )}
-            {permissions.includes("reports.stock") && (
-              <Link href="/admin/inventory">Inventory</Link>
-            )}
-            {permissions.includes("payments.reconcile") && (
-              <Link href="/admin/payments">Payment issues</Link>
-            )}
-            {permissions.includes("returns.read") && (
-              <Link href="/admin/returns">Returns</Link>
-            )}
-          </nav>
-          <form
-            className="report-filters admin-panel"
-            aria-describedby="report-dates"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setQuery({
-                range,
-                from,
-                to,
-                stock,
-                page: 1,
-                report: selection,
-              });
-            }}
-          >
-            <label>
-              Report
-              <Select
-                value={selection}
-                onChange={(e) => setSelection(e.target.value)}
-              >
-                <option value="dashboard">Overview</option>
-                {available.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label>
-              Date range
-              <Select
-                value={range}
-                onChange={(e) => {
-                  setRange(e.target.value);
-                  if (e.target.value === "custom") {
-                    setFrom(from || data?.range.from || "");
-                    setTo(to || data?.range.to || "");
-                  }
-                }}
-              >
-                <option value="today">Today</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="custom">Custom range</option>
-              </Select>
-            </label>
-            {range === "custom" && (
-              <>
-                <label>
-                  From
-                  <Input
-                    type="date"
-                    required
-                    value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                  />
-                </label>
-                <label>
-                  To
-                  <Input
-                    type="date"
-                    required
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-            {permissions.includes("reports.stock") && (
+          {mode === "reports" && (
+            <nav className="report-links" aria-label="Operational tools">
+              <Link href="/admin/catalog">Catalog</Link>
+              {permissions.includes("orders.read") && (
+                <Link href="/admin/orders">Orders</Link>
+              )}
+              {permissions.includes("reports.stock") && (
+                <Link href="/admin/inventory">Inventory</Link>
+              )}
+              {permissions.includes("payments.reconcile") && (
+                <Link href="/admin/payments">Payment issues</Link>
+              )}
+              {permissions.includes("returns.read") && (
+                <Link href="/admin/returns">Returns</Link>
+              )}
+            </nav>
+          )}
+          {mode === "reports" && (
+            <form
+              className="report-filters admin-panel"
+              aria-describedby="report-dates"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setQuery({
+                  range,
+                  from,
+                  to,
+                  stock,
+                  page: 1,
+                  report: selection,
+                });
+              }}
+            >
               <label>
-                Stock rows
+                Report
                 <Select
-                  value={stock}
-                  onChange={(e) => setStock(e.target.value)}
+                  value={selection}
+                  onChange={(e) => setSelection(e.target.value)}
                 >
-                  <option value="all">All active variants</option>
-                  <option value="low">Low stock</option>
-                  <option value="out">Out of stock</option>
-                  <option value="uninitialized">Not initialized</option>
+                  <option value="dashboard">Overview</option>
+                  {available.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </Select>
               </label>
-            )}
-            <Button disabled={busy}>Apply filters</Button>
-            <p id="report-dates">
-              Calendar days in Africa/Lagos; custom ranges are limited to 366
-              days. Inventory and current queues are live snapshots.
-            </p>
-          </form>
+              <label>
+                Date range
+                <Select
+                  value={range}
+                  onChange={(e) => {
+                    setRange(e.target.value);
+                    if (e.target.value === "custom") {
+                      setFrom(from || data?.range.from || "");
+                      setTo(to || data?.range.to || "");
+                    }
+                  }}
+                >
+                  <option value="today">Today</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="custom">Custom range</option>
+                </Select>
+              </label>
+              {range === "custom" && (
+                <>
+                  <label>
+                    From
+                    <Input
+                      type="date"
+                      required
+                      value={from}
+                      onChange={(e) => setFrom(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    To
+                    <Input
+                      type="date"
+                      required
+                      value={to}
+                      onChange={(e) => setTo(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+              {permissions.includes("reports.stock") && (
+                <label>
+                  Stock rows
+                  <Select
+                    value={stock}
+                    onChange={(e) => setStock(e.target.value)}
+                  >
+                    <option value="all">All active variants</option>
+                    <option value="low">Low stock</option>
+                    <option value="out">Out of stock</option>
+                    <option value="uninitialized">Not initialized</option>
+                  </Select>
+                </label>
+              )}
+              <Button disabled={busy}>Apply filters</Button>
+              <p id="report-dates">
+                Calendar days in Africa/Lagos; custom ranges are limited to 366
+                days. Inventory and current queues are live snapshots.
+              </p>
+            </form>
+          )}
           {busy && <p role="status">Loading operational reports…</p>}
           {error && (
             <div role="alert">
@@ -319,7 +338,93 @@ export function AdminDashboard() {
               </Button>
             </div>
           )}
-          {data && (
+          {data && mode === "overview" && (
+            <>
+              <p className="admin-period">
+                Last 30 days · {data.range.timezone}. Stock and queues show
+                current state.
+              </p>
+              <div className="admin-summary-grid">
+                {data.sales && (
+                  <Link href="/admin/reports">
+                    <span>Net collections</span>
+                    <strong>{data.sales.formatted.net_minor}</strong>
+                    <small>Receipts less successful refunds →</small>
+                  </Link>
+                )}
+                {data.orders && (
+                  <Link href="/admin/orders">
+                    <span>Orders</span>
+                    <strong>
+                      {Object.values(data.orders.counts).reduce(
+                        (sum, n) => sum + n,
+                        0,
+                      )}
+                    </strong>
+                    <small>Review orders and fulfilment →</small>
+                  </Link>
+                )}
+                {data.stock && (
+                  <Link href="/admin/inventory">
+                    <span>Low-stock variants</span>
+                    <strong>{data.stock.counts.low_stock}</strong>
+                    <small>Positive stock at or below its threshold →</small>
+                  </Link>
+                )}
+                {data.returns && (
+                  <Link href="/admin/returns">
+                    <span>Open returns</span>
+                    <strong>{data.returns.open_count}</strong>
+                    <small>Review requests and refunds →</small>
+                  </Link>
+                )}
+                {data.payments && (
+                  <Link href="/admin/payments">
+                    <span>Payment reconciliation</span>
+                    <strong>{data.payments.reconciliation_needed}</strong>
+                    <small>Check payment operations →</small>
+                  </Link>
+                )}
+                {data.notifications && (
+                  <Link href="/admin/notifications">
+                    <span>Notification failures</span>
+                    <strong>
+                      {data.notifications.counts
+                        .filter((c) => c.status === "FAILED")
+                        .reduce((sum, c) => sum + c.count, 0)}
+                    </strong>
+                    <small>Review delivery health →</small>
+                  </Link>
+                )}
+              </div>
+            </>
+          )}
+          {data && mode === "notifications" && (
+            <section className="admin-panel">
+              {data.notifications ? (
+                <>
+                  <h2>Transactional notification health</h2>
+                  <p>
+                    {data.notifications.enabled
+                      ? "Delivery enabled"
+                      : "Delivery disabled"}{" "}
+                    · Pending retries: {data.notifications.pending_retry}
+                  </p>
+                  <Status
+                    title="Notification outcomes"
+                    counts={data.notifications.counts}
+                  />
+                  <p>
+                    Simulated means local testing. Sent means transport
+                    acceptance, not inbox delivery.
+                  </p>
+                </>
+              ) : (
+                <p>No notification reporting permission.</p>
+              )}
+            </section>
+          )}
+          {data && mode === "reports" && (
             <div className="report-sections">
               <p>
                 Period: {data.range.from} – {data.range.to} (
@@ -420,10 +525,20 @@ export function AdminDashboard() {
                 >
                   <h2 id="stock-heading">Inventory</h2>
                   <p>
-                    {data.stock.scope}. Low stock includes zero availability and
-                    uses each variant’s threshold.
+                    {data.stock.scope}. Low stock is positive availability at or
+                    below each variant’s threshold; zero availability is counted
+                    separately as out of stock.
                   </p>
                   <div className="report-cards">
+                    <Card
+                      label="Normal-stock variants"
+                      value={Math.max(
+                        0,
+                        data.stock.counts.initialized -
+                          data.stock.counts.low_stock -
+                          data.stock.counts.out_of_stock,
+                      )}
+                    />
                     <Card
                       label="Low-stock variants"
                       value={data.stock.counts.low_stock}

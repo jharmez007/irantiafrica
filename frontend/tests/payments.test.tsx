@@ -183,6 +183,7 @@ describe("payments", () => {
       .mockResolvedValue(row);
     render(<AdminPayments />);
     await screen.findByText(order.number);
+    await userEvent.click(screen.getByRole("button", { name: "View history" }));
     await userEvent
       .setup()
       .click(screen.getByRole("button", { name: "Verify with provider" }));
@@ -193,4 +194,14 @@ describe("payments", () => {
     );
     expect(screen.queryByRole("button", { name: /mark paid/i })).toBeNull();
   });
+});
+
+// jsdom needs the native dialog open/close state; focus behavior is checked in Chrome.
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
 });

@@ -8,7 +8,7 @@ Trace: FR-CAT-001–004, FR-INV, FR-ORD, FR-ACC, FR-RET; database detail in [08]
 | Role / Permission | Provisioned by controlled administration; grant/revoke audited | Three launch staff roles; customer ownership policies do not require a staff role; no is_admin bypass |
 | Address | Customer-managed current address | User ownership; editing/deleting never modifies order address snapshot |
 | Category | Draft/active/archived taxonomy | Many products; optional parent must be acyclic |
-| Product | Editorial identity, description, category/publication | Owns options/variants/media; draft → published → archived; cannot publish incomplete data |
+| Product | Editorial identity, description, category/publication | Owns options/variants/media; draft → published → archived; explicit archived → draft restore; cannot publish incomplete data |
 | ProductOption / OptionValue | Generic named selectable attributes and values | Values belong to one option/product; no colour/size columns |
 | ProductVariant | Purchasable SKU and NGN price | One simple default SKU or explicit valid option combination; unique SKU; no inferred Cartesian combinations |
 | ProductMedia | Validated product image metadata | Quarantine → processing → ready → retired; public only after validation; optional variant association must be same product |

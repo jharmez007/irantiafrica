@@ -1,0 +1,595 @@
+{
+  "purpose": "LOCAL/DEVELOPMENT/UAT ONLY; not production-approved catalogue content",
+  "categories": {
+    "Home Décor": "home-decor",
+    "Table & Kitchen": "table-kitchen",
+    "Baskets & Storage": "baskets-storage",
+    "Bags & Accessories": "bags-accessories",
+    "Candles & Fragrance": "candles-fragrance",
+    "Stationery & Gifts": "stationery-gifts"
+  },
+  "products": [
+    {
+      "name": "Heritage Woven Cushion",
+      "category": "home-decor",
+      "description": "A richly textured accent cushion inspired by contemporary African pattern and warm, grounded interiors. Designed to add colour, character and softness to living spaces.",
+      "kind": "variant",
+      "option": "Colour",
+      "image": "earthy_geometric_mudcloth_throw_pillow.png",
+      "variants": [
+        {
+          "value": "Forest Green",
+          "sku": "IRA-HDC-HWC-GRN",
+          "price_minor": "2450000",
+          "stock": 18
+        },
+        {
+          "value": "Terracotta",
+          "sku": "IRA-HDC-HWC-TER",
+          "price_minor": "2450000",
+          "stock": 12
+        },
+        {
+          "value": "Cream",
+          "sku": "IRA-HDC-HWC-CRM",
+          "price_minor": "2450000",
+          "stock": 4
+        }
+      ],
+      "alt": "Geometric cushion in forest green, terracotta and cream"
+    },
+    {
+      "name": "Adire Accent Cushion",
+      "category": "home-decor",
+      "description": "A modern accent cushion with bold geometric rhythm and an earthy colour palette inspired by Nigerian textile traditions.",
+      "kind": "simple",
+      "option": null,
+      "image": "artisanal_forest_green_mudcloth_pillow.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-AAC-001",
+          "price_minor": "2200000",
+          "stock": 14
+        }
+      ],
+      "alt": "Forest green geometric accent cushion"
+    },
+    {
+      "name": "Oyo Abstract Art Print",
+      "category": "home-decor",
+      "description": "A framed abstract composition combining warm earth tones and clean geometry for a calm, contemporary statement wall.",
+      "kind": "simple",
+      "option": null,
+      "image": "iranti_africa_abstract_art_display.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-OAP-001",
+          "price_minor": "3800000",
+          "stock": 8
+        }
+      ],
+      "alt": "Framed abstract art print in warm earth tones"
+    },
+    {
+      "name": "Woven Wall Basket",
+      "category": "home-decor",
+      "description": "A decorative woven wall piece featuring concentric natural-fibre patterns and understated green and terracotta accents.",
+      "kind": "simple",
+      "option": null,
+      "image": "handwoven_terracotta_and_green_wall_basket.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-WWB-001",
+          "price_minor": "2950000",
+          "stock": 10
+        }
+      ],
+      "alt": "Circular woven wall basket with green and terracotta accents"
+    },
+    {
+      "name": "Sculptural Ceramic Vase",
+      "category": "home-decor",
+      "description": "A sculptural ceramic vase with a soft matte finish and expressive earthy detailing, designed as a statement piece for modern interiors.",
+      "kind": "variant",
+      "option": "Colour",
+      "image": "earthy_botanical_ceramic_vase.png",
+      "variants": [
+        {
+          "value": "Cream",
+          "sku": "IRA-HDC-SCV-CRM",
+          "price_minor": "3100000",
+          "stock": 7
+        },
+        {
+          "value": "Terracotta",
+          "sku": "IRA-HDC-SCV-TER",
+          "price_minor": "3100000",
+          "stock": 3
+        }
+      ],
+      "alt": "Cream sculptural ceramic vase with earthy botanical detailing"
+    },
+    {
+      "name": "Olive Heritage Throw",
+      "category": "home-decor",
+      "description": "A softly woven throw with olive, cream and terracotta detailing, bringing warmth and texture to beds, sofas and reading corners.",
+      "kind": "simple",
+      "option": null,
+      "image": "earthy_woven_throw_with_olive_accents.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-OHT-001",
+          "price_minor": "3600000",
+          "stock": 9
+        }
+      ],
+      "alt": "Woven throw with olive, cream and terracotta stripes"
+    },
+    {
+      "name": "Sculptural Brass Candlestick Set",
+      "category": "home-decor",
+      "description": "A pair of sculptural brass candlesticks in complementary heights, offering a warm metallic accent for dining tables and interior styling.",
+      "kind": "simple",
+      "option": null,
+      "image": "warm_brass_candlelight_still_life.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-BCS-001",
+          "price_minor": "3250000",
+          "stock": 6
+        }
+      ],
+      "alt": "Pair of sculptural brass candlesticks"
+    },
+    {
+      "name": "Woven Abstract Wall Art",
+      "category": "home-decor",
+      "description": "A textured framed textile artwork balancing geometric shapes, natural fibre and IRANTI’s earthy colour language.",
+      "kind": "simple",
+      "option": null,
+      "image": "earthy_geometric_woven_wall_art.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-HDC-WAA-001",
+          "price_minor": "4200000",
+          "stock": 5
+        }
+      ],
+      "alt": "Framed geometric woven wall artwork"
+    },
+    {
+      "name": "Botanical Ceramic Planter",
+      "category": "home-decor",
+      "description": "A speckled ceramic planter with bold botanical geometry and a matching saucer, designed for modern indoor greenery.",
+      "kind": "variant",
+      "option": "Size",
+      "image": "speckled_terracotta_botanical_planter.png",
+      "variants": [
+        {
+          "value": "Small",
+          "sku": "IRA-HDC-BCP-S",
+          "price_minor": "1850000",
+          "stock": 16
+        },
+        {
+          "value": "Medium",
+          "sku": "IRA-HDC-BCP-M",
+          "price_minor": "2350000",
+          "stock": 10
+        },
+        {
+          "value": "Large",
+          "sku": "IRA-HDC-BCP-L",
+          "price_minor": "2950000",
+          "stock": 2
+        }
+      ],
+      "alt": "Speckled terracotta ceramic planter with saucer"
+    },
+    {
+      "name": "Artisan Mug Set",
+      "category": "table-kitchen",
+      "description": "A coordinated pair of tactile ceramic mugs in complementary cream and terracotta finishes for everyday coffee and tea rituals.",
+      "kind": "simple",
+      "option": null,
+      "image": "artisanal_iranti_mug_set_with_packaging.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-MUG-001",
+          "price_minor": "2800000",
+          "stock": 21
+        }
+      ],
+      "alt": "Cream and terracotta ceramic mug set with packaging"
+    },
+    {
+      "name": "Acacia Serving Bowl Set",
+      "category": "table-kitchen",
+      "description": "A nested serving-bowl set that highlights the natural character and warmth of wood in a clean contemporary silhouette.",
+      "kind": "simple",
+      "option": null,
+      "image": "iranti_africa_wooden_bowl_set.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-ASB-001",
+          "price_minor": "4250000",
+          "stock": 11
+        }
+      ],
+      "alt": "Nested wooden serving bowls"
+    },
+    {
+      "name": "Woven Coaster Set",
+      "category": "table-kitchen",
+      "description": "A coordinated coaster set combining natural fibre and warm wood for an understated handcrafted tabletop accent.",
+      "kind": "simple",
+      "option": null,
+      "image": "iranti_africa_woven_coasters.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-WCS-001",
+          "price_minor": "1650000",
+          "stock": 24
+        }
+      ],
+      "alt": "Natural-fibre coasters with wooden accents"
+    },
+    {
+      "name": "Heritage Table Runner",
+      "category": "table-kitchen",
+      "description": "A textured table runner featuring rhythmic geometric detailing in cream, forest green and terracotta.",
+      "kind": "simple",
+      "option": null,
+      "image": "earthy_geometric_woven_runner.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-HTR-001",
+          "price_minor": "2750000",
+          "stock": 13
+        }
+      ],
+      "alt": "Geometric table runner in cream, olive and terracotta"
+    },
+    {
+      "name": "Carved Serving Tray",
+      "category": "table-kitchen",
+      "description": "A warm wooden serving tray finished with carved botanical-inspired detailing and integrated handles.",
+      "kind": "simple",
+      "option": null,
+      "image": "warm_carved_wooden_serving_tray.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-CST-001",
+          "price_minor": "3500000",
+          "stock": 10
+        }
+      ],
+      "alt": "Carved wooden serving tray with side handles"
+    },
+    {
+      "name": "Acacia Salad Bowl Set",
+      "category": "table-kitchen",
+      "description": "A generous wooden salad bowl accompanied by smaller serving bowls and matching wooden servers for relaxed entertaining.",
+      "kind": "simple",
+      "option": null,
+      "image": "warm_acacia_wooden_salad_bowl_set.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-ALS-001",
+          "price_minor": "4650000",
+          "stock": 7
+        }
+      ],
+      "alt": "Acacia salad bowl set with wooden servers"
+    },
+    {
+      "name": "Heritage Placemats Set",
+      "category": "table-kitchen",
+      "description": "A set of four woven placemats combining natural fibre with olive and terracotta accents for layered table settings.",
+      "kind": "simple",
+      "option": null,
+      "image": "woven_earth_tone_placemat_stack.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-TBL-HPM-001",
+          "price_minor": "2250000",
+          "stock": 19
+        }
+      ],
+      "alt": "Stack of woven placemats in earth tones"
+    },
+    {
+      "name": "Stoneware Dinner Plate Set",
+      "category": "table-kitchen",
+      "description": "A warm cream stoneware dinner set finished with restrained olive and terracotta rim detailing.",
+      "kind": "variant",
+      "option": "Set Size",
+      "image": "earthy_stoneware_plates_in_sunlit_simplicity.png",
+      "variants": [
+        {
+          "value": "4 Piece",
+          "sku": "IRA-TBL-SDP-4PC",
+          "price_minor": "3600000",
+          "stock": 15
+        },
+        {
+          "value": "6 Piece",
+          "sku": "IRA-TBL-SDP-6PC",
+          "price_minor": "4950000",
+          "stock": 5
+        }
+      ],
+      "alt": "Cream stoneware plates with olive and terracotta rims"
+    },
+    {
+      "name": "Seagrass Storage Basket",
+      "category": "baskets-storage",
+      "description": "A generously sized woven storage basket with leather handles for blankets, toys and everyday household organisation.",
+      "kind": "simple",
+      "option": null,
+      "image": "handwoven_seagrass_basket_with_leather_handles.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BSK-SSB-001",
+          "price_minor": "3200000",
+          "stock": 17
+        }
+      ],
+      "alt": "Woven seagrass storage basket with leather handles"
+    },
+    {
+      "name": "Lidded Woven Basket",
+      "category": "baskets-storage",
+      "description": "A patterned woven storage basket with fitted lid, balancing practical organisation with decorative texture.",
+      "kind": "simple",
+      "option": null,
+      "image": "artisanal_woven_basket_with_colorful_lid.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BSK-LWB-001",
+          "price_minor": "3650000",
+          "stock": 8
+        }
+      ],
+      "alt": "Lidded woven storage basket with colourful pattern"
+    },
+    {
+      "name": "Heritage Laundry Hamper",
+      "category": "baskets-storage",
+      "description": "A tall woven hamper with fitted lid and leather-trimmed side handles for refined everyday laundry storage.",
+      "kind": "simple",
+      "option": null,
+      "image": "woven_olive_tan_storage_basket.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BSK-HLH-001",
+          "price_minor": "4500000",
+          "stock": 4
+        }
+      ],
+      "alt": "Tall woven laundry hamper with leather-trimmed handles"
+    },
+    {
+      "name": "Small Desk Basket",
+      "category": "baskets-storage",
+      "description": "A compact woven organiser designed for pens, notebooks and everyday desk essentials.",
+      "kind": "simple",
+      "option": null,
+      "image": "woven_natural_fiber_desk_organizer.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BSK-SDB-001",
+          "price_minor": "1850000",
+          "stock": 30
+        }
+      ],
+      "alt": "Small natural-fibre woven desk organiser"
+    },
+    {
+      "name": "Striped Floor Basket",
+      "category": "baskets-storage",
+      "description": "A broad woven floor basket with repeating olive and terracotta stripes, suited to blankets, cushions and general home storage.",
+      "kind": "simple",
+      "option": null,
+      "image": "striped_woven_fiber_basket_in_sunlit_interior.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BSK-SFB-001",
+          "price_minor": "3850000",
+          "stock": 0
+        }
+      ],
+      "alt": "Striped woven floor basket in a sunlit interior"
+    },
+    {
+      "name": "Market Tote",
+      "category": "bags-accessories",
+      "description": "A structured woven market tote with leather handles, designed as a generous everyday carryall with a refined natural finish.",
+      "kind": "variant",
+      "option": "Size",
+      "image": "woven_iranti_africa_market_tote.png",
+      "variants": [
+        {
+          "value": "Small",
+          "sku": "IRA-BAG-MKT-S",
+          "price_minor": "2950000",
+          "stock": 12
+        },
+        {
+          "value": "Large",
+          "sku": "IRA-BAG-MKT-L",
+          "price_minor": "3450000",
+          "stock": 7
+        }
+      ],
+      "alt": "Woven market tote with leather handles"
+    },
+    {
+      "name": "Mini Woven Tote",
+      "category": "bags-accessories",
+      "description": "A compact woven tote with deep-green leather handles and a playful tassel detail for light everyday carrying.",
+      "kind": "simple",
+      "option": null,
+      "image": "woven_raffia_mini_tote_in_olive_and_green.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BAG-MWT-001",
+          "price_minor": "2700000",
+          "stock": 11
+        }
+      ],
+      "alt": "Mini raffia tote with green handles and tassel"
+    },
+    {
+      "name": "Raffia Clutch",
+      "category": "bags-accessories",
+      "description": "A structured raffia clutch framed in warm leather trim and finished with understated brass hardware.",
+      "kind": "simple",
+      "option": null,
+      "image": "woven_raffia_clutch_with_brass_clasp.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-BAG-RFC-001",
+          "price_minor": "2350000",
+          "stock": 14
+        }
+      ],
+      "alt": "Raffia clutch with leather trim and brass clasp"
+    },
+    {
+      "name": "Leather Crossbody Pouch",
+      "category": "bags-accessories",
+      "description": "A compact leather crossbody pouch with contrasting strap detail, brass hardware and a clean everyday silhouette.",
+      "kind": "variant",
+      "option": "Colour",
+      "image": "cognac_leather_crossbody_with_olive_accents.png",
+      "variants": [
+        {
+          "value": "Cognac",
+          "sku": "IRA-BAG-LCP-COG",
+          "price_minor": "3900000",
+          "stock": 6
+        },
+        {
+          "value": "Forest Green",
+          "sku": "IRA-BAG-LCP-GRN",
+          "price_minor": "3900000",
+          "stock": 0
+        }
+      ],
+      "alt": "Cognac leather crossbody pouch with green strap"
+    },
+    {
+      "name": "Leather Laptop Sleeve",
+      "category": "bags-accessories",
+      "description": "A slim cognac leather laptop sleeve with deep-green closure detailing and neatly finished contrast stitching.",
+      "kind": "variant",
+      "option": "Laptop Size",
+      "image": "cognac_leather_laptop_sleeve.png",
+      "variants": [
+        {
+          "value": "13-inch",
+          "sku": "IRA-BAG-LLS-13",
+          "price_minor": "3300000",
+          "stock": 9
+        },
+        {
+          "value": "14-inch",
+          "sku": "IRA-BAG-LLS-14",
+          "price_minor": "3500000",
+          "stock": 5
+        },
+        {
+          "value": "15-inch",
+          "sku": "IRA-BAG-LLS-15",
+          "price_minor": "3750000",
+          "stock": 2
+        }
+      ],
+      "alt": "Cognac leather laptop sleeve with green closure"
+    },
+    {
+      "name": "Wild Neroli Candle",
+      "category": "candles-fragrance",
+      "description": "A ceramic-vessel candle presented in a warm cream and terracotta palette for quiet, atmospheric home styling.",
+      "kind": "variant",
+      "option": "Size",
+      "image": "iranti_wild_neroli_ceramic_candle.png",
+      "variants": [
+        {
+          "value": "250g",
+          "sku": "IRA-CND-WNC-250",
+          "price_minor": "1950000",
+          "stock": 22
+        },
+        {
+          "value": "400g",
+          "sku": "IRA-CND-WNC-400",
+          "price_minor": "2750000",
+          "stock": 8
+        }
+      ],
+      "alt": "Wild Neroli candle in a cream ceramic vessel"
+    },
+    {
+      "name": "Ceramic Incense Holder Set",
+      "category": "candles-fragrance",
+      "description": "A ceramic incense holder and tray set with soft geometric detailing, paired with a restrained contemporary silhouette.",
+      "kind": "simple",
+      "option": null,
+      "image": "boho_ceramic_incense_holder_still_life.png",
+      "variants": [
+        {
+          "value": null,
+          "sku": "IRA-CND-CIH-001",
+          "price_minor": "1750000",
+          "stock": 16
+        }
+      ],
+      "alt": "Ceramic incense holder and tray set"
+    },
+    {
+      "name": "Leather Heritage Journal",
+      "category": "stationery-gifts",
+      "description": "A leather-bound journal with understated detailing and a tactile finish for notes, plans and everyday writing.",
+      "kind": "variant",
+      "option": "Paper Size",
+      "image": "iranti_africa_leather_journal.png",
+      "variants": [
+        {
+          "value": "A5",
+          "sku": "IRA-GFT-LHJ-A5",
+          "price_minor": "2650000",
+          "stock": 20
+        },
+        {
+          "value": "A4",
+          "sku": "IRA-GFT-LHJ-A4",
+          "price_minor": "3250000",
+          "stock": 6
+        }
+      ],
+      "alt": "Brown leather-bound heritage journal"
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { cartRequest, CartApiError, type CartData } from "@/lib/cart-api";
+import { toast } from "@/lib/toast";
 
 type CartContextValue = {
   cart: CartData | null;
@@ -145,12 +146,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
             old.unit_price_minor !== line.unit_price_minor,
         ),
       );
+      if (!priceChanged)
+        toast.success(
+          method === "POST" && suffix === "/items"
+            ? "Added to cart"
+            : "Cart updated",
+        );
       setFeedback({
         scope,
         error: "",
         notice: priceChanged
           ? "Cart updated. A price changed; review the current prices."
-          : "Cart updated.",
+          : "",
       });
       return true;
     } catch (e) {

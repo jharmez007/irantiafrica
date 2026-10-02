@@ -21,7 +21,7 @@ final class RecoveryNotification extends ResetPassword implements ShouldBeEncryp
     public function via($notifiable): array
     {
         $mailer = (string) config('mail.default');
-        if (! in_array($mailer, ['smtp', 'array'], true) || (app()->environment('production') && $mailer !== 'smtp')) {
+        if (($mailer === 'mailpit' && ! app()->environment('local')) || (! in_array($mailer, ['smtp', 'array', 'mailpit'], true)) || (app()->environment('production') && $mailer !== 'smtp')) {
             throw new \LogicException('Identity mail requires SMTP, or the non-logging array transport outside production.');
         }
 

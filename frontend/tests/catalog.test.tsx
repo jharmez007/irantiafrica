@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "../src/lib/toast";
 import { ProductDetail } from "../src/components/catalog/product-detail";
 import { ProductImage } from "../src/components/catalog/product-image";
 import { ProductCard } from "../src/components/catalog/product-card";
@@ -19,10 +20,13 @@ import {
   CatalogLoading,
   CatalogFailure,
 } from "../src/components/catalog/catalog-list";
-import {
-  AdminCatalog,
-  ProductEditorFields,
-} from "../src/components/catalog/admin-catalog";
+import { AdminCatalog } from "../src/components/catalog/admin-catalog";
+import { AdminProductEditor } from "../src/components/catalog/product-editor";
+import { allCategories } from "../src/components/catalog/admin-common";
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/admin/products",
+}));
 import {
   money,
   resolveVariant,
@@ -36,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     loading: false,
   },
   api: vi.fn(),
+  upload: vi.fn(),
   serverApi: vi.fn(),
 }));
 vi.mock("@/components/cart/cart-provider", () => ({
@@ -51,7 +56,7 @@ vi.mock("@/components/cart/cart-provider", () => ({
 vi.mock("@/components/auth-provider", () => ({ useAuth: () => mocks.auth }));
 vi.mock("@/lib/catalog-admin-api", () => ({
   catalogAdmin: mocks.api,
-  uploadImage: vi.fn(),
+  uploadImage: mocks.upload,
 }));
 vi.mock("@/lib/catalog-server", () => ({
   catalogFetch: mocks.serverApi,
@@ -95,6 +100,8 @@ const product: Product = {
       unit_price_minor: "10000",
       currency: "NGN",
       option_value_ids: ["cotton", "plain"],
+      status: "active",
+      price_version: 1,
     },
     {
       id: "v2",
@@ -103,6 +110,8 @@ const product: Product = {
       unit_price_minor: "20000",
       currency: "NGN",
       option_value_ids: ["linen", "plain"],
+      status: "active",
+      price_version: 1,
     },
   ],
   media: [
@@ -123,6 +132,392 @@ const product: Product = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe("simplified product editor", () => {
+  beforeEach(() => {
+    mocks.auth.user = {
+      authentication_state: "authenticated",
+      roles: ["owner"],
+    };
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute("open", "");
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute("open");
+    };
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products/p"
+        ? { data: product }
+        : path === "/tax-categories"
+          ? {
+              data: [{ code: "STANDARD", label: "Standard tax treatment" }],
+              development_only: true,
+            }
+          : { data: product.categories, meta: { last_page: 1 } },
+    );
+  });
+
+  it("guides variant generation with exact naira prices", async () => {
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Pricing & Variants" });
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Pricing & Variants" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("SKU for Cotton / Dyed"),
+      "COTTON-DYED",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Price for Cotton / Dyed"),
+      "4,500.50",
+    );
+    await userEvent.type(
+      screen.getByLabelText("SKU for Linen / Dyed"),
+      "LINEN-DYED",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Price for Linen / Dyed"),
+      "5000",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Generate 2 variants" }),
+    );
+    expect(
+      screen.getByText(/4 combinations: 2 saved, 2 new variants/),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/products/p/variants", "POST", {
+        sku: "COTTON-DYED",
+        unit_price_minor: "450050",
+        option_value_ids: ["cotton", "dyed"],
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        mocks.api.mock.calls.filter(
+          ([path, method]) =>
+            path === "/products/p/variants" && method === "POST",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(
+      within(screen.getByRole("region", { name: "Variant summary" })).getByText(
+        "₦100.00",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("removes draft option values and whole options while updating combination count", async () => {
+    let current = { ...product, variants: [] as Product["variants"] };
+    mocks.api.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/products/p") return { data: current };
+      if (path === "/tax-categories")
+        return { data: [], development_only: false };
+      if (path === "/options/material/values/linen" && method === "DELETE") {
+        current = {
+          ...current,
+          content_version: 2,
+          options: current.options.map((option) =>
+            option.id === "material"
+              ? {
+                  ...option,
+                  values: option.values.filter((value) => value.id !== "linen"),
+                }
+              : option,
+          ),
+        };
+        return { data: current };
+      }
+      if (path === "/options/finish" && method === "DELETE") {
+        current = {
+          ...current,
+          content_version: 3,
+          options: current.options.filter((option) => option.id !== "finish"),
+        };
+        return { data: current };
+      }
+      return { data: product.categories, meta: { last_page: 1 } };
+    });
+    const nativeConfirmation = vi.spyOn(window, "confirm");
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Pricing & Variants" });
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Pricing & Variants" }),
+    );
+    expect(
+      screen.getByText(/4 combinations: 0 saved, 4 new variants/),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove Material Linen" }),
+    );
+    expect(
+      await screen.findByText(/2 combinations: 0 saved, 2 new variants/),
+    ).toBeTruthy();
+    expect(mocks.api).toHaveBeenCalledWith(
+      "/options/material/values/linen",
+      "DELETE",
+      { content_version: 1 },
+    );
+    await userEvent.click(
+      within(screen.getByLabelText("Finish option")).getByRole("button", {
+        name: "Remove option",
+      }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Remove Finish option?",
+    });
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      "/options/finish",
+      "DELETE",
+      expect.anything(),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Remove Finish option?" }),
+    ).toBeNull();
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      "/options/finish",
+      "DELETE",
+      expect.anything(),
+    );
+    await userEvent.click(
+      within(screen.getByLabelText("Finish option")).getByRole("button", {
+        name: "Remove option",
+      }),
+    );
+    await userEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "Remove Finish option?" }),
+      ).getByRole("button", {
+        name: "Remove option",
+      }),
+    );
+    expect(
+      await screen.findByText(/1 combination: 0 saved, 1 new variant/),
+    ).toBeTruthy();
+    expect(mocks.api).toHaveBeenCalledWith("/options/finish", "DELETE", {
+      content_version: 2,
+    });
+    expect(nativeConfirmation).not.toHaveBeenCalled();
+    nativeConfirmation.mockRestore();
+  });
+
+  it("removes a saved variant from sale without deleting its SKU or other combinations", async () => {
+    let current = product;
+    mocks.api.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/products/p") return { data: current };
+      if (path === "/tax-categories")
+        return { data: [], development_only: false };
+      if (path === "/variants/v1" && method === "PATCH") {
+        current = {
+          ...current,
+          variants: current.variants.map((variant) =>
+            variant.id === "v1"
+              ? { ...variant, status: "archived", price_version: 2 }
+              : variant,
+          ),
+        };
+        return { data: current };
+      }
+      return { data: product.categories, meta: { last_page: 1 } };
+    });
+    const nativeConfirmation = vi.spyOn(window, "confirm");
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Pricing & Variants" });
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Pricing & Variants" }),
+    );
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Remove from sale" })[0],
+    );
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      "/variants/v1",
+      "PATCH",
+      expect.anything(),
+    );
+    await userEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "Remove variant from sale?" }),
+      ).getByRole("button", {
+        name: "Remove from sale",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/variants/v1", "PATCH", {
+        status: "archived",
+        price_version: 1,
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Restore to sale" }),
+    ).toBeTruthy();
+    expect(current.variants.map((variant) => variant.sku)).toEqual([
+      "COTTON",
+      "LINEN",
+    ]);
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      "/variants/v1",
+      "DELETE",
+      expect.anything(),
+    );
+    expect(nativeConfirmation).not.toHaveBeenCalled();
+    nativeConfirmation.mockRestore();
+  });
+
+  it("provides gallery ordering, description editing and a product-specific inventory link", async () => {
+    const second = {
+      ...product.media[0],
+      id: "image-2",
+      position: 1,
+      alt_text: "Reverse side",
+    };
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products/p"
+        ? { data: { ...product, media: [...product.media, second] } }
+        : path === "/tax-categories"
+          ? { data: [], development_only: false }
+          : { data: product.categories, meta: { last_page: 1 } },
+    );
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Images" });
+    await userEvent.click(screen.getByRole("tab", { name: "Images" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Image 2 actions" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Make main image" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/media/image-2", "PATCH", {
+        position: 0,
+      }),
+    );
+    await userEvent.click(screen.getByRole("tab", { name: "Inventory" }));
+    expect(
+      screen
+        .getByRole("link", { name: "Manage inventory" })
+        .getAttribute("href"),
+    ).toContain("product=p");
+  });
+
+  it("confirms gallery image removal in the app without a browser prompt", async () => {
+    let current = product;
+    mocks.api.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/products/p") return { data: current };
+      if (path === "/tax-categories")
+        return { data: [], development_only: false };
+      if (path === "/media/image" && method === "DELETE") {
+        current = { ...current, media: [] };
+        return { data: current };
+      }
+      return { data: product.categories, meta: { last_page: 1 } };
+    });
+    const nativeConfirmation = vi.spyOn(window, "confirm");
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Images" });
+    await userEvent.click(screen.getByRole("tab", { name: "Images" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Image 1 actions" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove image" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove this image?" });
+    expect(mocks.api).not.toHaveBeenCalledWith("/media/image", "DELETE");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Remove this image?" }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Image 1 actions" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove image" }));
+    await userEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "Remove this image?" }),
+      ).getByRole("button", {
+        name: "Remove image",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/media/image", "DELETE"),
+    );
+    expect(
+      await screen.findByText("No images yet. Add a product image below."),
+    ).toBeTruthy();
+    expect(nativeConfirmation).not.toHaveBeenCalled();
+    nativeConfirmation.mockRestore();
+  });
+
+  it("uploads an image and reports processing without a manual refresh", async () => {
+    let current = product;
+    const success = vi.spyOn(toast, "success");
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products/p"
+        ? { data: current }
+        : path === "/tax-categories"
+          ? { data: [], development_only: false }
+          : { data: product.categories, meta: { last_page: 1 } },
+    );
+    mocks.upload.mockImplementation(async () => {
+      current = {
+        ...current,
+        media: [
+          ...current.media,
+          {
+            ...current.media[0],
+            id: "new-image",
+            position: 1,
+            status: "processing",
+          },
+        ],
+      };
+    });
+    render(<AdminProductEditor id="p" />);
+    await screen.findByRole("tab", { name: "Images" });
+    await userEvent.click(screen.getByRole("tab", { name: "Images" }));
+    await userEvent.upload(
+      screen.getByLabelText(/Drag an image here or choose an image/),
+      new File(["image"], "product.png", { type: "image/png" }),
+    );
+    expect(screen.getByText("Selected file: product.png")).toBeTruthy();
+    expect(screen.queryByAltText("Selected image preview")).toBeNull();
+    await userEvent.type(
+      screen.getByLabelText("Image description"),
+      "Woven textile on a table",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Upload image" }));
+    await waitFor(() =>
+      expect(mocks.upload).toHaveBeenCalledWith(
+        "p",
+        expect.any(File),
+        "Woven textile on a table",
+      ),
+    );
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith("Image uploaded. Processing image…"),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Image 2 actions" }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByLabelText(
+            /Drag an image here or choose an image/,
+          ) as HTMLInputElement
+        ).files?.length,
+      ).toBe(0);
+      expect(
+        (screen.getByLabelText("Image description") as HTMLInputElement).value,
+      ).toBe("");
+      expect(screen.queryByAltText("Selected image preview")).toBeNull();
+      expect(screen.queryByText("Selected file: product.png")).toBeNull();
+    });
+  });
 });
 beforeEach(() => {
   mocks.auth = { user: null, loading: false };
@@ -432,88 +827,14 @@ describe("catalog storefront", () => {
   });
 });
 describe("catalog administration", () => {
-  it("loads later category pages and preserves those memberships when editing a product", async () => {
-    mocks.auth.user = {
-      authentication_state: "authenticated",
-      roles: ["owner"],
-    };
-    const selectedProduct = { ...product, category_ids: ["second"] };
+  it("loads every category page", async () => {
     mocks.api.mockImplementation(async (path: string) => {
-      if (path === "/products/p") return { data: selectedProduct };
-      if (path.startsWith("/products?"))
-        return {
-          data: [selectedProduct],
-          meta: { page: 1, last_page: 1, total: 1 },
-        };
       const page = Number(
         new URL(path, "http://localhost").searchParams.get("page"),
       );
-      return {
-        data: [
-          {
-            id: page === 1 ? "first" : "second",
-            name: `Category ${page}`,
-            slug: `category-${page}`,
-            status: "active",
-          },
-        ],
-        meta: { page, last_page: 2, total: 2 },
-      };
+      return { data: [{ id: String(page) }], meta: { last_page: 2 } };
     });
-    const user = userEvent.setup();
-    render(<AdminCatalog />);
-    await user.click(
-      await screen.findByRole("button", { name: "Woven textile — draft" }),
-    );
-    const section = (
-      await screen.findByRole("heading", { name: "Woven textile — draft" })
-    ).closest("section")!;
-    expect(
-      (
-        within(section).getByRole("checkbox", {
-          name: "Category 2 (active)",
-        }) as HTMLInputElement
-      ).checked,
-    ).toBe(true);
-    await user.click(
-      within(section).getByRole("button", { name: "Save product" }),
-    );
-    await waitFor(() =>
-      expect(mocks.api).toHaveBeenCalledWith(
-        "/products/p",
-        "PATCH",
-        expect.objectContaining({ category_ids: ["second"] }),
-      ),
-    );
-  });
-  it("preserves existing memberships if category metadata is temporarily missing", () => {
-    const view = render(
-      <form>
-        <ProductEditorFields product={product} categories={[]} />
-      </form>,
-    );
-    expect(
-      new FormData(view.container.querySelector("form")!).getAll(
-        "category_ids",
-      ),
-    ).toEqual(["c"]);
-  });
-  it("renders create and edit form fields with category membership", () => {
-    render(
-      <form>
-        <ProductEditorFields
-          product={product}
-          categories={product.categories}
-        />
-      </form>,
-    );
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
-      product.name,
-    );
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
-      true,
-    );
-    expect(screen.queryByLabelText("Product type")).toBeNull();
+    expect(await allCategories()).toEqual([{ id: "1" }, { id: "2" }]);
   });
   it("denies customers and requires MFA before fetching admin data", () => {
     mocks.auth.user = {
@@ -521,14 +842,12 @@ describe("catalog administration", () => {
       roles: ["owner"],
     };
     const view = render(<AdminCatalog />);
-    expect(
-      screen.getByRole("link", { name: "Complete staff verification" }),
-    ).toBeTruthy();
+    expect(screen.getByText("Complete staff verification")).toBeTruthy();
     expect(mocks.api).not.toHaveBeenCalled();
     mocks.auth.user = { authentication_state: "authenticated", roles: [] };
     view.rerender(<AdminCatalog />);
     expect(screen.getByRole("alert").textContent).toContain(
-      "do not have catalog access",
+      "do not have access",
     );
   });
   it("keeps non-owner staff read-only", async () => {
@@ -538,38 +857,277 @@ describe("catalog administration", () => {
     };
     render(<AdminCatalog />);
     await waitFor(() => expect(mocks.api).toHaveBeenCalled());
-    expect(screen.getByText("Read-only catalog access.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create draft" })).toBeNull();
+    expect(screen.queryByText("Add Product")).toBeNull();
     expect(canManageCatalog(["order_processing"])).toBe(false);
   });
-  it("submits an owner draft with explicit data and displays server validation errors", async () => {
+  it("keeps existing categories while saving and accepts configured tax choices only", async () => {
     mocks.auth.user = {
       authentication_state: "authenticated",
       roles: ["owner"],
     };
-    const user = userEvent.setup();
-    render(<AdminCatalog />);
-    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(2));
-    await user.type(screen.getByLabelText("Name"), "New item");
-    await user.type(
-      screen.getByLabelText("Tax category reference"),
-      "review-required",
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products/p"
+        ? { data: product }
+        : path === "/tax-categories"
+          ? {
+              data: [
+                { code: product.tax_category_code, label: "Configured tax" },
+              ],
+              development_only: true,
+            }
+          : { data: [], meta: { last_page: 1 } },
     );
-    mocks.api.mockRejectedValueOnce(
-      new Error("The name has already been taken."),
-    );
-    await user.click(screen.getByRole("button", { name: "Create draft" }));
+    render(<AdminProductEditor id="p" />);
+    await screen.findByLabelText("Product name");
+    expect(screen.queryByLabelText("Tax category reference")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toContain(
-        "already been taken",
+      expect(mocks.api).toHaveBeenCalledWith(
+        "/products/p",
+        "PATCH",
+        expect.objectContaining({ category_ids: ["c"] }),
       ),
     );
-    expect(mocks.api).toHaveBeenCalledWith("/products", "POST", {
-      name: "New item",
-      description: "",
-      tax_category_code: "review-required",
-      category_ids: [],
-      kind: "simple",
-    });
   });
+  it("refreshes media and uses its current product version when publishing", async () => {
+    mocks.auth.user = {
+      authentication_state: "authenticated",
+      roles: ["owner"],
+    };
+    let reads = 0;
+    const pending = {
+      ...product,
+      content_version: 2,
+      publication_issues: [
+        "Add an image and wait for it to finish processing.",
+      ],
+      media: [{ ...product.media[0], status: "processing" }],
+    };
+    const ready = {
+      ...pending,
+      content_version: 3,
+      publication_issues: [],
+      media: [{ ...product.media[0], status: "ready" }],
+    };
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products/p"
+        ? { data: ++reads === 1 ? pending : ready }
+        : path.includes("publication")
+          ? { data: { ...ready, status: "published" } }
+          : path === "/tax-categories"
+            ? { data: [], development_only: false }
+            : { data: product.categories, meta: { last_page: 1 } },
+    );
+    render(<AdminProductEditor id="p" />);
+    await screen.findByText("Needs attention: Image");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Publish product",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await waitFor(
+      () =>
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Publish product",
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(false),
+      { timeout: 5000 },
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Publish product" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith(
+        "/products/p/publication",
+        "POST",
+        { content_version: 3 },
+      ),
+    );
+  });
+});
+
+describe("UAT catalog workflow", () => {
+  beforeEach(() => {
+    mocks.auth.user = {
+      authentication_state: "authenticated",
+      roles: ["owner"],
+    };
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute("open", "");
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute("open");
+    };
+  });
+  it("saves a name-only draft with unavailable tax setup", async () => {
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/products"
+        ? { data: { ...product, status: "draft", tax_category_code: null } }
+        : { data: [], meta: { last_page: 1 } },
+    );
+    render(<AdminProductEditor />);
+    await userEvent.type(
+      screen.getByLabelText("Product name"),
+      "Incomplete draft",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save and continue" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith(
+        "/products",
+        "POST",
+        expect.objectContaining({ name: "Incomplete draft", kind: "simple" }),
+      ),
+    );
+    const call = mocks.api.mock.calls.find(
+      (c) => c[0] === "/products" && c[1] === "POST",
+    );
+    expect(call?.[2]).not.toHaveProperty("tax_category_code");
+  });
+  it("shows friendly configured choices without technical references", async () => {
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/tax-categories"
+        ? {
+            data: [
+              { code: "INTERNAL_STANDARD", label: "Standard taxable" },
+              { code: "INTERNAL_EXEMPT", label: "Exempt" },
+            ],
+          }
+        : { data: [], meta: { last_page: 1 } },
+    );
+    render(<AdminProductEditor />);
+    await screen.findByText("More settings");
+    await userEvent.click(screen.getByText("More settings"));
+    const select = screen.getByLabelText("Tax treatment");
+    expect(select.tagName).toBe("SELECT");
+    expect(select.textContent).not.toContain("INTERNAL");
+    expect((select as HTMLSelectElement).required).toBe(false);
+    expect(
+      screen.getByRole("option", { name: "Standard taxable" }),
+    ).toBeTruthy();
+  });
+  it("uses the sole configured treatment automatically with no ordinary selector", async () => {
+    mocks.api.mockImplementation(async (path: string) =>
+      path === "/tax-categories"
+        ? { data: [{ code: "INTERNAL_STANDARD", label: "Standard taxable" }] }
+        : { data: [], meta: { last_page: 1 } },
+    );
+    render(<AdminProductEditor />);
+    await screen.findByText(/Applied automatically/);
+    expect(screen.queryByLabelText("Tax treatment")).toBeNull();
+    expect(screen.queryByText(/INTERNAL_STANDARD/)).toBeNull();
+  });
+  it("keeps Edit outside the archived overflow and restores through confirmation", async () => {
+    let restored = false;
+    const success = vi.spyOn(toast, "success");
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (method === "POST") {
+        restored = true;
+        return { data: { ...product, status: "draft" } };
+      }
+      return path.startsWith("/products?")
+        ? {
+            data: [{ ...product, status: restored ? "draft" : "archived" }],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } };
+    });
+    render(<AdminCatalog />);
+    await screen.findByRole("link", { name: "Edit" });
+    const summary = screen.getByRole("button", { name: "More actions" });
+    await userEvent.click(summary);
+    const menu = summary.parentElement!;
+    expect(within(menu).queryByRole("link", { name: "Edit" })).toBeNull();
+    expect(within(menu).queryByText("Archive")).toBeNull();
+    await userEvent.click(
+      within(menu).getByRole("button", { name: "Restore" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Restore to Draft" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/products/p/restore", "POST", {
+        content_version: product.content_version,
+      }),
+    );
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(
+        "Product restored to draft",
+        "Review before publishing.",
+      ),
+    );
+  });
+  it("keeps only one product popover open and closes it on outside pointer", async () => {
+    mocks.api.mockImplementation(async (path: string) =>
+      path.startsWith("/products?")
+        ? {
+            data: [
+              { ...product, id: "first", name: "First draft", status: "draft" },
+              {
+                ...product,
+                id: "second",
+                name: "Second draft",
+                status: "draft",
+              },
+            ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } },
+    );
+    render(<AdminCatalog />);
+    const triggers = await screen.findAllByRole("button", {
+      name: "More actions",
+    });
+    expect(triggers).toHaveLength(2);
+    expect(triggers[0].getAttribute("type")).toBe("button");
+    await userEvent.click(triggers[0]);
+    expect(triggers[0].getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(triggers[1]);
+    expect(triggers[0].getAttribute("aria-expanded")).toBe("false");
+    expect(triggers[1].getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(screen.getByRole("heading", { name: "Products" }));
+    expect(triggers[1].getAttribute("aria-expanded")).toBe("false");
+  });
+  it.each([
+    ["draft", ["Archive"], ["View storefront", "Restore"]],
+    ["published", ["View storefront", "Archive"], ["Publish", "Restore"]],
+    ["archived", ["Restore"], ["Publish", "Archive", "View storefront"]],
+  ] as const)(
+    "shows valid %s product actions only",
+    async (status, present, absent) => {
+      mocks.api.mockImplementation(async (path: string) =>
+        path.startsWith("/products?")
+          ? {
+              data: [{ ...product, status, publication_issues: [] }],
+              meta: { last_page: 1 },
+            }
+          : { data: [], meta: { last_page: 1 } },
+      );
+      render(<AdminCatalog />);
+      const edit = await screen.findByRole("link", { name: "Edit" });
+      expect(edit.getAttribute("class")).toContain("button--secondary");
+      const trigger = screen.getByRole("button", { name: "More actions" });
+      await userEvent.click(trigger);
+      const popover = document.getElementById(
+        trigger.getAttribute("aria-controls")!,
+      )!;
+      expect(popover.hasAttribute("hidden")).toBe(false);
+      expect(within(popover).queryByRole("link", { name: "Edit" })).toBeNull();
+      for (const label of present)
+        expect(within(popover).getByText(label)).toBeTruthy();
+      if (status === "draft")
+        expect(within(popover).getByText("Publish")).toBeTruthy();
+      for (const label of absent)
+        expect(within(popover).queryByText(label)).toBeNull();
+      for (const button of within(popover).queryAllByRole("button")) {
+        expect(button.getAttribute("type")).toBe("button");
+      }
+    },
+  );
 });

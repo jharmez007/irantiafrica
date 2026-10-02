@@ -1,4 +1,5 @@
 import { csrfCookie } from "./auth-api";
+import { reportSessionFailure } from "./session-events";
 export type Address = {
   recipient_name: string;
   phone: string;
@@ -94,8 +95,9 @@ export async function checkoutRequest<T>(
     cache: "no-store",
     body: data ? JSON.stringify(data) : undefined,
   });
-  const body = await response.json();
-  if (!response.ok)
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    reportSessionFailure(response.status, path);
     throw new CheckoutError(
       response.status,
       body.error?.code ?? "CHECKOUT_ERROR",
@@ -103,5 +105,6 @@ export async function checkoutRequest<T>(
       body.error?.fields ?? {},
       body.error?.details ?? {},
     );
+  }
   return body.data as T;
 }

@@ -4,5 +4,5 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 export default function Page() {
-  return <AdminDashboard />;
+  return <AdminDashboard mode="overview" />;
 }

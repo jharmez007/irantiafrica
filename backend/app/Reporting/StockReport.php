@@ -17,10 +17,10 @@ final class StockReport
     public function read(int $page, string $filter = 'all'): array
     {
         // Replace the detail projection before aggregating to avoid grouping live catalog fields.
-        $counts = $this->base()->select([])->selectRaw('count(*) as variants, count(i.id) as initialized, count(*) FILTER (WHERE i.id IS NULL) as uninitialized, count(*) FILTER (WHERE i.on_hand-i.reserved<=i.low_stock_threshold) as low_stock, count(*) FILTER (WHERE i.on_hand-i.reserved=0) as out_of_stock')->first();
+        $counts = $this->base()->select([])->selectRaw('count(*) as variants, count(i.id) as initialized, count(*) FILTER (WHERE i.id IS NULL) as uninitialized, count(*) FILTER (WHERE i.on_hand-i.reserved>0 AND i.on_hand-i.reserved<=i.low_stock_threshold) as low_stock, count(*) FILTER (WHERE i.on_hand-i.reserved=0) as out_of_stock')->first();
         $query = $this->base();
         if ($filter === 'low') {
-            $query->whereRaw('i.on_hand-i.reserved<=i.low_stock_threshold');
+            $query->whereRaw('i.on_hand-i.reserved>0 AND i.on_hand-i.reserved<=i.low_stock_threshold');
         } elseif ($filter === 'out') {
             $query->whereRaw('i.on_hand-i.reserved=0');
         } elseif ($filter === 'uninitialized') {

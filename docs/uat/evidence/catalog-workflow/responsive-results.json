@@ -1,0 +1,82 @@
+[
+  {
+    "name": "320 /admin/products",
+    "pass": true
+  },
+  {
+    "name": "320 /admin/products/new",
+    "pass": true
+  },
+  {
+    "name": "320 /admin/products/{id}/edit",
+    "pass": true
+  },
+  {
+    "name": "320 /admin/account",
+    "pass": true
+  },
+  {
+    "name": "375 /admin/products",
+    "pass": true
+  },
+  {
+    "name": "375 /admin/products/new",
+    "pass": true
+  },
+  {
+    "name": "375 /admin/products/{id}/edit",
+    "pass": true
+  },
+  {
+    "name": "375 /admin/account",
+    "pass": true
+  },
+  {
+    "name": "768 /admin/products",
+    "pass": true
+  },
+  {
+    "name": "768 /admin/products/new",
+    "pass": true
+  },
+  {
+    "name": "768 /admin/products/{id}/edit",
+    "pass": true
+  },
+  {
+    "name": "768 /admin/account",
+    "pass": true
+  },
+  {
+    "name": "1024 /admin/products",
+    "pass": true
+  },
+  {
+    "name": "1024 /admin/products/new",
+    "pass": true
+  },
+  {
+    "name": "1024 /admin/products/{id}/edit",
+    "pass": true
+  },
+  {
+    "name": "1024 /admin/account",
+    "pass": true
+  },
+  {
+    "name": "1440 /admin/products",
+    "pass": true
+  },
+  {
+    "name": "1440 /admin/products/new",
+    "pass": true
+  },
+  {
+    "name": "1440 /admin/products/{id}/edit",
+    "pass": true
+  },
+  {
+    "name": "1440 /admin/account",
+    "pass": true
+  }
+]

@@ -2,6 +2,9 @@
 
 A Nigerian physical-goods e-commerce project. Phase 1 requirements and Phase 2 architecture are approved at v1.0, dated 20 September 2026. Phases 3A, 3B and 3C are approved. **Phase 3D Inventory & Stock Integrity is formally approved**; [ADR-013 revision 2](docs/architecture/adr/013-inventory-before-orders.md) is accepted and implemented with inventory-owned references. **Phase 3E Cart & Cart Persistence is formally approved**; see the [cart report](docs/development/phase-3e-report.md). Phase 3F checkout is formally APPROVED; A04 calculation semantics are approved. See the [checkout report](docs/development/phase-3f-report.md). Phase 3G orders and the Phase 3H payment implementation baseline are formally approved; external Paystack verification remains a production/UAT gate. Phase 3I manual shipping/fulfilment is implemented for review; see the [Phase 3I report](docs/development/phase-3i-report.md). **Phase 3C.5 brand/UI refinement is APPROVED AND CLOSED following human QA sign-off on 23 September 2026**; see the [design report](docs/development/phase-3c5-report.md).
 
+
+Phase 3N admin UAT remediation: [report and 21-step retest](docs/development/phase-3n-admin-ux-report.md), [defect register](docs/uat/02-defect-register.md). Products: `/admin/products`; categories: `/admin/categories`; owner staff administration: `/admin/staff`. Optional local Mailpit setup is in the [local guide](docs/development/local-setup.md#phase-3n-admin-uat-and-optional-mailpit-2026-09-25). Phase 3N remains open for client and external-provider acceptance; Phase 3O has not begun.
+
 | Location           | Purpose                                                                       |
 | ------------------ | ----------------------------------------------------------------------------- |
 | backend/           | Laravel 13 API foundation, PHPUnit and static analysis                        |

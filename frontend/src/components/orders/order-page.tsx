@@ -1,4 +1,5 @@
 "use client";
+import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
 import { ReturnsPanel } from "@/components/returns/returns-panel";
 import { FulfilmentPanel } from "./fulfilment-panel";
@@ -15,6 +16,7 @@ import {
 } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
+import { toast } from "@/lib/toast";
 import { Button, Price } from "@/components/ui";
 import {
   orderRequest,
@@ -133,6 +135,7 @@ export function OrderPage({
       );
       if (current === sequence.current) {
         setResult({ scope, data: next });
+        toast.success(admin ? "Order transition recorded" : "Order cancelled");
         queueMicrotask(() => focus.current?.focus());
       }
     } catch (e) {
@@ -147,13 +150,15 @@ export function OrderPage({
   }
   const body = (
     <>
-      <nav aria-label="Order navigation" className="order-navigation">
-        <Link href={admin ? "/admin" : "/account"}>
-          {admin ? "Staff workspace" : "Your account"}
-        </Link>
-        {id && !guest && <Link href={route}>Order history</Link>}
-        <Link href="/products">The collection</Link>
-      </nav>
+      {!admin && (
+        <nav aria-label="Order navigation" className="order-navigation">
+          <Link href={admin ? "/admin" : "/account"}>
+            {admin ? "Staff workspace" : "Your account"}
+          </Link>
+          {id && !guest && <Link href={route}>Order history</Link>}
+          <Link href="/products">The collection</Link>
+        </nav>
+      )}
       {!guest && !user && !authLoading && (
         <p>
           <Link href="/login">Sign in to view your orders.</Link>
@@ -220,28 +225,79 @@ export function OrderPage({
               ? "No orders found."
               : "Orders shown newest first."}
           </p>
-          <ul className="order-list">
-            {list.items.map((o) => (
-              <li key={o.id} className="order-card">
-                <h2>
-                  <Link href={`${route}/${o.id}`}>{o.number}</Link>
-                </h2>
-                <p>
-                  {label(o.status)} · {date(o.created_at)} WAT
-                </p>
-                <p>
-                  {o.item_count} items · <Price value={o.total_minor} />
-                </p>
-                {admin && (
+          {admin ? (
+            <AdminTable
+              label="Orders"
+              columns={[
+                "Order",
+                "Customer",
+                "Date",
+                "Total",
+                "Payment",
+                "Fulfilment",
+                "Status",
+              ]}
+              empty={list.items.length === 0}
+            >
+              {list.items.map((o) => (
+                <tr key={o.id}>
+                  <th scope="row">
+                    <Link href={`${route}/${o.id}`}>{o.number}</Link>
+                  </th>
+                  <td>
+                    {o.contact?.email ??
+                      (o.ownership === "guest"
+                        ? "Guest · details in order"
+                        : "Account · details in order")}
+                  </td>
+                  <td>{date(o.created_at)} WAT</td>
+                  <td>
+                    <Price value={o.total_minor} />
+                  </td>
+                  <td>
+                    <StatusBadge value={o.payment.state} />
+                  </td>
+                  <td>
+                    {o.shipment ? (
+                      <StatusBadge value={o.shipment.status} />
+                    ) : ["PROCESSING", "SHIPPED", "DELIVERED"].includes(
+                        o.status,
+                      ) ? (
+                      <StatusBadge value={o.status} />
+                    ) : (
+                      "Not started"
+                    )}
+                  </td>
+                  <td>
+                    <StatusBadge value={o.status} />
+                  </td>
+                </tr>
+              ))}
+            </AdminTable>
+          ) : (
+            <ul className="order-list">
+              {list.items.map((o) => (
+                <li key={o.id} className="order-card">
+                  <h2>
+                    <Link href={`${route}/${o.id}`}>{o.number}</Link>
+                  </h2>
                   <p>
-                    {o.ownership === "guest" ? "Guest" : "Account"} order ·
-                    Reservation {label(o.reservation.status)}
+                    {label(o.status)} · {date(o.created_at)} WAT
                   </p>
-                )}
-                <p>{paymentMessage(o.payment.state, o.status)}</p>
-              </li>
-            ))}
-          </ul>
+                  <p>
+                    {o.item_count} items · <Price value={o.total_minor} />
+                  </p>
+                  {admin && (
+                    <p>
+                      {o.ownership === "guest" ? "Guest" : "Account"} order ·
+                      Reservation {label(o.reservation.status)}
+                    </p>
+                  )}
+                  <p>{paymentMessage(o.payment.state, o.status)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
           {list.next_cursor && (
             <Button
               disabled={loading}
@@ -313,7 +369,7 @@ export function OrderPage({
           {admin && <Link href="/admin/returns">Returns and refunds</Link>}
           <div className="order-columns">
             <section aria-labelledby="order-items-heading">
-              <h2 id="order-items-heading">Your items</h2>
+              <h2 id="order-items-heading">{admin ? "Items" : "Your items"}</h2>
               <ul className="order-list">
                 {order.lines?.map((line) => (
                   <li className="order-line" key={line.id}>
@@ -408,7 +464,9 @@ export function OrderPage({
             </form>
           )}
           <section aria-labelledby="order-history-heading">
-            <h2 id="order-history-heading">Status history</h2>
+            <h2 id="order-history-heading">
+              {admin ? "Timeline" : "Status history"}
+            </h2>
             <ol>
               {order.history?.map((h, i) => (
                 <li key={i}>

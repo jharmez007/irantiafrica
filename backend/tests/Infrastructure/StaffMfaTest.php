@@ -210,6 +210,9 @@ final class StaffMfaTest extends TestCase
         $ownerCookies = $this->jar;
         $created = $this->browser('POST', '/api/v1/admin/staff', ['name' => 'Operator', 'email' => 'operator@example.test', 'role' => 'order_processing'])->assertCreated()->json('data.id');
         $operator = User::findOrFail($created);
+        $listing = $this->browser('GET', '/api/v1/admin/staff?q=Operator')->assertOk()->assertJsonPath('meta.total', 1)->json('data.0');
+        $this->assertSame(['id', 'name', 'email', 'status', 'roles', 'mfa_enrolled'], array_keys($listing));
+        $this->assertFalse($listing['mfa_enrolled']);
         Notification::assertSentTo($operator, RecoveryNotification::class);
         $token = Notification::sent($operator, RecoveryNotification::class)->first()->token;
         $this->jar = [];
@@ -217,6 +220,7 @@ final class StaffMfaTest extends TestCase
         $this->browser('POST', '/api/v1/auth/password/reset', ['email' => $operator->email, 'token' => $token, 'password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD])->assertOk();
         $this->enroll($operator);
         $operatorCookies = $this->jar;
+        $this->browser('GET', '/api/v1/admin/staff')->assertForbidden();
         $this->browser('POST', '/api/v1/admin/staff/'.$owner->id.'/mfa-reset', ['reason' => 'lost_authenticator'])->assertForbidden();
         $this->browser('PATCH', '/api/v1/admin/staff/'.$operator->id.'/roles', ['role' => 'owner'])->assertForbidden();
         $this->jar = $ownerCookies;

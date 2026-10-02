@@ -6,6 +6,7 @@ import { paymentMessage } from "../src/components/payments/payment-panel";
 import { FulfilmentPanel } from "../src/components/orders/fulfilment-panel";
 import type { OrderRecord, Shipment } from "../src/lib/order-api";
 import { CheckoutError } from "../src/lib/checkout-api";
+import { toast } from "../src/lib/toast";
 const mock = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/lib/order-api", () => ({ orderRequest: mock.request }));
 const shipment: Shipment = {
@@ -230,6 +231,7 @@ describe("manual fulfilment", () => {
     ).toBeTruthy();
   });
   it("prevents duplicate requests while pending", async () => {
+    const success = vi.spyOn(toast, "success");
     let resolve!: (value: OrderRecord) => void;
     mock.request.mockImplementation(
       () =>
@@ -251,7 +253,9 @@ describe("manual fulfilment", () => {
         .hasAttribute("disabled"),
     ).toBe(true);
     resolve(order("PROCESSING", true));
-    await screen.findByText("Order processing started.");
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith("Order processing started."),
+    );
   });
   it("discards an old response after the order view unmounts", async () => {
     let resolve!: (value: OrderRecord) => void;

@@ -1,0 +1,285 @@
+{
+  "purpose": "Generated representative UAT product imagery only; not approved production/client photography.",
+  "source_conversation": "Ecommerce Project Prompt Survey",
+  "source_thread_id": "6aaf260c-0a54-83e9-bb7e-971ea9dedc9f",
+  "retrieved_at": "2026-10-02",
+  "validation": {
+    "png_count": 30,
+    "decoded_count": 30,
+    "unique_sha256_count": 30,
+    "visually_matched_count": 30,
+    "missing_files": []
+  },
+  "images": [
+    {
+      "product": "Heritage Woven Cushion",
+      "filename": "earthy_geometric_mudcloth_throw_pillow.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_06 AM-3.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2531130,
+      "sha256": "52bab552c7f6f31ede7b647a2fd95878a89fbe586b35b768e60fffb5e5458791"
+    },
+    {
+      "product": "Adire Accent Cushion",
+      "filename": "artisanal_forest_green_mudcloth_pillow.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_56_58 AM-1.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2524626,
+      "sha256": "6268f3c07716298633d6d0c159698c4d0d04972add336f99587f988c191e3595"
+    },
+    {
+      "product": "Oyo Abstract Art Print",
+      "filename": "iranti_africa_abstract_art_display.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_22 AM-10.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1967811,
+      "sha256": "06f4e7a90b896dae459c59b6932abe27492b27bd6e8e4b3a0aaaca5166862699"
+    },
+    {
+      "product": "Woven Wall Basket",
+      "filename": "handwoven_terracotta_and_green_wall_basket.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_00 AM-2.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2536603,
+      "sha256": "36da2f09a2fe0fc3ae976d4f3dd3916eaee9b442274f5614764b02f155c13a90"
+    },
+    {
+      "product": "Sculptural Ceramic Vase",
+      "filename": "earthy_botanical_ceramic_vase.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_02 AM-3.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1913180,
+      "sha256": "874d6d5bb6ec95499bb9f228171c0e632b8781a56ff5c2047ba3876ea1ccb6b3"
+    },
+    {
+      "product": "Olive Heritage Throw",
+      "filename": "earthy_woven_throw_with_olive_accents.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_40 AM-4.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2348279,
+      "sha256": "243e89aa767aa22a888e299bde27607fb4d298d80abbba4e3dc4c52414cce4f9"
+    },
+    {
+      "product": "Sculptural Brass Candlestick Set",
+      "filename": "warm_brass_candlelight_still_life.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_44 AM-6.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1556261,
+      "sha256": "7b717f2745c86542c5bd64ac894c224865ce9015c391a4e9bafac6129d0713ec"
+    },
+    {
+      "product": "Woven Abstract Wall Art",
+      "filename": "earthy_geometric_woven_wall_art.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_45 AM-7.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2518046,
+      "sha256": "9d9c1017e04323bd0a85891dfededf770b61a70605cc59f2226548740e55310a"
+    },
+    {
+      "product": "Botanical Ceramic Planter",
+      "filename": "speckled_terracotta_botanical_planter.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_37 AM-2.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1949603,
+      "sha256": "2e7c274a47d32322f737ec39e0174fa17330d28dfabb4f684f25b8d62758525f"
+    },
+    {
+      "product": "Artisan Mug Set",
+      "filename": "artisanal_iranti_mug_set_with_packaging.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_03 AM-2.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1964208,
+      "sha256": "a45192e31f09bd4e20ef416dc622fd1b3ad5dae767b5392f3c390c7886825b16"
+    },
+    {
+      "product": "Acacia Serving Bowl Set",
+      "filename": "iranti_africa_wooden_bowl_set.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_13 AM-6.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1946836,
+      "sha256": "fed447399cfa176942c4f5ac3942edeb78f66410e6186b1164fb254358e3879e"
+    },
+    {
+      "product": "Woven Coaster Set",
+      "filename": "iranti_africa_woven_coasters.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_18 AM-8.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1938570,
+      "sha256": "cf7e2fa8301c6b5e0159b6c2207f34cd1f0ca498879fc46c0be131fb63630189"
+    },
+    {
+      "product": "Heritage Table Runner",
+      "filename": "earthy_geometric_woven_runner.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_20 AM-9.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2576144,
+      "sha256": "90cdc6e1bba0eb3bedd5a7ac2b95ebad702ca0222cff206dd82369d5f3efe485"
+    },
+    {
+      "product": "Carved Serving Tray",
+      "filename": "warm_carved_wooden_serving_tray.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_03 AM-4.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1882713,
+      "sha256": "dade61374f03cee7e99e61a9b1d930a86e841ef98d97e9fa9153278ef8e68d4f"
+    },
+    {
+      "product": "Acacia Salad Bowl Set",
+      "filename": "warm_acacia_wooden_salad_bowl_set.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_36 AM-1.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2017662,
+      "sha256": "4b3c9cea845248590d88224974bd5f7f6629a996f8e6f87106992a663650472b"
+    },
+    {
+      "product": "Heritage Placemats Set",
+      "filename": "woven_earth_tone_placemat_stack.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_39 AM-3.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2623190,
+      "sha256": "b6ab3d7cdf88cf2b6dfb8784ac4fe7ba75925c074e96d914fc8fdf4bedfaaba3"
+    },
+    {
+      "product": "Stoneware Dinner Plate Set",
+      "filename": "earthy_stoneware_plates_in_sunlit_simplicity.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_50 AM-10.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1886313,
+      "sha256": "b15a076ebd6639d1978d0d18c6e1c7a2a06f47fcd3a8dbf208243e70a7da7890"
+    },
+    {
+      "product": "Seagrass Storage Basket",
+      "filename": "handwoven_seagrass_basket_with_leather_handles.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_00 AM-1.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2310565,
+      "sha256": "d473ee7308f3014b5262924f6fb37d35f67279790c4b4d89ef9bba4b5e64da53"
+    },
+    {
+      "product": "Lidded Woven Basket",
+      "filename": "artisanal_woven_basket_with_colorful_lid.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_04 AM-5.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2412022,
+      "sha256": "f79cf5bf3bb6ecac525394576c3bd1d76c0d6e29f4081e6f318a298b24917a75"
+    },
+    {
+      "product": "Heritage Laundry Hamper",
+      "filename": "woven_olive_tan_storage_basket.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_06 AM-6.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2475922,
+      "sha256": "f9e81030a69cfb5428b3d2ae3a34ad82335307c9bfaa0d913330539891d87dfd"
+    },
+    {
+      "product": "Small Desk Basket",
+      "filename": "woven_natural_fiber_desk_organizer.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_07 AM-7.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2272975,
+      "sha256": "8fb2399c3c9751d33b3de7794ffbcf1ba57e8ba7bc89643e3274dd879eee4d34"
+    },
+    {
+      "product": "Striped Floor Basket",
+      "filename": "striped_woven_fiber_basket_in_sunlit_interior.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_48 AM-9.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2218923,
+      "sha256": "da35045209d8ee32a4c83e148b3688a535c968473e63528a4240d47ae2400716"
+    },
+    {
+      "product": "Market Tote",
+      "filename": "woven_iranti_africa_market_tote.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_09 AM-4.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2127202,
+      "sha256": "75b149eddcb8e4306a6a88bec3cd11e58563eee96f37f6a5e85adf619b02ba82"
+    },
+    {
+      "product": "Mini Woven Tote",
+      "filename": "woven_raffia_mini_tote_in_olive_and_green.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_09 AM-8.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2191960,
+      "sha256": "3cf5480beb98e7f910af7d478a6a024c42eba5c58441765b796b1f9ae1545d67"
+    },
+    {
+      "product": "Raffia Clutch",
+      "filename": "woven_raffia_clutch_with_brass_clasp.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_10 AM-9.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2309550,
+      "sha256": "761b297547a26fad25e13a6894beb5e85c54a44de66b1d98fbef38201d5cde28"
+    },
+    {
+      "product": "Leather Crossbody Pouch",
+      "filename": "cognac_leather_crossbody_with_olive_accents.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_12 AM-10.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2311315,
+      "sha256": "0bbe3f4a7b2f76503edb9b75295f6c75a7689b5cbf412f213f8029f91cb49bfb"
+    },
+    {
+      "product": "Leather Laptop Sleeve",
+      "filename": "cognac_leather_laptop_sleeve.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_42 AM-5.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2162271,
+      "sha256": "2caa572938a07beedcf1f452e6054e8b65341c07ec8240cc92acd1e81e20906a"
+    },
+    {
+      "product": "Wild Neroli Candle",
+      "filename": "iranti_wild_neroli_ceramic_candle.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_11 AM-5.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1761851,
+      "sha256": "db3fce8b3f7990cbb07cc34223660080eacfa4cfcbcce20bd6ab155d48e05b5b"
+    },
+    {
+      "product": "Ceramic Incense Holder Set",
+      "filename": "boho_ceramic_incense_holder_still_life.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 01_57_47 AM-8.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1769528,
+      "sha256": "623d9df6cdab5e6bfb08fc3360ef1ed19349e71e8e450ccbbe92ca2bccd90dd1"
+    },
+    {
+      "product": "Leather Heritage Journal",
+      "filename": "iranti_africa_leather_journal.png",
+      "source_download": "ChatGPT Image Oct 2, 2026, 02_01_15 AM-7.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 2221151,
+      "sha256": "b3f7839955658721b96624acd72617bbf4ec18bf88ce0bf4fae7eb9b72035c5a"
+    }
+  ]
+}

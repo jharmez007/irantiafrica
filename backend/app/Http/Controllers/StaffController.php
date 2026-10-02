@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Identity\StaffAdministration;
+use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -11,6 +12,16 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class StaffController
 {
+    public function index(Request $request): Response
+    {
+        $data = $request->validate(['q' => ['sometimes', 'nullable', 'string', 'max:100'], 'page' => ['sometimes', 'integer', 'min:1', 'max:10000']]);
+        $users = User::whereHas('roles')->with('roles')->when($data['q'] ?? null, function ($q, $term): void {
+            $q->where(fn ($q) => $q->where('name', 'ilike', '%'.$term.'%')->orWhere('email', 'ilike', '%'.$term.'%'));
+        })->orderBy('name')->orderBy('id')->paginate(24);
+
+        return response()->json(['data' => $users->getCollection()->map(fn ($user): array => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'status' => $user->status, 'roles' => $user->roles->pluck('code'), 'mfa_enrolled' => $user->mfa_confirmed_at !== null]), 'meta' => ['page' => $users->currentPage(), 'last_page' => $users->lastPage(), 'total' => $users->total()], 'mail_setup' => config('mail.default') === 'mailpit' ? 'local_capture' : (config('mail.default') === 'array' ? 'unavailable' : 'email')]);
+    }
+
     public function provision(Request $request, StaffAdministration $staff): Response
     {
         if (is_string($request->input('email'))) {

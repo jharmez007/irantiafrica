@@ -1,0 +1,237 @@
+[
+  {
+    "width": 320,
+    "adjust": {
+      "dialog": {
+        "left": 16,
+        "right": 304,
+        "top": 16,
+        "bottom": 884
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Adjust Stock",
+      "number": true,
+      "hasHint": true,
+      "hasHistory": false,
+      "violations": []
+    }
+  },
+  {
+    "width": 320,
+    "history": {
+      "dialog": {
+        "left": 16,
+        "right": 304,
+        "top": 220.078125,
+        "bottom": 679.90625
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Stock movement history",
+      "columns": [
+        "Date / time",
+        "Movement",
+        "On-hand change",
+        "Reserved change",
+        "On hand after",
+        "Reserved after",
+        "Reason",
+        "Recorded by"
+      ],
+      "scrollable": true,
+      "movements": 1,
+      "hasAdjustment": false,
+      "violations": []
+    },
+    "returnFocus": true
+  },
+  {
+    "width": 375,
+    "adjust": {
+      "dialog": {
+        "left": 16,
+        "right": 359,
+        "top": 45.484375,
+        "bottom": 854.5
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Adjust Stock",
+      "number": true,
+      "hasHint": true,
+      "hasHistory": false,
+      "violations": []
+    }
+  },
+  {
+    "width": 375,
+    "history": {
+      "dialog": {
+        "left": 16,
+        "right": 359,
+        "top": 231.28125,
+        "bottom": 668.71875
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Stock movement history",
+      "columns": [
+        "Date / time",
+        "Movement",
+        "On-hand change",
+        "Reserved change",
+        "On hand after",
+        "Reserved after",
+        "Reason",
+        "Recorded by"
+      ],
+      "scrollable": true,
+      "movements": 1,
+      "hasAdjustment": false,
+      "violations": []
+    },
+    "returnFocus": true
+  },
+  {
+    "width": 768,
+    "adjust": {
+      "dialog": {
+        "left": 74,
+        "right": 694,
+        "top": 83.875,
+        "bottom": 816.109375
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Adjust Stock",
+      "number": true,
+      "hasHint": true,
+      "hasHistory": false,
+      "violations": []
+    }
+  },
+  {
+    "width": 768,
+    "history": {
+      "dialog": {
+        "left": 16,
+        "right": 752,
+        "top": 213.96875,
+        "bottom": 686.015625
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Stock movement history",
+      "columns": [
+        "Date / time",
+        "Movement",
+        "On-hand change",
+        "Reserved change",
+        "On hand after",
+        "Reserved after",
+        "Reason",
+        "Recorded by"
+      ],
+      "scrollable": true,
+      "movements": 1,
+      "hasAdjustment": false,
+      "violations": []
+    },
+    "returnFocus": true
+  },
+  {
+    "width": 1024,
+    "adjust": {
+      "dialog": {
+        "left": 202,
+        "right": 822,
+        "top": 83.875,
+        "bottom": 816.109375
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Adjust Stock",
+      "number": true,
+      "hasHint": true,
+      "hasHistory": false,
+      "violations": []
+    }
+  },
+  {
+    "width": 1024,
+    "history": {
+      "dialog": {
+        "left": 16,
+        "right": 1008,
+        "top": 225.171875,
+        "bottom": 674.828125
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Stock movement history",
+      "columns": [
+        "Date / time",
+        "Movement",
+        "On-hand change",
+        "Reserved change",
+        "On hand after",
+        "Reserved after",
+        "Reason",
+        "Recorded by"
+      ],
+      "scrollable": true,
+      "movements": 1,
+      "hasAdjustment": false,
+      "violations": []
+    },
+    "returnFocus": true
+  },
+  {
+    "width": 1440,
+    "adjust": {
+      "dialog": {
+        "left": 410,
+        "right": 1030,
+        "top": 83.875,
+        "bottom": 816.109375
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Adjust Stock",
+      "number": true,
+      "hasHint": true,
+      "hasHistory": false,
+      "violations": []
+    }
+  },
+  {
+    "width": 1440,
+    "history": {
+      "dialog": {
+        "left": 180,
+        "right": 1260,
+        "top": 245.140625,
+        "bottom": 654.859375
+      },
+      "overflow": false,
+      "focusInside": true,
+      "heading": "Stock movement history",
+      "columns": [
+        "Date / time",
+        "Movement",
+        "On-hand change",
+        "Reserved change",
+        "On hand after",
+        "Reserved after",
+        "Reason",
+        "Recorded by"
+      ],
+      "scrollable": false,
+      "movements": 1,
+      "hasAdjustment": false,
+      "violations": []
+    },
+    "returnFocus": true
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "Edit then More actions tab order": "PASS",
+  "Visible trigger focus": "PASS",
+  "Keyboard trigger": "PASS",
+  "Natural Tab enters first action": "PASS",
+  "Visible item focus": "PASS",
+  "Escape returns focus": "PASS",
+  "Only one product menu open": "PASS",
+  "Outside pointer closes product menu": "PASS",
+  "Published state actions": "PASS",
+  "Account toggle closes": "PASS",
+  "Account outside pointer closes": "PASS",
+  "Account Escape returns focus": "PASS",
+  "Account selection closes": "PASS",
+  "Account route selection closes": "PASS",
+  "Menu width 160–180px": "PASS",
+  "No nested item border": "PASS",
+  "Menu item hover background": "PASS"
+}

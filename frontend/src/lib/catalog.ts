@@ -24,6 +24,7 @@ export type Variant = {
   option_value_ids: string[];
   status?: string;
   price_version?: number;
+  inventory?: { on_hand: number; reserved: number; available: number } | null;
 };
 export type Product = {
   id?: string;
@@ -46,7 +47,10 @@ export type Product = {
   media: CatalogImage[];
   status?: string;
   content_version?: number;
-  tax_category_code?: string;
+  tax_category_code?: string | null;
+  tax_treatment_label?: string | null;
+  updated_at?: string;
+  publication_issues?: string[];
 };
 export type Page<T> = {
   data: T[];

@@ -6,7 +6,10 @@ import {
   ReturnsPanel,
   ReturnSummary,
 } from "../src/components/returns/returns-panel";
-import { ReturnQueue } from "../src/components/returns/admin-returns";
+import {
+  ReturnDetail,
+  ReturnQueue,
+} from "../src/components/returns/admin-returns";
 import type { OrderRecord } from "../src/lib/order-api";
 import type { ReturnRecord, ReturnList } from "../src/lib/returns-api";
 const mock = vi.hoisted(() => ({ request: vi.fn() }));
@@ -151,10 +154,10 @@ describe("returns", () => {
         items: record.items.map((i) => ({ ...i, approved_quantity: 2 })),
       };
       mock.request
-        .mockResolvedValueOnce({ returns: [r], last_page: 1 })
+        .mockResolvedValueOnce(r)
         .mockResolvedValueOnce({ ...r, version: 2, actions: {} });
       const user = userEvent.setup();
-      render(<ReturnQueue />);
+      render(<ReturnDetail id="return-one" />);
       await user.selectOptions(await screen.findByLabelText("Action"), action);
       await user.type(
         screen.getByLabelText("Decision / operational note"),
@@ -174,7 +177,7 @@ describe("returns", () => {
   it("reauthenticates before refund approval and never accepts an amount", async () => {
     const r = { ...record, actions: { refund: true } };
     mock.request
-      .mockResolvedValueOnce({ returns: [r], last_page: 1 })
+      .mockResolvedValueOnce(r)
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({
         ...r,
@@ -187,7 +190,7 @@ describe("returns", () => {
         actions: {},
       });
     const user = userEvent.setup();
-    render(<ReturnQueue />);
+    render(<ReturnDetail id="return-one" />);
     await user.selectOptions(await screen.findByLabelText("Action"), "refund");
     await user.type(
       screen.getByLabelText("Decision / operational note"),
@@ -212,4 +215,22 @@ describe("returns", () => {
       note: "Approved",
     });
   });
+});
+
+it("keeps the return queue separate from review controls", async () => {
+  mock.request.mockResolvedValue({ returns: [record], last_page: 1 });
+  render(<ReturnQueue />);
+  expect(
+    await screen.findByRole("link", { name: "Review return" }),
+  ).toBeTruthy();
+  expect(screen.queryByLabelText("Action")).toBeNull();
+  await userEvent.selectOptions(
+    screen.getByLabelText("Return status"),
+    "UNDER_REVIEW",
+  );
+  await waitFor(() =>
+    expect(mock.request).toHaveBeenCalledWith(
+      "/admin/returns?page=1&status=UNDER_REVIEW",
+    ),
+  );
 });

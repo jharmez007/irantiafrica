@@ -125,6 +125,10 @@ final class AuthenticationTest extends TestCase
         }
         config(['identity.absolute_seconds' => -1]);
         $this->callBrowser('GET', '/api/v1/auth/me')->assertUnauthorized();
+        // Logout is intentionally guarded; an expired browser receives 401
+        // before the controller. The frontend must recognize this as signed out.
+        $this->callBrowser('POST', '/api/v1/auth/logout')->assertUnauthorized();
+        $this->callBrowser('GET', '/api/v1/auth/me')->assertUnauthorized();
     }
 
     public function test_reset_is_generic_single_use_and_revokes_existing_sessions(): void

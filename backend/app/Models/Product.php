@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
@@ -17,7 +18,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $description
  * @property string $kind
  * @property string $status
- * @property string $tax_category_code
+ * @property string|null $tax_category_code
+ * @property Carbon|null $updated_at
  * @property int $content_version
  * @property CarbonImmutable|null $published_at
  * @property CarbonImmutable|null $archived_at
