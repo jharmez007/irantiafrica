@@ -139,13 +139,22 @@ jobs:
           ready=false
           for attempt in {1..45}; do
             if curl --fail --silent http://127.0.0.1:10000/api/v1/health >/dev/null &&
-              curl --fail --silent http://127.0.0.1:10000/ >/dev/null; then
+              curl --fail --silent http://127.0.0.1:10000/ >/dev/null &&
+              docker exec "$container_id" supervisorctl status | awk '
+                $1 == "nginx" || $1 == "php-fpm" || $1 == "next" ||
+                $1 == "queue" || $1 == "scheduler" {
+                  count++
+                  if ($2 != "RUNNING") exit 1
+                }
+                END { if (count != 5) exit 1 }
+              '; then
               ready=true
               break
             fi
             sleep 2
           done
           if [[ "$ready" != true ]]; then
+            docker exec "$container_id" supervisorctl status >&2 || true
             docker logs "$container_id" >&2
             exit 1
           fi
@@ -181,8 +190,8 @@ jobs:
             restarted=false
             for attempt in {1..25}; do
               sleep 2
-              new_pid="$(docker exec "$container_id" supervisorctl pid "$process")"
-              if [[ "$new_pid" != "$old_pid" ]] &&
+              new_pid="$(docker exec "$container_id" supervisorctl pid "$process" 2>/dev/null || true)"
+              if [[ "$new_pid" =~ ^[1-9][0-9]*$ && "$new_pid" != "$old_pid" ]] &&
                 docker exec "$container_id" supervisorctl status "$process" | grep -q RUNNING; then
                 restarted=true
                 break
