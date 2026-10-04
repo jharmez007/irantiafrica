@@ -1,6 +1,6 @@
 # Production environment checklist — ultra-lean Render
 
-2026-10-04. **All Render/provider rows are UNVERIFIED; nothing provisioned.** Never paste secret values into this file, Git, CI logs or chat. The [deployment runbook](../deployment/render-production.md) and [ADR-018](../architecture/adr/018-ultra-lean-production-deployment.md) govern this profile. A protected production pre-launch replaces a separate staging environment by owner budget decision.
+2026-10-04. **Protected provisioning is authorized at SHA `35fab6dce276378ce41ac01bc4674f90f91f9747`, but no paid production resource or web service is provisioned.** A separate [temporary Free test database](../deployment/render-free-prelaunch.md) exists and must not count toward any production row below. The owner deferred Render billing; provider setup is pending. Never paste secret values into this file, Git, CI logs or chat. The [deployment runbook](../deployment/render-production.md) and [ADR-018](../architecture/adr/018-ultra-lean-production-deployment.md) govern the later paid profile.
 
 | Setting / evidence | Required treatment | Status |
 |---|---|---|
@@ -19,7 +19,7 @@
 | `CSP_ASSET_ORIGINS` | Exact approved HTTPS origins at build time; inspect generated CSP | NOT VERIFIED |
 | `CATALOG_DISK`, `FILESYSTEM_DISK`, `CATALOG_UPLOAD_TRANSPORT`, `CATALOG_MEDIA_ORIGIN` | `s3`, `s3`, `proxy`, owned HTTPS origin; private R2 only | NOT VERIFIED |
 | R2 access | Scoped access key/secret, region `auto`, bucket, HTTPS endpoint, path-style true; upload/derivative/read/delete/restore | NOT VERIFIED |
-| `MAIL_MAILER`, Resend settings | SMTP with privately entered host/port/username/password, verified domain, approved sender/reply-to | NOT VERIFIED |
+| `MAIL_MAILER`, `RESEND_API_KEY`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `resend` HTTPS/API; key and owner-approved sender mailbox entered privately in Render; `irantiafrica.com` is verified, but real application delivery is untested | Mocked code path PASS; real delivery NOT VERIFIED |
 | `TRANSACTIONAL_EMAIL_ENABLED`, `TRANSACTIONAL_EMAIL_START_AT` | Off until real inbox/bounce/retry proof, then deliberate activation | NOT VERIFIED |
 | `PAYMENTS_ENABLED`, `PAYSTACK_MODE`, `PAYSTACK_SECRET_KEY`, `PAYSTACK_LIVE_APPROVED` | Off, TEST, private matching key, false; signed callback test before enabling TEST | NOT VERIFIED |
 | Refund flags | Disabled until policy/provider test and separate approval | NOT VERIFIED |
@@ -27,6 +27,6 @@
 | Low stock, tracking, tax/delivery/return policies | Explicit owner-approved production values; no UAT-only defaults | NOT VERIFIED |
 | Product catalogue | Review UAT data before approved import or explicit temporary use; preserve media/stock history | NOT VERIFIED |
 | HTTPS, DNS, logging and alerts | Certificate, secure routing, redacted stdout/stderr, health, queue age, scheduler freshness and DB capacity alerts | NOT VERIFIED |
-| CI/artifact and resource tests | Clean reviewed `main` SHA, green hosted CI, Docker build, 2 GB/one-CPU load and PostgreSQL capacity | NOT VERIFIED |
+| CI/artifact and resource tests | Clean reviewed `main` SHA, green hosted CI, Docker build, 2 GB/one-CPU load and PostgreSQL capacity | SHA/hosted CI/Docker smoke PASS; populated load and actual Render PostgreSQL capacity NOT VERIFIED |
 
-`render.yaml` intentionally pins TEST/disabled/gate-on values. Each activation needs a reviewed Blueprint change and manual deploy. No actual secret belongs in the Blueprint; `sync:false` entries are private dashboard prompts. `SITE_URL` and CSP changes require an image rebuild. Keep `APP_KEY` in secure custody because losing it makes encrypted data unreadable. Do not provision until the [go/no-go gates](../deployment/render-ultra-lean-proposal.md) pass.
+`render.yaml` intentionally pins TEST/disabled/gate-on values. Each activation needs a reviewed Blueprint change and manual deploy. No actual secret belongs in the Blueprint; `sync:false` entries are private dashboard prompts. Disable Blueprint Auto Sync after creation as well as web auto-deploy. `SITE_URL` and CSP changes require an image rebuild. Keep `APP_KEY` in secure custody because losing it makes encrypted data unreadable. Unmeasured provider, backup, security and capacity rows remain pre-launch acceptance gates, even though protected provisioning is now authorized.

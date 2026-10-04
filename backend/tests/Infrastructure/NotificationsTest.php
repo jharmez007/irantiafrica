@@ -24,6 +24,9 @@ use App\Returns\RefundService;
 use App\Returns\ReturnPolicy;
 use App\Returns\ReturnService;
 use Database\Seeders\IdentityPermissionsSeeder;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Mail\MailManager;
@@ -40,6 +43,7 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PragmaRX\Google2FA\Google2FA;
 use Symfony\Component\Mailer\Exception\TransportException;
+use Tests\Fixtures\ResendHttpFake;
 use Tests\TestCase;
 
 final class NotificationsTest extends TestCase
@@ -420,6 +424,94 @@ final class NotificationsTest extends TestCase
         $this->assertSame('DELIVERED', $o->fresh()->status);
         $this->assertSame(7, DB::table('inventory')->value('on_hand'));
         $this->assertSame(8, DB::table('notification_attempts')->count());
+    }
+
+    public function test_order_mail_uses_database_queue_and_resend_once(): void
+    {
+        $order = $this->paid();
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24),
+            'communications.frontend_origin' => 'https://shop.irantiafrica.test',
+            'communications.start_at' => now()->subDay()->toIso8601String(), 'queue.default' => 'database']);
+        $fake = new ResendHttpFake([
+            new Response(200, ['Content-Type' => 'application/json'], '{"id":"order-created-id"}'),
+            new Response(200, ['Content-Type' => 'application/json'], '{"id":"payment-succeeded-id"}'),
+        ]);
+        $fake->install();
+        Queue::swap($this->realQueue);
+        $this->assertSame(2, app(NotificationDelivery::class)->relay());
+        $this->assertSame(2, DB::table('jobs')->where('queue', 'transactional')->count());
+        for ($i = 0; $i < 2; $i++) {
+            $this->assertSame(0, Artisan::call('queue:work', ['connection' => 'database', '--queue' => 'transactional', '--once' => true, '--tries' => 3, '--backoff' => 0]));
+        }
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertSame(2, DB::table('notification_deliveries')->where('status', 'SENT')->count());
+        $this->assertSame(2, DB::table('notification_attempts')->count());
+        $this->assertCount(2, $fake->history);
+        foreach ($fake->history as $entry) {
+            $payload = json_decode((string) $entry['request']->getBody(), true, flags: JSON_THROW_ON_ERROR);
+            $this->assertSame([$order->contact_email], $payload['to']);
+            $this->assertStringContainsString('sender@irantiafrica.com', $payload['from']);
+            $this->assertStringContainsString($order->public_reference, $payload['subject']);
+            $this->assertStringContainsString('IRANTI', $payload['html']);
+        }
+        foreach (DB::table('notification_deliveries')->pluck('id') as $id) {
+            app(NotificationDelivery::class)->deliver($id);
+        }
+        $this->assertCount(2, $fake->history);
+    }
+
+    public function test_resend_rate_limit_retries_and_auth_rejection_fails_without_claiming_delivery(): void
+    {
+        $this->paid();
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24),
+            'communications.frontend_origin' => 'https://shop.irantiafrica.test',
+            'communications.start_at' => now()->subDay()->toIso8601String()]);
+        $fake = new ResendHttpFake([
+            new Response(429, ['Content-Type' => 'application/json'], '{"name":"rate_limit_exceeded","message":"Fixture rate limit","statusCode":429}'),
+            new Response(401, ['Content-Type' => 'application/json'], '{"name":"invalid_api_key","message":"Fixture invalid key","statusCode":401}'),
+        ]);
+        $fake->install();
+        $service = app(NotificationDelivery::class);
+        $this->assertSame(2, $service->relay());
+        $rows = DB::table('notification_deliveries')->orderBy('id')->get();
+        $service->deliver($rows[0]->id);
+        $service->deliver($rows[1]->id);
+        $retry = DB::table('notification_deliveries')->where('id', $rows[0]->id)->first();
+        $failed = DB::table('notification_deliveries')->where('id', $rows[1]->id)->first();
+        $this->assertSame('PENDING', $retry->status);
+        $this->assertSame('PROVIDER_RATE_LIMITED', $retry->error_code);
+        $this->assertSame('FAILED', $failed->status);
+        $this->assertSame('PROVIDER_AUTH_REJECTED', $failed->error_code);
+        $this->assertNull($retry->sent_at);
+        $this->assertNull($failed->sent_at);
+        $this->assertCount(2, $fake->history);
+        $service->deliver($rows[0]->id);
+        $service->deliver($rows[1]->id);
+        $this->assertCount(2, $fake->history);
+    }
+
+    public function test_resend_transient_and_network_uncertainty_are_not_blindly_retried(): void
+    {
+        $order = $this->paid();
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24),
+            'communications.frontend_origin' => 'https://shop.irantiafrica.test']);
+        $payload = app(NotificationContent::class)->snapshot('OrderCreated', $order->id, null, now()->toIso8601String());
+        $network = new ConnectException('Fixture connection lost', new Request('POST', 'https://api.resend.invalid/emails'));
+        $fake = new ResendHttpFake([
+            new Response(503, ['Content-Type' => 'application/json'], '{"name":"application_error","message":"Fixture unavailable","statusCode":503}'),
+            $network,
+        ]);
+        $fake->install();
+        $transport = app(MailTransport::class);
+        $this->assertSame(['status' => 'UNKNOWN', 'code' => 'TRANSPORT_OUTCOME_UNKNOWN', 'message_id' => null], $transport->send($order->contact_email, $payload, (string) Str::uuid()));
+        $this->assertSame(['status' => 'UNKNOWN', 'code' => 'TRANSPORT_OUTCOME_UNKNOWN', 'message_id' => null], $transport->send($order->contact_email, $payload, (string) Str::uuid()));
+        $this->assertCount(2, $fake->history);
     }
 
     public function test_rollback_no_mail_and_after_commit_relay(): void

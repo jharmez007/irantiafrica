@@ -1,6 +1,6 @@
 # Render ultra-lean rollback and recovery
 
-No Render rollback has been executed. Rehearse before public launch with named business and technical decision owners. This applies to **one Docker web service plus one PostgreSQL database**; queue, cache, sessions and commerce data all share that database.
+No Render resource or rollback has been created/executed as of 2026-10-04. Rehearse before public launch with named business and technical decision owners. This applies to **one Docker web service plus one PostgreSQL database**; queue, cache, sessions and commerce data all share that database. The approved initial code SHA is `35fab6dce276378ce41ac01bc4674f90f91f9747`; keep web auto-deploy and Blueprint Auto Sync off so rollback targets remain explicit.
 
 1. **Contain:** disable payments and keep/re-enable `PRELAUNCH_GATE_ENABLED=true` when correctness is uncertain. Do not blindly cancel/refund provider transactions. Record incident time, current/previous approved SHA, migration version, affected orders, pending webhook inbox/outbox/jobs/failed jobs and recent logs without secrets.
 2. **Code/config rollback:** manually redeploy the last known-good **web image** from an approved SHA, with its matching environment and public build settings. Auto-deploy remains off. Supervisor then starts Nginx, PHP-FPM, Next, one worker and scheduler together. If the prior code cannot read the new schema, stop writes and use a reviewed forward fix or compatible migration plan; do not assume image rollback undoes database changes.

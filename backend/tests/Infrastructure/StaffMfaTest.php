@@ -302,6 +302,14 @@ final class StaffMfaTest extends TestCase
         config(['mail.default' => 'array']);
         $this->browser('POST', '/api/v1/admin/staff/'.$id.'/resend-invitation')->assertUnprocessable();
         $this->assertCount(2, Notification::sent($target, RecoveryNotification::class));
+
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24)]);
+        $this->browser('GET', '/api/v1/admin/staff')->assertOk()->assertJsonPath('mail_setup', 'email');
+        DB::table('password_reset_tokens')->where('email', $target->email)->delete();
+        $this->browser('POST', '/api/v1/admin/staff/'.$id.'/resend-invitation')->assertNoContent();
+        $this->assertCount(3, Notification::sent($target, RecoveryNotification::class));
+        $this->assertSame(1, User::where('email', $payload['email'])->count());
     }
 
     public function test_recent_authentication_and_last_owner_protection(): void

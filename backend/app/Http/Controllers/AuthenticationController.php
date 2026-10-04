@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Cart\CartSession;
+use App\Communications\MailConfiguration;
 use App\Http\Resources\IdentityResource;
 use App\Identity\ResetPassword;
 use App\Identity\SecurityEvents;
@@ -109,8 +110,7 @@ final class AuthenticationController
     {
         $this->normalize($request);
         $data = $request->validate(['email' => ['required', 'string', 'email:rfc', 'max:254']]);
-        $mailer = (string) config('mail.default');
-        abort_unless(in_array($mailer, ['smtp', 'array'], true) && (! app()->environment('production') || $mailer === 'smtp'), 503);
+        abort_unless(MailConfiguration::identityTransportConfigured(), 503);
         (new Timebox)->call(function () use ($data): void {
             DB::transaction(function () use ($data): void {
                 $user = User::where('email', $data['email'])->lockForUpdate()->first();

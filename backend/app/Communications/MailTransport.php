@@ -3,6 +3,7 @@
 namespace App\Communications;
 
 use Illuminate\Support\Facades\Mail;
+use Resend\Exceptions\ErrorException as ResendErrorException;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 final class MailTransport
@@ -28,9 +29,11 @@ final class MailTransport
                 if (! in_array($mailer, ['smtp', 'ses', 'postmark', 'resend'], true)) {
                     return $this->result('FAILED', 'MAILER_NOT_APPROVED');
                 }
-                $from = config('mail.from.address');
-                if (! is_string($from) || ! filter_var($from, FILTER_VALIDATE_EMAIL) || preg_match('/@((.*\.)?example\.(com|test|org|net)|.*\.invalid)$/i', $from) || ! config('mail.from.name')) {
+                if (! MailConfiguration::senderConfigured()) {
                     return $this->result('FAILED', 'SENDER_NOT_CONFIGURED');
+                }
+                if ($mailer === 'resend' && ! MailConfiguration::resendConfigured()) {
+                    return $this->result('FAILED', 'RESEND_NOT_CONFIGURED');
                 }
                 if ($mailer === 'smtp' && (config('mail.mailers.smtp.url') || ! config('mail.mailers.smtp.host') || in_array(config('mail.mailers.smtp.host'), ['localhost', '127.0.0.1'], true) || config('mail.mailers.smtp.scheme') !== 'smtps')) {
                     return $this->result('FAILED', 'SMTP_NOT_CONFIGURED');
@@ -58,6 +61,9 @@ final class MailTransport
         } catch (\LogicException|\InvalidArgumentException) {
             return $this->result('FAILED', 'CONFIGURATION_OR_TEMPLATE_INVALID');
         } catch (TransportExceptionInterface $e) {
+            if ($mailer === 'resend') {
+                return $this->resendFailure($e);
+            }
             $code = $e->getCode();
 
             return $this->result($code >= 400 && $code < 500 ? 'RETRY' : ($code >= 500 && $code < 600 ? 'FAILED' : 'UNKNOWN'), $code >= 400 && $code < 500 ? 'TEMPORARY_REJECTION' : ($code >= 500 && $code < 600 ? 'PERMANENT_REJECTION' : 'TRANSPORT_OUTCOME_UNKNOWN'));
@@ -70,5 +76,23 @@ final class MailTransport
     private function result(string $status, string $code): array
     {
         return ['status' => $status, 'code' => $code, 'message_id' => null];
+    }
+
+    /** @return array{status:string,code:string,message_id:null} */
+    private function resendFailure(TransportExceptionInterface $exception): array
+    {
+        $cause = $exception->getPrevious();
+        if (! $cause instanceof ResendErrorException) {
+            // A lost HTTP response can follow provider acceptance; do not blindly resend.
+            return $this->result('UNKNOWN', 'TRANSPORT_OUTCOME_UNKNOWN');
+        }
+        $status = $cause->getErrorCode();
+
+        return match (true) {
+            $status === 429 => $this->result('RETRY', 'PROVIDER_RATE_LIMITED'),
+            in_array($status, [401, 403], true) => $this->result('FAILED', 'PROVIDER_AUTH_REJECTED'),
+            $status >= 400 && $status < 500 => $this->result('FAILED', 'PROVIDER_REJECTED'),
+            default => $this->result('UNKNOWN', 'TRANSPORT_OUTCOME_UNKNOWN'),
+        };
     }
 }

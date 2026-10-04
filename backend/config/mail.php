@@ -64,6 +64,7 @@ return [
 
         'resend' => [
             'transport' => 'resend',
+            // The native Laravel driver reads services.resend.key from RESEND_API_KEY.
         ],
 
         'sendmail' => [

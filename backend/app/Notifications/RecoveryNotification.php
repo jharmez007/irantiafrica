@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Communications\MailConfiguration;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -20,9 +21,8 @@ final class RecoveryNotification extends ResetPassword implements ShouldBeEncryp
     /** @return list<string> */
     public function via($notifiable): array
     {
-        $mailer = (string) config('mail.default');
-        if (($mailer === 'mailpit' && ! app()->environment('local')) || (! in_array($mailer, ['smtp', 'array', 'mailpit'], true)) || (app()->environment('production') && $mailer !== 'smtp')) {
-            throw new \LogicException('Identity mail requires SMTP, or the non-logging array transport outside production.');
+        if (! MailConfiguration::identityTransportConfigured()) {
+            throw new \LogicException('Identity mail requires a configured transport.');
         }
 
         return ['mail'];

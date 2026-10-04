@@ -2,6 +2,8 @@
 
 namespace App\Identity;
 
+use App\Communications\MailConfiguration;
+
 final class StaffInvitationMail
 {
     public function status(): string
@@ -13,6 +15,10 @@ final class StaffInvitationMail
         }
 
         if ($mailer === 'smtp' && $this->smtpConfigured()) {
+            return 'email';
+        }
+
+        if ($mailer === 'resend' && MailConfiguration::resendConfigured()) {
             return 'email';
         }
 

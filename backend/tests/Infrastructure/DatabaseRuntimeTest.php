@@ -8,17 +8,21 @@ use App\Models\Product;
 use App\Models\ProductMedia;
 use App\Models\User;
 use App\Notifications\RecoveryNotification;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Console\Scheduling\CacheSchedulingMutex;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\Fixtures\DatabaseProbe;
+use Tests\Fixtures\ResendHttpFake;
 use Tests\TestCase;
 
 final class DatabaseRuntimeTest extends TestCase
@@ -148,6 +152,39 @@ final class DatabaseRuntimeTest extends TestCase
         $this->work('identity');
         $this->assertSame(0, DB::table('jobs')->count());
         $this->assertSame(0, DB::table('failed_jobs')->count());
+    }
+
+    public function test_password_recovery_and_staff_setup_use_identity_queue_and_resend_https(): void
+    {
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24),
+            'identity.frontend_url' => 'https://shop.irantiafrica.test']);
+        $fake = new ResendHttpFake([
+            new Response(200, ['Content-Type' => 'application/json'], '{"id":"reset-test-id"}'),
+            new Response(200, ['Content-Type' => 'application/json'], '{"id":"setup-test-id"}'),
+        ]);
+        $fake->install();
+        $customer = User::factory()->create();
+        $staff = User::factory()->create();
+        $this->assertSame(Password::RESET_LINK_SENT, Password::broker()->sendResetLink(['email' => $customer->email]));
+        $this->assertSame(Password::RESET_LINK_SENT, Password::broker()->sendResetLink(['email' => $staff->email]));
+        $this->assertSame(2, DB::table('jobs')->where('queue', 'identity')->count());
+        $this->work('identity');
+        $this->work('identity');
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertSame(0, DB::table('failed_jobs')->count());
+        $this->assertCount(2, $fake->history);
+        foreach ([$customer->email, $staff->email] as $index => $address) {
+            $request = $fake->history[$index]['request'];
+            $this->assertSame('https', $request->getUri()->getScheme());
+            $payload = json_decode((string) $request->getBody(), true, flags: JSON_THROW_ON_ERROR);
+            $this->assertSame([$address], $payload['to']);
+            $this->assertStringContainsString('sender@irantiafrica.com', $payload['from']);
+            $this->assertStringContainsString('https://shop.irantiafrica.test/reset-password#token=', $payload['html']);
+            $this->assertStringNotContainsString('re_'.str_repeat('x', 24), json_encode($payload, JSON_THROW_ON_ERROR));
+        }
+        Mail::purge('resend');
     }
 
     public function test_image_job_runs_once_from_database_queue_and_keeps_derivatives_private(): void

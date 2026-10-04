@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Communications\MailConfiguration;
 use App\Identity\MfaState;
 use App\Identity\PermissionMatrix;
 use App\Models\User;
@@ -100,6 +101,7 @@ class AppServiceProvider extends ServiceProvider
                     || ($s3['bucket'] ?? '') === '' || ($s3['key'] ?? '') === '' || ($s3['secret'] ?? '') === '') {
                     throw new \LogicException('Render database production requires a private HTTPS R2 endpoint, scoped credentials and bounded proxy uploads.');
                 }
+                MailConfiguration::assertRenderProfile();
             }
             /** @var array<int, string> $origins */
             $origins = config('cors.allowed_origins', []);

@@ -2,9 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Communications\MailConfiguration;
 use App\Identity\StaffInvitationMail;
 use App\Notifications\RecoveryNotification;
+use GuzzleHttp\Psr7\Response;
+use Illuminate\Mail\Transport\ResendTransport;
+use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Process\Process;
+use Tests\Fixtures\ResendHttpFake;
 use Tests\TestCase;
 
 final class LocalMailCaptureTest extends TestCase
@@ -67,5 +72,58 @@ final class LocalMailCaptureTest extends TestCase
         $this->assertSame('unavailable', $readiness->status());
         config(['mail.default' => 'array']);
         $this->assertFalse($readiness->configured());
+    }
+
+    public function test_resend_profile_requires_private_key_and_configured_sender(): void
+    {
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => null]);
+        $readiness = app(StaffInvitationMail::class);
+        $this->assertFalse(MailConfiguration::resendConfigured());
+        $this->assertSame('unavailable', $readiness->status());
+        try {
+            MailConfiguration::assertRenderProfile();
+            $this->fail('Expected missing Resend configuration to fail.');
+        } catch (\LogicException $e) {
+            $this->assertStringNotContainsString('re_', $e->getMessage());
+        }
+        $this->expectException(\LogicException::class);
+        (new RecoveryNotification('fixture'))->via(null);
+    }
+
+    public function test_native_resend_driver_resolves_and_local_smtp_remains_selectable(): void
+    {
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24)]);
+        $this->assertTrue(MailConfiguration::resendConfigured());
+        MailConfiguration::assertRenderProfile();
+        $this->assertSame('email', app(StaffInvitationMail::class)->status());
+        $this->assertSame(['mail'], (new RecoveryNotification('fixture'))->via(null));
+        $this->assertInstanceOf(ResendTransport::class, Mail::mailer('resend')->getSymfonyTransport());
+        $this->app->instance('env', 'local');
+        config(['mail.default' => 'smtp']);
+        $this->assertTrue(MailConfiguration::identityTransportConfigured());
+    }
+
+    public function test_native_resend_mailer_uses_mocked_https_without_exposing_key(): void
+    {
+        $this->app->instance('env', 'production');
+        config(['mail.default' => 'resend', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'services.resend.key' => 're_'.str_repeat('x', 24)]);
+        $fake = new ResendHttpFake([new Response(200, ['Content-Type' => 'application/json'], '{"id":"test-resend-message"}')]);
+        $fake->install();
+        Mail::mailer('resend')->raw('Pre-launch fixture', function ($message): void {
+            $message->to('owner@example.test')->subject('Test');
+        });
+        $this->assertCount(1, $fake->history);
+        $request = $fake->history[0]['request'];
+        $this->assertSame('https', $request->getUri()->getScheme());
+        $this->assertSame('api.resend.invalid', $request->getUri()->getHost());
+        $payload = json_decode((string) $request->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertStringContainsString('sender@irantiafrica.com', $payload['from']);
+        $this->assertSame(['owner@example.test'], $payload['to']);
+        $this->assertStringNotContainsString('re_'.str_repeat('x', 24), json_encode($payload, JSON_THROW_ON_ERROR));
     }
 }
