@@ -39,7 +39,7 @@ final class StaffMfa
             abort_if($user->mfa_confirmed_at !== null, 409);
             $totp = new Google2FA;
             $secret = $totp->generateSecretKey(32);
-            $request->session()->put(['pending_mfa_secret' => $secret, 'pending_mfa_at' => time()]);
+            PendingMfaEnrollment::put($request, $user, $secret);
             $url = $totp->getQRCodeUrl('IRANTI Africa', $user->email, $secret);
             $svg = (new Writer(new ImageRenderer(new RendererStyle(240), new SvgImageBackEnd)))->writeString($url);
             SecurityEvents::record('identity.mfa_enrollment_started', $user);
@@ -53,8 +53,8 @@ final class StaffMfa
     {
         $result = $this->locked($request, function (User $user) use ($request, $code): ?array {
             abort_if($user->mfa_confirmed_at !== null, 409);
-            $secret = $request->session()->get('pending_mfa_secret');
-            abort_unless(is_string($secret) && time() - (int) $request->session()->get('pending_mfa_at', 0) <= 600, 409);
+            $secret = PendingMfaEnrollment::get($request, $user);
+            abort_unless(is_string($secret), 409);
             $step = (new Google2FA)->verifyKeyNewer($secret, $code, 0, 1);
             if (! is_int($step)) {
                 SecurityEvents::record('identity.mfa_failed', $user, 'denied');
@@ -69,6 +69,7 @@ final class StaffMfa
             $user->save();
             DB::table('sessions')->where('user_id', $user->id)->delete();
             $request->session()->put('auth_version', $user->auth_version);
+            PendingMfaEnrollment::forget($request, $user);
             MfaState::establish($request, $user);
             SecurityEvents::record('identity.mfa_enabled', $user);
 

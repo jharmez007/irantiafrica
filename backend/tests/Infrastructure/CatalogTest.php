@@ -140,6 +140,91 @@ final class CatalogTest extends TestCase
         }
     }
 
+    public function test_owner_can_delete_only_unused_draft_with_options_variants_and_audit_retained(): void
+    {
+        $this->owner();
+        $p = $this->create('variant', 'Disposable draft');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Size', 'values' => ['Small']])->assertOk()->json('data');
+        $option = $p['options'][0];
+        $p = $this->variant($p, 'DISPOSABLE-1', [$option['values'][0]['id']]);
+        $variantId = $p['variants'][0]['id'];
+        $categoryId = $p['category_ids'][0];
+
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'] - 1])->assertStatus(409);
+        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility.allowed', true);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertNoContent();
+        foreach (['products' => $p['id'], 'product_options' => $option['id'], 'option_values' => $option['values'][0]['id'], 'product_variants' => $variantId] as $table => $id) {
+            $this->assertDatabaseMissing($table, ['id' => $id]);
+        }
+        $this->assertDatabaseMissing('product_categories', ['product_id' => $p['id']]);
+        $this->assertDatabaseMissing('variant_option_values', ['variant_id' => $variantId]);
+        $this->assertDatabaseHas('categories', ['id' => $categoryId]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_deleted', 'subject_id' => $p['id']]);
+    }
+
+    public function test_product_deletion_blocks_media_inventory_and_archived_history(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->create();
+        $p = $this->variant($p, 'KEEP-HISTORY-1');
+        app(InventoryService::class)->initializeStock($p['variants'][0]['id'], 1, 'Deletion safety test', (string) Str::uuid(), $owner);
+        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility.allowed', false);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertUnprocessable();
+        $this->assertDatabaseHas('products', ['id' => $p['id']]);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $p['variants'][0]['id']]);
+
+        $mediaProduct = $this->create('simple', 'Media draft');
+        $this->image($mediaProduct);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$mediaProduct['id'], ['content_version' => Product::findOrFail($mediaProduct['id'])->content_version])->assertUnprocessable();
+        $this->assertDatabaseHas('products', ['id' => $mediaProduct['id']]);
+
+        $archived = $this->create('simple', 'Archived draft');
+        $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/archive', ['content_version' => $archived['content_version']])->assertOk();
+        $this->browser('DELETE', '/api/v1/admin/products/'.$archived['id'], ['content_version' => Product::findOrFail($archived['id'])->content_version])->assertUnprocessable();
+
+        $cartProduct = $this->variant($this->create('simple', 'Cart-linked draft'), 'KEEP-CART-1');
+        $cartId = (string) Str::uuid();
+        $cartItemId = (string) Str::uuid();
+        DB::table('carts')->insert(['id' => $cartId, 'guest_token_hash' => hash('sha256', 'catalog-delete-test'), 'expires_at' => now()->addDays(30)]);
+        DB::table('cart_items')->insert(['id' => $cartItemId, 'cart_id' => $cartId, 'variant_id' => $cartProduct['variants'][0]['id'], 'quantity' => 1]);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$cartProduct['id'], ['content_version' => $cartProduct['content_version']])->assertUnprocessable();
+        $this->assertDatabaseHas('cart_items', ['id' => $cartItemId]);
+        $this->assertDatabaseHas('products', ['id' => $cartProduct['id']]);
+    }
+
+    public function test_category_deletion_requires_no_assignments_or_children_and_owner_permission(): void
+    {
+        $this->owner();
+        $p = $this->create();
+        $assigned = $p['category_ids'][0];
+        $this->browser('DELETE', '/api/v1/admin/categories/'.$assigned)->assertUnprocessable()->assertJsonPath('error.fields.category.0', 'This category cannot be deleted while products are assigned to it.');
+        $this->assertDatabaseHas('product_categories', ['product_id' => $p['id'], 'category_id' => $assigned]);
+
+        $parent = $this->browser('POST', '/api/v1/admin/categories', ['name' => 'Empty parent'])->assertCreated()->json('data.id');
+        $child = $this->browser('POST', '/api/v1/admin/categories', ['name' => 'Empty child', 'parent_id' => $parent])->assertCreated()->json('data.id');
+        $this->browser('DELETE', '/api/v1/admin/categories/'.$parent)->assertUnprocessable();
+        $this->browser('DELETE', '/api/v1/admin/categories/'.$child)->assertNoContent();
+        $this->browser('DELETE', '/api/v1/admin/categories/'.$parent)->assertNoContent();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.category_deleted', 'subject_id' => $parent]);
+        $this->assertDatabaseHas('products', ['id' => $p['id']]);
+    }
+
+    public function test_non_owner_staff_cannot_delete_products_or_categories(): void
+    {
+        $this->owner();
+        $p = $this->create();
+        $category = $this->browser('POST', '/api/v1/admin/categories', ['name' => 'Standalone'])->assertCreated()->json('data.id');
+        $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
+        $this->enroll($this->staff('order_processing'));
+        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility', null);
+        $this->browser('GET', '/api/v1/admin/categories')->assertOk()->assertJsonMissingPath('data.0.delete_eligibility');
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertForbidden();
+        $this->browser('DELETE', '/api/v1/admin/categories/'.$category)->assertForbidden();
+        $this->assertDatabaseHas('products', ['id' => $p['id']]);
+        $this->assertDatabaseHas('categories', ['id' => $category]);
+    }
+
     public function test_async_media_version_refresh_publication_and_stock_visibility(): void
     {
         $owner = $this->staff();
@@ -193,7 +278,8 @@ final class CatalogTest extends TestCase
         $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertNotFound();
         $this->assertDatabaseHas('product_variants', ['sku' => 'BASKET-1']);
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_published', 'subject_type' => 'product', 'subject_id' => $p['id']]);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'])->assertStatus(405);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => Product::findOrFail($p['id'])->content_version])->assertUnprocessable();
+        $this->assertDatabaseHas('products', ['id' => $p['id'], 'status' => 'archived']);
     }
 
     public function test_generic_variants_duplicate_combinations_skus_and_foreign_values(): void

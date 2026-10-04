@@ -1,5 +1,6 @@
 import { csrfCookie } from "./auth-api";
 import { reportSessionFailure } from "./session-events";
+import type { CatalogImage } from "./catalog";
 export type Address = {
   recipient_name: string;
   phone: string;
@@ -48,7 +49,12 @@ export type Checkout = {
     quantity: number;
     unit_price_minor: string;
     line_subtotal_minor: string;
-    snapshot: { name: string; sku: string; options: string[] };
+    snapshot: {
+      name: string;
+      sku: string;
+      options: string[];
+      image: CatalogImage | null;
+    };
     tax: { tax_minor: string } | null;
   }[];
 };

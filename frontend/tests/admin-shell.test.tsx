@@ -16,6 +16,7 @@ import {
 } from "../src/components/admin/primitives";
 const state = vi.hoisted(() => ({
   path: "/admin/products/new",
+  roles: ["owner"],
   permissions: [
     "catalog.read_internal",
     "catalog.create_update",
@@ -28,6 +29,7 @@ const state = vi.hoisted(() => ({
   ],
   logout: vi.fn(),
   replace: vi.fn(),
+  loading: false,
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => state.path,
@@ -35,9 +37,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/auth-provider", () => ({
   useAuth: () => ({
+    loading: state.loading,
     user: {
       name: "Test owner",
-      roles: ["owner"],
+      roles: state.roles,
       authentication_state: "authenticated",
       permissions: state.permissions,
     },
@@ -46,6 +49,8 @@ vi.mock("@/components/auth-provider", () => ({
 }));
 beforeEach(() => {
   state.path = "/admin/products/new";
+  state.loading = false;
+  state.roles = ["owner"];
   state.permissions = [
     "catalog.read_internal",
     "catalog.create_update",
@@ -74,6 +79,20 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+it("uses the branded screen loader only while protected admin identity initializes", () => {
+  state.loading = true;
+  render(
+    <AdminFrame>
+      <h1>Private dashboard</h1>
+    </AdminFrame>,
+  );
+  expect(screen.getByRole("status").textContent).toContain(
+    "Preparing your workspace",
+  );
+  expect(
+    screen.queryByRole("heading", { name: "Private dashboard" }),
+  ).toBeNull();
 });
 it("marks the nested product route and persists collapsed navigation with accessible names", async () => {
   render(
@@ -104,14 +123,19 @@ it("marks the nested product route and persists collapsed navigation with access
   ).toBe("Products");
 });
 it("uses approved grants to hide owner-only areas from operational staff", () => {
+  state.roles = ["inventory_store"];
   state.permissions = [
     "catalog.read_internal",
     "inventory.read",
+    "inventory.adjust",
+    "inventory.movements.read",
     "reports.stock",
   ];
   render(<AdminFrame>Inventory</AdminFrame>);
   const nav = screen.getByRole("navigation", { name: "Administration" });
   expect(within(nav).getByRole("link", { name: /Inventory/ })).toBeTruthy();
+  expect(within(nav).getByRole("link", { name: /Products/ })).toBeTruthy();
+  expect(within(nav).getByRole("link", { name: /Reports/ })).toBeTruthy();
   for (const label of [
     "Staff",
     "Payments",

@@ -82,7 +82,7 @@ export function PlaceOrder({
             Create an unpaid order from this reviewed total. Your cart will be
             kept.
           </p>
-          <Button disabled={busy} onClick={() => void place()}>
+          <Button loading={busy} onClick={() => void place()}>
             {busy ? "Creating order…" : "Create order — payment pending"}
           </Button>
         </>

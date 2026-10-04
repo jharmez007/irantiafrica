@@ -61,7 +61,7 @@ final class InventoryService
 
         return $this->transaction(function () use ($variantId, $threshold, $actor): Inventory {
             $currentActor = User::query()->lockForUpdate()->findOrFail($actor->id);
-            abort_unless($currentActor->hasPermission('inventory.adjust'), 403);
+            abort_unless($currentActor->hasPermission('inventory.threshold.configure'), 403);
             ProductVariant::query()->lockForUpdate()->findOrFail($variantId);
             $stock = Inventory::where('variant_id', $variantId)->lockForUpdate()->firstOrFail();
             if ($stock->low_stock_threshold === $threshold) {
@@ -360,7 +360,7 @@ final class InventoryService
     {
         return $this->transaction(function () use ($returnItemId, $actor): InventoryMovement {
             $actor = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
-            abort_unless($actor->status === 'active' && $actor->hasPermission('inventory.adjust'), 403);
+            abort_unless($actor->status === 'active' && $actor->hasPermission('inventory.adjust') && $actor->hasPermission('returns.read'), 403);
             $initial = DB::table('return_items')->where('id', $returnItemId)->firstOrFail();
             $order = Order::whereKey($initial->order_id)->lockForUpdate()->firstOrFail();
             $item = DB::table('return_items')->where('id', $returnItemId)->lockForUpdate()->firstOrFail();

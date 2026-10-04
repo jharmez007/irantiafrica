@@ -13,6 +13,7 @@ All records are proposed for Phase 2 approval, dated 2026-09-20. Approval of a t
 - [ADR-009 — Managed application platform operating model](009-deployment.md)
 
 - [ADR-010 — ESLint 10 target; approved temporary ESLint 9 exception](010-eslint-10-remediation.md) — subsequent Phase 3A remediation approval, not part of the historical nine-record proposal.
+- [ADR-019 — Narrow dev-tooling audit exception for braces](019-dev-tooling-audit-exception.md) — production audit remains blocking; one unpatched development-only chain is tracked explicitly.
 
 - [ADR-011 — Physical identity storage reconciliation](011-identity-framework-storage.md) — Phase 3A remediation decision for approval.
 
@@ -21,3 +22,5 @@ All records are proposed for Phase 2 approval, dated 2026-09-20. Approval of a t
 - [ADR-016 — Historical return units and safe refund creation](016-return-unit-allocation.md): Phase 3J approved implementation refinement.
 
 - [ADR-017 — Committed notification relay](017-committed-notification-relay.md): Phase 3K implementation refinement, pending phase approval.
+
+- [ADR-018 — Ultra-lean production deployment](018-ultra-lean-production-deployment.md): Phase 3O budget-approved production topology, pending verification.

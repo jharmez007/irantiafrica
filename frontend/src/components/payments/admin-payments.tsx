@@ -1,6 +1,7 @@
 "use client";
 import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
+import { InlineSpinner, PageSkeleton } from "@/components/loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
@@ -118,6 +119,13 @@ export function AdminPayments() {
         </p>
       )}
       {error && <p role="alert">{error}</p>}
+      {allowed && !rows && !error && (
+        <PageSkeleton
+          kind="admin-table"
+          label="Loading payments"
+          showHeading={false}
+        />
+      )}
       {allowed && rows?.user === user?.id && (
         <>
           <p role="status">
@@ -174,7 +182,7 @@ export function AdminPayments() {
                       void inspect(a.id);
                     }}
                   >
-                    View history
+                    View
                   </Button>
                 </td>
               </tr>
@@ -221,14 +229,14 @@ export function AdminPayments() {
                     </p>
                   ))}
                   <Button
-                    disabled={busy}
+                    loading={busy}
                     onClick={() => void inspect(a.id, true)}
                   >
                     {busy ? "Checking…" : "Verify with provider"}
                   </Button>
                   <h3>History</h3>
                   {!a.history ? (
-                    <p role="status">Loading payment history…</p>
+                    <InlineSpinner label="Loading payment history…" />
                   ) : (
                     <ul>
                       {a.history.map((h, i) => (

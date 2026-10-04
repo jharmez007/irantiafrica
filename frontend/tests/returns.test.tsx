@@ -220,9 +220,7 @@ describe("returns", () => {
 it("keeps the return queue separate from review controls", async () => {
   mock.request.mockResolvedValue({ returns: [record], last_page: 1 });
   render(<ReturnQueue />);
-  expect(
-    await screen.findByRole("link", { name: "Review return" }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("link", { name: "View" })).toBeTruthy();
   expect(screen.queryByLabelText("Action")).toBeNull();
   await userEvent.selectOptions(
     screen.getByLabelText("Return status"),

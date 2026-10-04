@@ -93,23 +93,33 @@ class AppServiceProvider extends ServiceProvider
             if (config('catalog.disk') !== 's3' || ! ProductionConfiguration::secureOrigin((string) config('catalog.public_origin'))) {
                 throw new \LogicException('Production catalog requires private S3 storage and an HTTPS owned media origin.');
             }
+            if (config('production.network_profile') === 'render-private-database') {
+                $s3 = config('filesystems.disks.s3');
+                if (config('catalog.upload_transport') !== 'proxy' || ! is_array($s3)
+                    || ! ProductionConfiguration::secureOrigin((string) ($s3['endpoint'] ?? ''))
+                    || ($s3['bucket'] ?? '') === '' || ($s3['key'] ?? '') === '' || ($s3['secret'] ?? '') === '') {
+                    throw new \LogicException('Render database production requires a private HTTPS R2 endpoint, scoped credentials and bounded proxy uploads.');
+                }
+            }
             /** @var array<int, string> $origins */
             $origins = config('cors.allowed_origins', []);
             if (config('session.driver') !== 'database' || config('session.encrypt') !== true || config('session.domain') !== null || config('session.http_only') !== true || config('session.same_site') !== 'lax') {
                 throw new \LogicException('Production identity requires encrypted PostgreSQL sessions and host-only cookies.');
             }
-            if (config('database.default') !== 'pgsql' || config('database.connections.pgsql.sslmode') !== 'verify-full') {
-                throw new \LogicException('Production requires PostgreSQL with verified TLS.');
-            }
-            if (config('queue.default') !== 'redis' || config('cache.default') !== 'redis') {
-                throw new \LogicException('Production requires the configured Redis queue and cache.');
-            }
-            if (config('database.redis.default.scheme') !== 'tls' || config('database.redis.cache.scheme') !== 'tls') {
-                throw new \LogicException('Production Redis connections require verified TLS.');
-            }
-            if ((int) config('queue.connections.redis.retry_after') <= 60) {
-                throw new \LogicException('Queue retry lease must exceed the maximum job timeout.');
-            }
+            ProductionConfiguration::validateDataPlane(
+                (string) config('production.network_profile'),
+                (bool) config('production.render_runtime'),
+                (string) config('database.default'),
+                (string) config('database.connections.pgsql.sslmode'),
+                (string) config('database.connections.pgsql.url'),
+                (string) config('queue.default'),
+                (string) config('cache.default'),
+                (string) config('cache.limiter'),
+                (string) config('database.redis.default.scheme'),
+                (string) config('database.redis.default.url'),
+                (string) config('database.redis.cache.scheme'),
+                (int) config('queue.connections.'.config('queue.default').'.retry_after'),
+            );
             if (! ProductionConfiguration::secureOrigin((string) config('payments.return_origin'))) {
                 throw new \LogicException('Production frontend origin must use HTTPS.');
             }

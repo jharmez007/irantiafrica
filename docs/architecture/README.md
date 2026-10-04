@@ -14,7 +14,7 @@ Deferred: wishlist, reorder, reviews, bulk discounts, marketing/subscriptions/ca
 1. [Stack](01-technology-stack.md), [modules](02-modular-architecture.md), [context](03-system-context.md), [runtime](04-container-architecture.md).
 2. [Frontend](05-frontend-architecture.md), [backend](06-backend-architecture.md), [domain](07-domain-model.md), [database/ERD](08-database-design.md).
 3. [Inventory](09-inventory-architecture.md), [checkout](10-checkout-architecture.md), [states](11-order-state-machine.md), [payments](12-payment-architecture.md), [tax](13-tax-architecture.md), [shipping](14-shipping-architecture.md), [returns](15-returns-refunds.md).
-4. [Authentication](16-authentication.md), [permissions](17-rbac.md), [API inventory](18-api-design.md), [threat model](19-security-threat-model.md), [privacy/audit](20-privacy-audit.md).
+4. [Authentication](16-authentication.md), [permissions](17-rbac.md), [API inventory](18-api-design.md), [threat model](19-security-threat-model.md), [Phase 3N session/audit addendum](security.md), [privacy/audit](20-privacy-audit.md).
 5. [Email](21-notifications.md), [reports](22-reporting.md), [media](23-media.md), [cache/queue](24-cache-queue.md), [observability](25-observability.md), [recovery](26-backup-recovery.md).
 6. [Deployment](27-deployment-architecture.md), [environments](28-environments.md), [CI/CD](29-cicd.md), [testing](30-testing-strategy.md), [decisions](31-open-architecture-decisions.md), [future roadmap](32-implementation-roadmap.md).
 7. [ADR index](adr/README.md).

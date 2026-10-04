@@ -660,4 +660,24 @@ final class PaymentTest extends TestCase
             Queue::connection('redis')->clear($queue);
         }
     }
+
+    public function test_payment_webhook_follow_up_runs_through_database_queue_once(): void
+    {
+        $this->provider();
+        $o = $this->place($this->prepared())->assertCreated()->json('data');
+        $a = $this->init($o)->assertCreated()->json('data');
+        $this->webhook($a['reference'])->assertOk();
+        $inbox = DB::table('webhook_inbox')->value('id');
+        $queue = 'payment-db-test-'.Str::uuid();
+        Queue::connection('database')->push(new ReconcilePayment($inbox, true), '', $queue);
+        $this->assertSame(1, DB::table('jobs')->where('queue', $queue)->count());
+        Artisan::call('queue:work', ['connection' => 'database', '--queue' => $queue, '--once' => true, '--tries' => 3, '--timeout' => 30, '--sleep' => 0]);
+        $this->paidOnce();
+        $this->assertSame('DONE', DB::table('webhook_inbox')->value('status'));
+        // Re-delivery after a lease timeout must not consume stock or apply payment again.
+        Queue::connection('database')->push(new ReconcilePayment($inbox, true), '', $queue);
+        Artisan::call('queue:work', ['connection' => 'database', '--queue' => $queue, '--once' => true, '--tries' => 3, '--timeout' => 30, '--sleep' => 0]);
+        $this->paidOnce();
+        $this->assertSame(0, DB::table('failed_jobs')->where('queue', $queue)->count());
+    }
 }

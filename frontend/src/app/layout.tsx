@@ -12,10 +12,6 @@ export const metadata: Metadata = {
     template: "%s | IRANTI Africa",
   },
   description: "IRANTI Africa. Memories of Nigeria.",
-  icons: {
-    icon: "/assets/brand/favicon-original.png",
-    apple: "/assets/brand/favicon-original.png",
-  },
   robots: { index: false, follow: false },
 };
 

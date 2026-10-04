@@ -1,0 +1,48 @@
+FROM node:24-bookworm-slim AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+ARG SITE_URL=https://iranti-africa-web.onrender.com
+ARG CSP_ASSET_ORIGINS=
+ENV SITE_URL=${SITE_URL} CSP_ASSET_ORIGINS=${CSP_ASSET_ORIGINS} API_INTERNAL_URL=http://127.0.0.1:8080 NEXT_PUBLIC_API_URL=/api/v1
+RUN npm run build -- --webpack
+
+FROM php:8.5-fpm-bookworm AS runtime
+# PHP 8.5 official images already enable OPcache; reinstalling it fails.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates gettext-base nginx supervisor unzip \
+    libpq-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev \
+    libicu-dev libzip-dev libonig-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j2 pdo_pgsql gd intl mbstring bcmath exif pcntl zip \
+    && printf '\nclear_env = no\n' >> /usr/local/etc/php-fpm.d/www.conf \
+    && (getent group 1000 >/dev/null || groupadd -g 1000 rendersecrets) \
+    && usermod -a -G 1000 www-data \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
+WORKDIR /app/backend
+COPY backend/composer.json backend/composer.lock ./
+RUN composer install --no-dev --no-scripts --no-interaction --prefer-dist --optimize-autoloader
+COPY backend/ ./
+RUN APP_ENV=local composer dump-autoload --no-dev --optimize --no-interaction \
+    && rm /usr/local/bin/composer \
+    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
+COPY --from=frontend-build /app/frontend/.next/standalone/ /app/frontend/
+COPY --from=frontend-build /app/frontend/.next/static/ /app/frontend/.next/static/
+COPY --from=frontend-build /app/frontend/public/ /app/frontend/public/
+COPY docker/render/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY docker/render/php-fpm-low-memory.conf /usr/local/etc/php-fpm.d/zz-iranti-memory.conf
+COPY docker/render/uploads.ini /usr/local/etc/php/conf.d/zz-iranti-uploads.ini
+COPY docker/render/supervisord.conf /etc/supervisor/supervisord.conf
+COPY docker/render/entrypoint.sh /usr/local/bin/iranti-entrypoint
+RUN chmod 0755 /usr/local/bin/iranti-entrypoint \
+    && mkdir -p /tmp/nginx/client /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi /tmp/supervisor \
+    && chown -R www-data:www-data /tmp/nginx /tmp/supervisor
+USER www-data
+ENV PORT=10000 API_INTERNAL_URL=http://127.0.0.1:8080 NEXT_PUBLIC_API_URL=/api/v1
+EXPOSE 10000
+ENTRYPOINT ["/usr/local/bin/iranti-entrypoint"]
+CMD ["web"]

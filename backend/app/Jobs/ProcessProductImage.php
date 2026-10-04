@@ -87,7 +87,7 @@ final class ProcessProductImage implements ShouldQueue
                     imagedestroy($target);
                 }
                 $key = 'derivatives/'.$m->id.'/'.$size.'.webp';
-                if (! is_string($encoded) || ! $storage->disk()->put($key, $encoded, ['visibility' => 'private', 'ContentType' => 'image/webp', 'CacheControl' => 'public,max-age=31536000,immutable'])) {
+                if (! is_string($encoded) || ! $storage->putPrivate($key, $encoded, 'image/webp', 'public,max-age=31536000,immutable')) {
                     throw new \RuntimeException('Derivative storage failed.');
                 }
                 $derivatives[(string) $size] = ['key' => $key, 'width' => $width, 'height' => $height];

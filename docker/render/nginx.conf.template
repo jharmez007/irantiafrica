@@ -1,0 +1,71 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+events { worker_connections 512; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log off;
+    client_body_temp_path /tmp/nginx/client;
+    proxy_temp_path /tmp/nginx/proxy;
+    fastcgi_temp_path /tmp/nginx/fastcgi;
+    uwsgi_temp_path /tmp/nginx/uwsgi;
+    scgi_temp_path /tmp/nginx/scgi;
+    client_max_body_size 12m;
+
+    server {
+        listen 127.0.0.1:8080;
+        server_name _;
+        root /app/backend/public;
+        location / {
+            include /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME /app/backend/public/index.php;
+            fastcgi_param SCRIPT_NAME /index.php;
+            fastcgi_param HTTP_HOST $http_host;
+            fastcgi_param HTTPS on;
+            fastcgi_param HTTP_X_FORWARDED_PROTO https;
+            fastcgi_pass 127.0.0.1:9000;
+        }
+    }
+
+    server {
+        listen ${PORT};
+        server_name _;
+        include /tmp/iranti-gate.conf;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options nosniff always;
+
+        location = /api/v1/health {
+            auth_basic off;
+            proxy_set_header Host $host;
+            proxy_set_header Authorization "";
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://127.0.0.1:8080;
+        }
+        location = /api/v1/webhooks/paystack {
+            auth_basic off;
+            proxy_set_header Host $host;
+            proxy_set_header Authorization "";
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://127.0.0.1:8080;
+        }
+        location /api/ {
+            proxy_set_header Host $host;
+            proxy_set_header Authorization "";
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://127.0.0.1:8080;
+        }
+        location /sanctum/ {
+            proxy_set_header Host $host;
+            proxy_set_header Authorization "";
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://127.0.0.1:8080;
+        }
+        location / {
+            proxy_set_header Host $host;
+            proxy_set_header Authorization "";
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://127.0.0.1:3000;
+        }
+    }
+}

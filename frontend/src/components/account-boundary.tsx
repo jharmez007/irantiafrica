@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { authenticationDestination } from "@/lib/auth-state";
 import { useAuth } from "./auth-provider";
 import { Alert, Button } from "@/components/ui";
+import { PageSkeleton } from "@/components/loading";
 import { toast } from "@/lib/toast";
 
 export function AccountBoundary() {
@@ -25,7 +26,7 @@ export function AccountBoundary() {
   if (loading)
     return (
       <main id="main-content" className="account-layout container">
-        <p role="status">Loading your account…</p>
+        <PageSkeleton kind="account" label="Loading your account" />
       </main>
     );
   if (error)

@@ -16,10 +16,41 @@ final class MediaStorage
         return Storage::disk((string) config('catalog.disk'));
     }
 
+    /** Write only to the private catalog disk; R2 rejects the ACL header emitted by Flysystem's S3 upload. */
+    public function putPrivate(string $key, mixed $body, string $contentType, ?string $cacheControl = null): bool
+    {
+        $disk = $this->disk();
+        if (config('catalog.upload_transport') === 'proxy' && $disk instanceof AwsS3V3Adapter) {
+            $options = ['Bucket' => $disk->getConfig()['bucket'], 'Key' => $key, 'Body' => $body, 'ContentType' => $contentType];
+            if ($cacheControl !== null) {
+                $options['CacheControl'] = $cacheControl;
+            }
+
+            try {
+                // The bucket itself is private. No x-amz-acl header is sent.
+                $disk->getClient()->putObject($options);
+
+                return true;
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
+        $options = ['visibility' => 'private', 'ContentType' => $contentType];
+        if ($cacheControl !== null) {
+            $options['CacheControl'] = $cacheControl;
+        }
+
+        return $disk->put($key, $body, $options) !== false;
+    }
+
     /** @return array{url:string,fields:array<string,string>,transport:string} */
     public function upload(ProductMedia $media): array
     {
-        if (config('catalog.disk') === 'local') {
+        if (config('catalog.disk') === 'local' || config('catalog.upload_transport') === 'proxy') {
+            // The signed, authenticated application endpoint can stream a bounded
+            // upload into a private S3-compatible disk, including R2, which does
+            // not support S3 browser POST policies.
             return ['url' => URL::temporarySignedRoute('catalog.upload', now()->addMinutes(10), ['id' => $media->id], false), 'fields' => [], 'transport' => 'local'];
         }
         $disk = $this->disk();

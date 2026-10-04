@@ -1,21 +1,41 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Logo } from "@/components/brand/logo";
 import { Container, SectionHeader, EmptyState } from "@/components/ui";
 import { ProductCard } from "@/components/catalog/product-card";
 import { CategoryCard } from "@/components/catalog/category-card";
 import { catalogFetch } from "@/lib/catalog-server";
 import type { Category, Page, Product } from "@/lib/catalog";
-export default async function HomePage() {
-  const [productsResult, categoriesResult] = await Promise.allSettled([
-    catalogFetch<Page<Product>>("/products?page_size=4"),
-    catalogFetch<Page<Category>>("/categories?page_size=4"),
+import {
+  HomeLoadingFallback,
+  HomeSectionScroll,
+} from "@/components/home-loading-fallback";
+export default function HomePage() {
+  return (
+    <Suspense fallback={<HomeLoadingFallback />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+async function HomeContent() {
+  const [catalogResults] = await Promise.all([
+    Promise.allSettled([
+      catalogFetch<Page<Product>>("/products?page_size=4"),
+      catalogFetch<Page<Category>>("/categories?page_size=4"),
+    ]),
+    // Temporary visual-test hold. Production never waits for this timer.
+    process.env.NODE_ENV === "development"
+      ? new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      : Promise.resolve(),
   ]);
+  const [productsResult, categoriesResult] = catalogResults;
   const products =
     productsResult.status === "fulfilled" ? productsResult.value.data : [];
   const categories =
     categoriesResult.status === "fulfilled" ? categoriesResult.value.data : [];
   return (
     <main id="main-content">
+      <HomeSectionScroll />
       <section className="home-hero">
         <Container className="hero-grid">
           <div className="hero-copy">
@@ -59,11 +79,10 @@ export default async function HomePage() {
           </SectionHeader>
           {categories.length > 0 ? (
             <div className="category-grid">
-              {categories.map((category, index) => (
+              {categories.map((category) => (
                 <CategoryCard
                   key={category.slug}
                   category={category}
-                  index={index}
                   image={
                     products.find((product) =>
                       product.categories.some(

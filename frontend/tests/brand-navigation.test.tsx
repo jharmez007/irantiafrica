@@ -103,6 +103,17 @@ async function scan() {
 }
 
 describe("brand navigation behavior", () => {
+  it("uses a focused checkout shell with a return path and compact support labels", () => {
+    mocks.pathname = "/checkout";
+    render(<PublicPage />);
+    expect(screen.getByText("Protected checkout")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Back to cart" }).getAttribute("href"),
+    ).toBe("/cart");
+    expect(screen.queryByRole("link", { name: "Shop" })).toBeNull();
+    expect(screen.getByText(/Privacy policy/)).toBeTruthy();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
   it("keeps named storefront destinations and an accessible cart link", () => {
     render(<Header />);
     const navigation = screen.getByRole("navigation", {

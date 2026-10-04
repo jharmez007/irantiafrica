@@ -148,6 +148,13 @@ export function ProductDetail({ product }: { product: Product }) {
             variantId={variant?.id}
             available={!unavailable && !!variant}
           />
+          <div className="product-confidence" aria-label="Shopping information">
+            <p>Stock is checked again before your order is placed.</p>
+            <p>
+              Delivery charges and tax are shown before you confirm your total.
+            </p>
+            <p>Payment follows order review.</p>
+          </div>
           <section
             className="product-description"
             aria-labelledby="product-description-heading"

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { Button, Drawer } from "@/components/ui";
+import { AppScreenLoader } from "@/components/loading";
 import { ActionMenu } from "./primitives";
 import { toast } from "@/lib/toast";
 const items = [
@@ -111,7 +112,7 @@ function Icon({ name }: { name: string }) {
   );
 }
 export function AdminFrame({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -138,6 +139,7 @@ export function AdminFrame({ children }: { children: ReactNode }) {
       : user?.roles?.includes("inventory_store")
         ? "Inventory / Store"
         : "Staff workspace";
+  if (loading) return <AppScreenLoader label="Preparing your workspace…" />;
   function nav(mobile = false) {
     return (
       <nav aria-label={mobile ? "Mobile administration" : "Administration"}>

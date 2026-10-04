@@ -89,7 +89,9 @@ final class IdentityStorageTest extends TestCase
         $this->assertSame(1, DB::table('sessions')->where('id', $id)->count());
         $this->rejects(fn () => DB::table('sessions')->where('id', $id)->update(['user_id' => Str::uuid()]));
         $this->rejects(fn () => DB::table('sessions')->where('id', $id)->update(['last_activity' => -1]));
-        DB::table('sessions')->where('id', $id)->update(['last_activity' => time() - 10000]);
+        DB::table('sessions')->where('id', $id)->update([
+            'last_activity' => time() - (((int) config('session.lifetime') * 60) + 1),
+        ]);
         $this->assertSame('', $reloaded->getHandler()->read($id));
         $this->assertSame(1, $reloaded->getHandler()->gc(7200));
         $reloaded->getHandler()->setExists(false);

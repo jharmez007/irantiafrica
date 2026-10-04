@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
 import { Button, Input, Select } from "@/components/ui";
+import { PageSkeleton } from "@/components/loading";
 import { orderRequest } from "@/lib/order-api";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -329,7 +330,14 @@ export function AdminDashboard({
               </p>
             </form>
           )}
-          {busy && <p role="status">Loading operational reports…</p>}
+          {busy && !data && (
+            <PageSkeleton
+              kind="admin-dashboard"
+              label="Loading operational reports"
+              showHeading={false}
+            />
+          )}
+          {busy && data && <p role="status">Refreshing operational reports…</p>}
           {error && (
             <div role="alert">
               <p>{error}</p>

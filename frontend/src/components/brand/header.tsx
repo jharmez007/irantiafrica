@@ -119,7 +119,11 @@ export function Header() {
             >
               <BagIcon />
               {!loading && !error && cart && (
-                <span className="cart-count" aria-hidden="true">
+                <span
+                  key={cart.item_count}
+                  className="cart-count"
+                  aria-hidden="true"
+                >
                   {cart.item_count > 99 ? "99+" : cart.item_count}
                 </span>
               )}

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Input, Modal, Select, Textarea } from "@/components/ui";
+import { PageSkeleton } from "@/components/loading";
 import { ActionMenu } from "@/components/admin/primitives";
 import { useAuth } from "@/components/auth-provider";
 import { catalogAdmin, uploadImage } from "@/lib/catalog-admin-api";
@@ -215,7 +216,13 @@ function Editor({ id }: { id?: string }) {
         </div>
       )}
       {id && !product ? (
-        <p role="status">Loading product…</p>
+        error ? null : (
+          <PageSkeleton
+            kind="admin-editor"
+            label="Loading product editor"
+            showHeading={false}
+          />
+        )
       ) : (
         <>
           <Link className="product-back-link" href="/admin/products">
@@ -763,6 +770,7 @@ function Editor({ id }: { id?: string }) {
                 {editable && (
                   <div className="editor-publication-actions">
                     <Button
+                      loading={busy}
                       disabled={
                         busy ||
                         dirty ||
@@ -1256,7 +1264,7 @@ function General({
                 ? "Saved"
                 : "New draft"}
         </span>
-        <Button disabled={busy}>
+        <Button loading={busy} loadingLabel="Saving…">
           {product ? "Save changes" : "Save and continue"}
         </Button>
       </div>
@@ -1610,7 +1618,7 @@ function Upload({
       <span id="upload-description-help" className="form-help">
         Briefly describe the image for accessibility.
       </span>
-      <Button disabled={busy || !file}>
+      <Button disabled={!file} loading={busy}>
         {busy ? "Uploading / saving…" : "Upload image"}
       </Button>
     </form>

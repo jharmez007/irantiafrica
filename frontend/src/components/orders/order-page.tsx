@@ -1,6 +1,7 @@
 "use client";
 import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
+import { PageSkeleton } from "@/components/loading";
 import { ReturnsPanel } from "@/components/returns/returns-panel";
 import { FulfilmentPanel } from "./fulfilment-panel";
 import {
@@ -164,7 +165,13 @@ export function OrderPage({
           <Link href="/login">Sign in to view your orders.</Link>
         </p>
       )}
-      {loading && <p role="status">Loading orders…</p>}
+      {loading && (
+        <PageSkeleton
+          kind={admin ? (id ? "admin-editor" : "admin-table") : "account"}
+          label="Loading orders"
+          showHeading={false}
+        />
+      )}
       {error && (
         <div role="alert" tabIndex={-1} ref={focus}>
           <p>{error}</p>
@@ -236,6 +243,7 @@ export function OrderPage({
                 "Payment",
                 "Fulfilment",
                 "Status",
+                "Actions",
               ]}
               empty={list.items.length === 0}
             >
@@ -270,6 +278,14 @@ export function OrderPage({
                   </td>
                   <td>
                     <StatusBadge value={o.status} />
+                  </td>
+                  <td>
+                    <Link
+                      className="button button--secondary"
+                      href={`${route}/${o.id}`}
+                    >
+                      View
+                    </Link>
                   </td>
                 </tr>
               ))}

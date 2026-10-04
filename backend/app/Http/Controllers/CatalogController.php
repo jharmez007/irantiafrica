@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Catalog\CatalogActions;
+use App\Catalog\CatalogDeletion;
 use App\Catalog\CatalogRead;
 use App\Catalog\CatalogTax;
 use App\Http\Requests\Catalog\CatalogQuery;
@@ -14,11 +15,12 @@ use App\Models\Product;
 use App\Models\ProductOption;
 use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
 final class CatalogController
 {
-    public function __construct(private CatalogActions $actions) {}
+    public function __construct(private CatalogActions $actions, private CatalogDeletion $deletion) {}
 
     public function taxCategories(): JsonResponse
     {
@@ -100,6 +102,14 @@ final class CatalogController
         return $this->adminShow($id);
     }
 
+    public function deleteProduct(CatalogRequest $r, string $id): Response
+    {
+        Gate::authorize('delete', Product::findOrFail($id));
+        $this->deletion->product($id, (int) $r->validated('content_version'));
+
+        return response()->noContent();
+    }
+
     public function categories(CatalogQuery $r): JsonResponse
     {
         return $this->categoryList($r, false);
@@ -125,7 +135,17 @@ final class CatalogController
         }
         $p = $q->orderBy('name')->orderBy('id')->paginate((int) $r->input('page_size', 100));
 
-        return response()->json(['data' => $p->getCollection()->map(fn (Category $c): array => $admin ? $c->only(['id', 'name', 'slug', 'parent_id', 'status']) : $c->only(['name', 'slug'])), 'meta' => ['page' => $p->currentPage(), 'last_page' => $p->lastPage(), 'total' => $p->total()]]);
+        return response()->json(['data' => $p->getCollection()->map(function (Category $c) use ($admin): array {
+            if (! $admin) {
+                return $c->only(['name', 'slug']);
+            }
+            $data = $c->only(['id', 'name', 'slug', 'parent_id', 'status']);
+            if (Gate::allows('catalog.categories.delete')) {
+                $data['delete_eligibility'] = $this->deletion->categoryEligibility($c);
+            }
+
+            return $data;
+        }), 'meta' => ['page' => $p->currentPage(), 'last_page' => $p->lastPage(), 'total' => $p->total()]]);
     }
 
     public function createCategory(CatalogRequest $r): JsonResponse
@@ -140,6 +160,14 @@ final class CatalogController
         Gate::authorize('catalog.create_update');
 
         return response()->json(['data' => $this->actions->category($r->validated(), $id)->only(['id', 'name', 'slug', 'status', 'parent_id'])]);
+    }
+
+    public function deleteCategory(string $id): Response
+    {
+        Gate::authorize('catalog.categories.delete');
+        $this->deletion->category($id);
+
+        return response()->noContent();
     }
 
     public function addOption(CatalogRequest $r, string $id): AdminProductResource

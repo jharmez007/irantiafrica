@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Notifications\RecoveryNotification;
 use Database\Seeders\IdentityPermissionsSeeder;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -117,11 +118,19 @@ final class StaffMfaTest extends TestCase
         $this->browser('GET', '/api/v1/customer')->assertForbidden();
         $this->browser('POST', '/api/v1/auth/mfa/enroll', [], false)->assertStatus(419);
         $setup = $this->browser('POST', '/api/v1/auth/mfa/enroll')->assertOk()->json('data');
+        $session = $this->app['session']->driver();
+        $this->assertFalse($session->has('pending_mfa_secret'));
+        $cacheKey = 'identity:mfa-enrollment:'.hash('sha256', $owner->id.':'.$session->getId());
+        $ciphertext = Cache::store()->get($cacheKey);
+        $this->assertIsString($ciphertext);
+        $this->assertNotSame($setup['secret'], $ciphertext);
+        $this->assertSame($setup['secret'], Crypt::decryptString($ciphertext));
         $this->assertNull($owner->fresh()->mfa_confirmed_at);
         $this->browser('POST', '/api/v1/auth/mfa/confirm', ['code' => '000000'])->assertUnprocessable();
         $before = $this->jar;
         $code = (new Google2FA)->getCurrentOtp($setup['secret']);
         $codes = $this->browser('POST', '/api/v1/auth/mfa/confirm', ['code' => $code])->assertOk()->json('data.recovery_codes');
+        $this->assertNull(Cache::store()->get($cacheKey));
         $this->assertCount(8, $codes);
         $this->assertNotSame($before[config('session.cookie')], $this->jar[config('session.cookie')]);
         $this->assertNotSame($setup['secret'], $owner->fresh()->mfa_secret_ciphertext);
@@ -134,13 +143,33 @@ final class StaffMfaTest extends TestCase
         $this->browser('GET', '/api/v1/admin/access')->assertUnauthorized();
     }
 
+    public function test_lost_or_expired_enrollment_cache_fails_closed_and_allows_restart(): void
+    {
+        $owner = $this->staff();
+        $this->login($owner)->assertJsonPath('data.authentication_state', 'enrollment_required');
+        $setup = $this->browser('POST', '/api/v1/auth/mfa/enroll')->assertOk()->json('data');
+        $session = $this->app['session']->driver();
+        $cacheKey = 'identity:mfa-enrollment:'.hash('sha256', $owner->id.':'.$session->getId());
+        Cache::store()->forget($cacheKey);
+        $code = (new Google2FA)->getCurrentOtp($setup['secret']);
+        $this->browser('POST', '/api/v1/auth/mfa/confirm', ['code' => $code])->assertStatus(409);
+
+        $setup = $this->browser('POST', '/api/v1/auth/mfa/enroll')->assertOk()->json('data');
+        $session = $this->app['session']->driver();
+        $session->put('pending_mfa_at', time() - 601);
+        $session->save();
+        $code = (new Google2FA)->getCurrentOtp($setup['secret']);
+        $this->browser('POST', '/api/v1/auth/mfa/confirm', ['code' => $code])->assertStatus(409);
+        $this->assertNull($owner->fresh()->mfa_confirmed_at);
+    }
+
     public function test_every_approved_matrix_cell_is_enforced_after_mfa(): void
     {
         $this->seed(IdentityPermissionsSeeder::class);
         $expected = [
-            'owner' => ['catalog.read_internal', 'catalog.create_update', 'catalog.publish_archive', 'media.manage', 'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'orders.read', 'orders.prepare', 'shipments.record', 'delivery.record', 'orders.cancel', 'payments.read_summary', 'payments.reconcile', 'exceptions.resolve', 'returns.read', 'returns.review', 'returns.decide', 'refunds.approve', 'refunds.submit', 'reports.sales', 'reports.products', 'reports.orders', 'reports.stock', 'customers.read_operational', 'tax.configure', 'shipping.configure', 'staff.provision', 'roles.assign', 'audit.read', 'security.configure'],
+            'owner' => ['catalog.read_internal', 'catalog.create_update', 'catalog.publish_archive', 'catalog.products.delete', 'catalog.categories.delete', 'media.manage', 'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'inventory.threshold.configure', 'orders.read', 'orders.prepare', 'shipments.record', 'delivery.record', 'orders.cancel', 'payments.read_summary', 'payments.reconcile', 'exceptions.resolve', 'returns.read', 'returns.review', 'returns.decide', 'refunds.approve', 'refunds.submit', 'reports.sales', 'reports.products', 'reports.orders', 'reports.stock', 'customers.read_operational', 'tax.configure', 'shipping.configure', 'staff.provision', 'roles.assign', 'audit.read', 'security.configure'],
             'order_processing' => ['catalog.read_internal', 'inventory.read', 'orders.read', 'orders.prepare', 'shipments.record', 'delivery.record', 'payments.read_summary', 'returns.read', 'returns.review', 'reports.orders', 'customers.read_operational'],
-            'inventory_store' => ['catalog.read_internal', 'inventory.read', 'inventory.movements.read', 'reports.stock'],
+            'inventory_store' => ['catalog.read_internal', 'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'reports.stock'],
         ];
         $this->assertSame($expected, PermissionMatrix::grants());
         foreach ($expected as $role => $allowed) {
@@ -243,6 +272,38 @@ final class StaffMfaTest extends TestCase
         $this->assertSame(1, DB::table('audit_logs')->where('action', 'identity.mfa_reset')->count());
     }
 
+    public function test_local_smtp_invitation_readiness_and_resend_do_not_duplicate_staff_or_expose_secrets(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $this->app->instance('env', 'local');
+        config(['mail.default' => 'array']);
+        $payload = ['name' => 'Invited colleague', 'email' => 'invited@example.test', 'role' => 'inventory_store'];
+        $this->browser('GET', '/api/v1/admin/staff')->assertOk()->assertJsonPath('mail_setup', 'unavailable');
+        $this->browser('POST', '/api/v1/admin/staff', $payload)->assertUnprocessable();
+        $this->assertSame(0, User::where('email', $payload['email'])->count());
+
+        config(['mail.default' => 'smtp', 'mail.mailers.smtp.host' => 'smtp.gmail.com',
+            'mail.mailers.smtp.port' => 587, 'mail.mailers.smtp.scheme' => 'smtp',
+            'mail.mailers.smtp.url' => null, 'mail.mailers.smtp.username' => 'fixture-user',
+            'mail.mailers.smtp.password' => 'fixture-secret', 'mail.from.address' => 'sender@irantiafrica.test']);
+        $response = $this->browser('GET', '/api/v1/admin/staff')->assertOk()->assertJsonPath('mail_setup', 'email');
+        $this->assertStringNotContainsString('fixture-secret', $response->getContent());
+        $id = $this->browser('POST', '/api/v1/admin/staff', $payload)->assertCreated()->json('data.id');
+        $target = User::findOrFail($id);
+        Notification::assertSentTo($target, RecoveryNotification::class);
+
+        DB::table('password_reset_tokens')->where('email', $target->email)->delete();
+        $this->browser('POST', '/api/v1/admin/staff/'.$id.'/resend-invitation')->assertNoContent();
+        $this->assertCount(2, Notification::sent($target, RecoveryNotification::class));
+        $this->assertSame(1, User::where('email', $payload['email'])->count());
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'identity.staff_invitation_resent')->count());
+
+        config(['mail.default' => 'array']);
+        $this->browser('POST', '/api/v1/admin/staff/'.$id.'/resend-invitation')->assertUnprocessable();
+        $this->assertCount(2, Notification::sent($target, RecoveryNotification::class));
+    }
+
     public function test_recent_authentication_and_last_owner_protection(): void
     {
         $owner = $this->staff();
@@ -262,6 +323,55 @@ final class StaffMfaTest extends TestCase
         $this->enroll($other);
         $this->browser('PATCH', '/api/v1/admin/staff/'.$owner->id.'/roles', ['role' => 'inventory_store'])->assertStatus(409);
         $this->assertTrue($owner->fresh()->roles()->where('code', 'owner')->exists());
+    }
+
+    public function test_configured_24_hour_staff_trust_survives_normal_requests_but_expires_and_logout_revokes_it(): void
+    {
+        config(['session.lifetime' => 1440, 'identity.staff_idle_seconds' => 86400,
+            'identity.staff_absolute_seconds' => 86400, 'identity.staff_mfa_trust_seconds' => 86400]);
+        $this->assertSame(1440, config('session.lifetime'));
+        $owner = $this->staff();
+        [$secret] = $this->enroll($owner);
+        $this->browser('GET', '/api/v1/admin/access')->assertOk();
+        $this->browser('GET', '/api/v1/auth/me')->assertOk()->assertJsonPath('data.authentication_state', 'authenticated');
+        $this->browser('POST', '/api/v1/auth/mfa/challenge', ['code' => '000000'])->assertStatus(409);
+        $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
+        $this->login($owner)->assertOk()->assertJsonPath('data.authentication_state', 'mfa_required');
+        $this->browser('GET', '/api/v1/admin/access')->assertForbidden();
+        $this->browser('POST', '/api/v1/auth/mfa/challenge', ['code' => (new Google2FA)->getCurrentOtp($secret)])->assertOk();
+        $this->browser('GET', '/api/v1/admin/access')->assertOk();
+
+        $session = $this->app['session']->driver();
+        $this->assertIsInt($session->get('mfa_verified_at'));
+        DB::table('sessions')->where('id', $session->getId())->update(['last_activity' => time() - 82800]);
+        $this->browser('GET', '/api/v1/auth/me')->assertOk()->assertJsonPath('data.authentication_state', 'authenticated');
+        $session = $this->app['session']->driver();
+        $session->put('staff_activity_at', time() - 86399);
+        $session->save();
+        $this->browser('GET', '/api/v1/auth/me')->assertOk()->assertJsonPath('data.authentication_state', 'authenticated');
+        $session = $this->app['session']->driver();
+        $session->put('mfa_verified_at', time() - 86400);
+        $session->save();
+        $this->browser('GET', '/api/v1/auth/me')->assertUnauthorized();
+        $this->login($owner)->assertOk()->assertJsonPath('data.authentication_state', 'mfa_required');
+    }
+
+    public function test_staff_absolute_expiry_revokes_session_without_extending_recent_auth(): void
+    {
+        config(['identity.staff_idle_seconds' => 86400, 'identity.staff_absolute_seconds' => 86400,
+            'identity.staff_mfa_trust_seconds' => 86400]);
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $session = $this->app['session']->driver();
+        $session->put('recent_auth_at', time() - 301);
+        $session->save();
+        $this->browser('GET', '/api/v1/admin/access')->assertOk();
+        $this->browser('GET', '/api/v1/test-permission/security.configure')->assertForbidden();
+        $session = $this->app['session']->driver();
+        $session->put('authenticated_at', time() - 86400);
+        $session->save();
+        $this->browser('GET', '/api/v1/auth/me')->assertUnauthorized();
+        $this->login($owner)->assertOk()->assertJsonPath('data.authentication_state', 'mfa_required');
     }
 
     public function test_mfa_rate_limit_and_audit_secrets_are_protected(): void

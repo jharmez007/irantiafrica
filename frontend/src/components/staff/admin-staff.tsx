@@ -1,5 +1,6 @@
 "use client";
 import { AdminShell } from "@/components/brand/layouts";
+import { PageSkeleton } from "@/components/loading";
 import {
   ActionMenu,
   StatusBadge,
@@ -86,7 +87,9 @@ function StaffScreen() {
       toast.success(message);
       setReload((x) => x + 1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed.");
+      const message = e instanceof Error ? e.message : "Request failed.";
+      setError(message);
+      toast.error("Staff action failed.", message);
       if (e instanceof ApiError && e.status === 403) setReauth(true);
     } finally {
       setBusy(false);
@@ -104,6 +107,13 @@ function StaffScreen() {
     >
       <div className="admin-workspace">
         {error && <Alert tone="error">{error}</Alert>}
+        {!result && !error && (
+          <PageSkeleton
+            kind="admin-table"
+            label="Loading staff"
+            showHeading={false}
+          />
+        )}
         <details className="admin-panel" open={reauth || !result || undefined}>
           <summary>Confirm sensitive actions</summary>
           <p>
@@ -165,9 +175,8 @@ function StaffScreen() {
               </p>
               {result.mail_setup === "unavailable" ? (
                 <Alert tone="error">
-                  Local email capture is not enabled. Invitations cannot be
-                  received. Enable the documented local Mailpit option and
-                  worker before adding staff.
+                  Email delivery is not configured. Configure a local email
+                  transport and start the queue worker before inviting staff.
                 </Alert>
               ) : result.mail_setup === "local_capture" ? (
                 <p>
@@ -178,11 +187,15 @@ function StaffScreen() {
                     rel="noreferrer"
                   >
                     Mailpit
-                  </a>
-                  , not sent to a real inbox.
+                  </a>{" "}
+                  when Mailpit and the queue worker are running, not sent to a
+                  real inbox.
                 </p>
               ) : (
-                <p>Instructions will be queued for email delivery.</p>
+                <p>
+                  Staff invitations will be sent using the configured email
+                  service after the queue worker processes them.
+                </p>
               )}
               <form
                 method="post"
@@ -276,7 +289,29 @@ function StaffScreen() {
                     {person.id === user?.id ? (
                       <span>Your account — self-changes restricted</span>
                     ) : (
-                      <ActionMenu>
+                      <ActionMenu label="More actions" compact>
+                        {person.status === "active" && !person.mfa_enrolled && (
+                          <Button
+                            variant="secondary"
+                            disabled={
+                              busy ||
+                              reauth ||
+                              result.mail_setup === "unavailable"
+                            }
+                            onClick={() =>
+                              void run(
+                                () =>
+                                  catalogAdmin(
+                                    `/staff/${person.id}/resend-invitation`,
+                                    "POST",
+                                  ).then(() => undefined),
+                                "Setup instructions queued again; inbox delivery is not yet confirmed.",
+                              )
+                            }
+                          >
+                            Resend setup email
+                          </Button>
+                        )}
                         <Button
                           variant="secondary"
                           disabled={busy}
@@ -402,7 +437,13 @@ function StaffScreen() {
                   cannot be disabled.
                 </p>
               )}
-              <Button disabled={busy || reauth}>Confirm change</Button>
+              <Button
+                disabled={reauth}
+                loading={busy}
+                loadingLabel="Saving change…"
+              >
+                Confirm change
+              </Button>
             </form>
           )}
         </Modal>

@@ -93,7 +93,9 @@ describe("operational dashboard", () => {
     mock.request.mockImplementationOnce(() => new Promise(() => {}));
     const view = render(<AdminDashboard />);
     expect(
-      await screen.findByText("Loading operational reports…"),
+      await screen.findByRole("status", {
+        name: "Loading operational reports",
+      }),
     ).toBeTruthy();
     view.unmount();
     mock.request.mockRejectedValueOnce(new Error("Reports unavailable"));

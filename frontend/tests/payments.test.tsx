@@ -183,7 +183,7 @@ describe("payments", () => {
       .mockResolvedValue(row);
     render(<AdminPayments />);
     await screen.findByText(order.number);
-    await userEvent.click(screen.getByRole("button", { name: "View history" }));
+    await userEvent.click(screen.getByRole("button", { name: "View" }));
     await userEvent
       .setup()
       .click(screen.getByRole("button", { name: "Verify with provider" }));

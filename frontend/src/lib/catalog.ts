@@ -4,6 +4,7 @@ export type Category = {
   slug: string;
   status?: string;
   parent_id?: string | null;
+  delete_eligibility?: { allowed: boolean; reason: string | null } | null;
 };
 export type CatalogImage = {
   id: string;
@@ -51,6 +52,7 @@ export type Product = {
   tax_treatment_label?: string | null;
   updated_at?: string;
   publication_issues?: string[];
+  delete_eligibility?: { allowed: boolean; reason: string | null } | null;
 };
 export type Page<T> = {
   data: T[];

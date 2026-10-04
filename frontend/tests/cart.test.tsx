@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { CartProvider } from "../src/components/cart/cart-provider";
 import { CartPage } from "../src/components/cart/cart-page";
 import { AddToCart } from "../src/components/cart/add-to-cart";
+import { CartRecommendations } from "../src/components/cart/cart-recommendations";
 import { Header } from "../src/components/brand/header";
 import { CartApiError, type CartData } from "../src/lib/cart-api";
 const mocks = vi.hoisted(() => ({
@@ -72,18 +73,100 @@ beforeEach(() => {
   mocks.auth = { user: null, loading: false };
   document.documentElement.lang = "en";
   document.title = "Cart test";
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 async function populated() {
   mocks.request.mockResolvedValue(full);
   render(<Page />);
   await screen.findByRole("link", { name: "Woven basket" });
 }
 describe("persistent cart UI", () => {
+  it("shows up to four purchasable complementary products below the cart", async () => {
+    const source = {
+      slug: "woven-basket",
+      name: "Woven basket",
+      categories: [{ slug: "home", name: "Home" }],
+      available: true,
+      status: "published",
+      price_min_minor: "10000",
+      price_max_minor: "10000",
+      media: [],
+      currency: "NGN",
+    };
+    const candidates = [
+      source,
+      { ...source, slug: "woven-mat", name: "Woven mat" },
+      { ...source, slug: "woven-tray", name: "Woven tray" },
+      { ...source, slug: "unavailable", name: "Unavailable", available: false },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith("/products/woven-basket")
+            ? { data: source }
+            : { data: candidates },
+      })),
+    );
+    render(<CartRecommendations lines={full.items} />);
+    await screen.findByRole("heading", {
+      name: "Pairs well with your selection",
+    });
+    expect(screen.getByRole("link", { name: /Woven mat/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Woven tray/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Unavailable/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Woven basket/ })).toBeNull();
+  });
+  it("opens a dismissible mini-cart after an accepted addition with bag and checkout actions", async () => {
+    mocks.request.mockResolvedValueOnce(empty).mockResolvedValueOnce(full);
+    render(
+      <CartProvider>
+        <AddToCart variantId="variant-one" available />
+      </CartProvider>,
+    );
+    const add = await screen.findByRole("button", { name: "Add to cart" });
+    await waitFor(() =>
+      expect((add as HTMLButtonElement).disabled).toBe(false),
+    );
+    add.focus();
+    await userEvent.click(add);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Added to your bag",
+    });
+    expect(dialog.textContent).toContain("Woven basket");
+    expect(dialog.textContent).toContain("Finish: Natural");
+    expect(
+      screen.getByRole("link", { name: "View bag" }).getAttribute("href"),
+    ).toBe("/cart");
+    expect(
+      screen.getByRole("link", { name: "Checkout" }).getAttribute("href"),
+    ).toBe("/checkout");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Continue shopping" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Added to your bag" }),
+      ).toBeNull(),
+    );
+    expect(document.activeElement).toBe(add);
+  });
   it("loads an empty guest cart and keeps checkout unavailable", async () => {
     mocks.request.mockResolvedValue(empty);
     render(<Page />);
-    expect(screen.getByText("Loading your cart…")).toBeTruthy();
+    expect(
+      screen.getByRole("status", { name: "Loading your cart" }),
+    ).toBeTruthy();
     await screen.findByText("Your cart is empty");
     expect(
       screen

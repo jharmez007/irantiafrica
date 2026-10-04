@@ -23,7 +23,7 @@ final class PaystackGateway implements PaymentGateway
 
         return config('payments.enabled') === true && $validOrigin && ($secure || $local) && in_array($mode, ['test', 'live'], true)
             && preg_match('/^sk_'.preg_quote((string) $mode, '/').'_[a-zA-Z0-9]{16,}$/D', $key) === 1
-            && ($mode === 'test' ? ! app()->environment('production') : (app()->environment('production') && config('payments.live_approved') === true));
+            && ($mode === 'test' || (app()->environment('production') && config('payments.live_approved') === true));
     }
 
     public function initializePayment(string $reference, string $amount, string $currency, string $email, string $callback, string $method): ?string

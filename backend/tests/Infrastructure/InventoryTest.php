@@ -3,9 +3,11 @@
 namespace Tests\Infrastructure;
 
 use App\Inventory\InventoryService;
+use App\Models\Category;
 use App\Models\Inventory;
 use App\Models\InventoryMovement;
 use App\Models\Product;
+use App\Models\ProductMedia;
 use App\Models\ProductVariant;
 use App\Models\Role;
 use App\Models\User;
@@ -194,6 +196,12 @@ final class InventoryTest extends TestCase
         } catch (HttpExceptionInterface $exception) {
             $this->assertSame(403, $exception->getStatusCode());
         }
+        try {
+            $service->setLowStockThreshold($variant->id, 6, $this->staff('inventory_store'));
+            $this->fail('An inventory operator changed the owner-only threshold.');
+        } catch (HttpExceptionInterface $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
     }
 
     public function test_adjustment_cannot_remove_reserved_stock_underflow_or_overflow(): void
@@ -221,7 +229,7 @@ final class InventoryTest extends TestCase
         $variant = $this->variant();
         $disabled = $this->staff();
         $disabled->forceFill(['status' => 'disabled'])->saveOrFail();
-        foreach ([$this->staff('inventory_store'), $this->staff('order_processing'), User::factory()->create(['password' => self::PASSWORD]), $disabled] as $candidate) {
+        foreach ([$this->staff('order_processing'), User::factory()->create(['password' => self::PASSWORD]), $disabled] as $candidate) {
             try {
                 $this->initialize($candidate, $variant);
                 $this->fail('Unprivileged actor cannot initialize inventory.');
@@ -346,6 +354,90 @@ final class InventoryTest extends TestCase
         $this->browser('GET', '/api/v1/admin/inventory/not-a-uuid')->assertNotFound();
     }
 
+    public function test_inventory_staff_can_adjust_and_audit_stock_without_catalog_or_financial_access(): void
+    {
+        $owner = $this->staff();
+        $variant = $this->variant('Operator count fixture');
+        $this->initialize($owner, $variant, 8);
+        $operator = $this->staff('inventory_store');
+        $this->enroll($operator);
+        $path = '/api/v1/admin/inventory/'.$variant->id;
+
+        $this->browser('GET', '/api/v1/admin/inventory?q='.$variant->sku)->assertOk()->assertJsonPath('meta.total', 1);
+        $stock = $this->browser('GET', $path)->assertOk()->assertJsonPath('data.on_hand', 8)->json('data');
+        $this->assertSame(0, $stock['reserved']);
+        $this->assertArrayHasKey('low_stock_threshold', $stock);
+
+        $added = $this->browser('POST', $path.'/adjustments', ['delta' => 10, 'reason' => 'New stock received', 'expected_version' => $stock['version']], (string) Str::uuid())->assertOk()->assertJsonPath('data.on_hand', 18)->json('data');
+        $this->assertSame(18, $added['available_quantity']);
+        $reduced = $this->browser('POST', $path.'/adjustments', ['delta' => -2, 'reason' => 'Damaged units', 'expected_version' => $added['version']], (string) Str::uuid())->assertOk()->assertJsonPath('data.on_hand', 16)->json('data');
+        $this->assertSame(0, $reduced['reserved']);
+        $this->assertSame(16, $reduced['available_quantity']);
+
+        $history = $this->browser('GET', $path.'/movements')->assertOk()->assertJsonCount(3, 'data')->json('data');
+        $this->assertSame(-2, $history[0]['on_hand_delta']);
+        $this->assertSame(16, $history[0]['on_hand_after']);
+        $this->assertArrayNotHasKey('actor', $history[0]);
+        $this->assertSame('Damaged units', $history[0]['reason']);
+        $this->assertSame($operator->name, $history[0]['recorded_by']);
+        $this->assertArrayNotHasKey('actor_user_id', $history[0]);
+        $this->assertStringNotContainsString($operator->email, json_encode($history));
+        $movements = InventoryMovement::where('variant_id', $variant->id)->where('kind', 'ADJUSTMENT')->orderBy('created_at')->get();
+        $this->assertSame([10, -2], $movements->pluck('on_hand_delta')->all());
+        $this->assertSame(['New stock received', 'Damaged units'], $movements->pluck('reason')->all());
+        $this->assertSame([$operator->id, $operator->id], $movements->pluck('actor_user_id')->all());
+        $this->assertSame(2, DB::table('audit_logs')->where('action', 'inventory.adjustment')->where('actor_user_id', $operator->id)->count());
+        $newVariant = $this->variant('New receipt fixture');
+        $this->browser('POST', '/api/v1/admin/inventory/'.$newVariant->id.'/opening', ['quantity' => 3, 'reason' => 'Initial counted receipt'], (string) Str::uuid())->assertOk()->assertJsonPath('data.on_hand', 3);
+
+        $this->browser('POST', $path.'/adjustments', ['delta' => -17, 'reason' => 'Invalid overdraw', 'expected_version' => $reduced['version']], (string) Str::uuid())->assertStatus(409);
+        $this->browser('POST', $path.'/adjustments', ['delta' => 1, 'reason' => '   ', 'expected_version' => $reduced['version']], (string) Str::uuid())->assertUnprocessable();
+        $this->browser('POST', $path.'/adjustments', ['delta' => 1, 'reason' => 'Injected reserve', 'reserved' => 9, 'expected_version' => $reduced['version']], (string) Str::uuid())->assertUnprocessable();
+        $this->assertSame(16, $this->stock($variant)->on_hand);
+        $this->assertSame(0, $this->stock($variant)->reserved);
+
+        $this->browser('GET', '/api/v1/admin/reports/stock')->assertOk();
+        $this->browser('GET', '/api/v1/admin/reports/sales')->assertForbidden();
+        $this->browser('GET', '/api/v1/admin/returns')->assertForbidden();
+        try {
+            app(InventoryService::class)->restockReturn((string) Str::uuid(), $operator);
+            $this->fail('Inventory adjustment alone must not authorize return-case restocking.');
+        } catch (HttpExceptionInterface $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+        $this->browser('PATCH', '/api/v1/admin/products/'.$variant->product_id, ['name' => 'Forbidden price edit'])->assertForbidden();
+        $this->browser('POST', '/api/v1/admin/products/'.$variant->product_id.'/archive')->assertForbidden();
+        $this->browser('DELETE', '/api/v1/admin/products/'.$variant->product_id)->assertForbidden();
+        $this->browser('POST', '/api/v1/admin/staff', ['name' => 'Denied', 'email' => 'denied@example.test', 'role' => 'owner'])->assertForbidden();
+    }
+
+    public function test_inventory_staff_sees_system_reservation_movement_without_internal_identifiers(): void
+    {
+        $owner = $this->staff();
+        $product = Product::factory()->create(['status' => 'published', 'published_at' => now()]);
+        $category = Category::create(['name' => 'Operational fixture', 'slug' => 'fixture-'.Str::uuid(), 'status' => 'active']);
+        $product->categories()->attach($category->id, ['id' => (string) Str::uuid()]);
+        ProductMedia::create(['product_id' => $product->id, 'object_key' => 'test/'.Str::uuid(), 'status' => 'ready']);
+        $variant = ProductVariant::create(['product_id' => $product->id, 'sku' => 'STOCK-'.strtoupper((string) Str::uuid()),
+            'option_signature' => '', 'unit_price_minor' => '125000', 'status' => 'active']);
+        $this->initialize($owner, $variant, 5);
+        app(InventoryService::class)->reserveMany((string) Str::uuid(), [['variant_id' => $variant->id, 'quantity' => 1]]);
+        $this->enroll($this->staff('inventory_store'));
+
+        $history = $this->browser('GET', '/api/v1/admin/inventory/'.$variant->id.'/movements')->assertOk()->json('data.0');
+        $this->assertSame('RESERVE', $history['kind']);
+        $this->assertSame('Inventory reservation', $history['reason']);
+        $this->assertSame('System', $history['recorded_by']);
+        $this->assertSame(0, $history['on_hand_delta']);
+        $this->assertSame(1, $history['reserved_delta']);
+        $this->assertSame(5, $history['on_hand_after']);
+        $this->assertSame(1, $history['reserved_after']);
+        $this->assertArrayNotHasKey('actor', $history);
+        $this->assertArrayNotHasKey('actor_user_id', $history);
+        $this->assertArrayNotHasKey('operation_key', $history);
+        $this->assertArrayNotHasKey('reservation_item_id', $history);
+    }
+
     public function test_api_rejects_quantity_coercion_bad_keys_reason_and_mass_assignment(): void
     {
         $this->enroll($this->staff());
@@ -399,8 +491,8 @@ final class InventoryTest extends TestCase
                 $history = $this->browser('GET', $path.'/movements')->assertOk()->json('data.0');
                 $this->assertArrayNotHasKey('actor', $history);
                 $this->assertArrayNotHasKey('actor_user_id', $history);
-                $this->assertSame('Operational stock movement', $history['reason']);
-                $this->assertStringNotContainsString($owner->name, json_encode($history));
+                $this->assertSame('Verified opening count', $history['reason']);
+                $this->assertSame($owner->name, $history['recorded_by']);
                 $this->assertStringNotContainsString($owner->email, json_encode($history));
             } else {
                 foreach ([$read, $list] as $projection) {
@@ -411,8 +503,10 @@ final class InventoryTest extends TestCase
                 }
                 $this->browser('GET', $path.'/movements')->assertForbidden();
             }
-            $this->browser('POST', $path.'/opening', ['quantity' => 4, 'reason' => 'Denied'], (string) Str::uuid())->assertForbidden();
-            $this->browser('POST', $path.'/adjustments', ['delta' => 1, 'reason' => 'Denied', 'expected_version' => '1'], (string) Str::uuid())->assertForbidden();
+            if ($role === 'order_processing') {
+                $this->browser('POST', $path.'/opening', ['quantity' => 4, 'reason' => 'Denied'], (string) Str::uuid())->assertForbidden();
+                $this->browser('POST', $path.'/adjustments', ['delta' => 1, 'reason' => 'Denied', 'expected_version' => '1'], (string) Str::uuid())->assertForbidden();
+            }
             $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
         }
         $this->assertSame(4, $this->stock($variant)->on_hand);

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
+import { PageSkeleton } from "@/components/loading";
 import { Button, Select } from "@/components/ui";
 import { ReturnSummary } from "./returns-panel";
 import { returnRequest, type ReturnRecord } from "@/lib/returns-api";
@@ -290,7 +291,7 @@ function Review({
                       ? "This sends the approved refund to the payment provider. The amount is calculated by the server."
                       : "Confirm this action for the return shown above."}
               </p>
-              <Button type="submit">
+              <Button type="submit" loading={busy}>
                 {busy ? "Recording…" : `Confirm: ${labels[action]}`}
               </Button>
               <Button
@@ -354,7 +355,13 @@ export function ReturnDetail({ id }: { id: string }) {
       {record ? (
         <Review record={record} changed={setRecord} />
       ) : (
-        !error && <p role="status">Loading return…</p>
+        !error && (
+          <PageSkeleton
+            kind="admin-editor"
+            label="Loading return details"
+            showHeading={false}
+          />
+        )
       )}
     </>
   );
@@ -457,7 +464,12 @@ export function ReturnQueue() {
               {r.refund ? <StatusBadge value={r.refund.status} /> : "No refund"}
             </td>
             <td>
-              <Link href={`/admin/returns/${r.id}`}>Review return</Link>
+              <Link
+                className="button button--secondary"
+                href={`/admin/returns/${r.id}`}
+              >
+                View
+              </Link>
             </td>
           </tr>
         ))}

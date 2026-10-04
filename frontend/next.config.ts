@@ -57,6 +57,7 @@ const csp = [
 ].join("; ");
 
 const config: NextConfig = {
+  output: "standalone",
   poweredByHeader: false,
   async rewrites() {
     return [

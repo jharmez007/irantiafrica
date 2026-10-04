@@ -16,7 +16,7 @@ return [
     */
 
     'default' => env('CACHE_STORE', 'redis'),
-    'limiter' => 'identity_limits',
+    'limiter' => env('RATE_LIMIT_CACHE_STORE', 'identity_limits'),
 
     /*
     |--------------------------------------------------------------------------

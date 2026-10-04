@@ -1,5 +1,8 @@
 "use client";
 import Link from "next/link";
+import { PageSkeleton } from "@/components/loading";
+import { ProductImage } from "@/components/catalog/product-image";
+import { Logo } from "@/components/brand/logo";
 import { PlaceOrder } from "@/components/orders/place-order";
 import {
   useCallback,
@@ -41,8 +44,11 @@ const labels: Partial<Record<keyof Address, string>> = {
 };
 export function CheckoutPage() {
   const { user, loading: authLoading } = useAuth();
-  const { cart, refresh: refreshCart } = useCart();
+  const { cart, error: cartError, refresh: refreshCart } = useCart();
   const scope = user?.id ?? "guest";
+  const cartVersion = cart?.version;
+  const cartItemCount = cart?.items.length ?? 0;
+  const cartNeedsReview = cart?.needs_review ?? false;
   const sequence = useRef(0);
   const busyLock = useRef(false);
   const [checkout, setCheckout] = useState<Checkout | null>(null);
@@ -60,6 +66,8 @@ export function CheckoutPage() {
   const [selection, setSelection] = useState("");
   const [save, setSave] = useState(false);
   const [snapshotScope, setSnapshotScope] = useState("");
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const intent = useRef<{ kind: string; body: string; key: string } | null>(
@@ -93,9 +101,49 @@ export function CheckoutPage() {
     },
     [scope, user?.email],
   );
+  const keyFor = useCallback(
+    (kind: string, encoded: string) => {
+      if (
+        !intent.current ||
+        intent.current.kind !== kind ||
+        intent.current.body !== encoded
+      )
+        intent.current = { kind, body: encoded, key: crypto.randomUUID() };
+      if (kind === "begin") {
+        try {
+          const stored = JSON.parse(
+            sessionStorage.getItem("iranti-checkout-begin") ?? "null",
+          );
+          if (
+            stored?.scope === scope &&
+            stored?.body === encoded &&
+            typeof stored.key === "string"
+          )
+            intent.current.key = stored.key;
+          sessionStorage.setItem(
+            "iranti-checkout-begin",
+            JSON.stringify({ scope, body: encoded, key: intent.current.key }),
+          );
+        } catch {
+          /* In-page retries retain the same key if storage is unavailable. */
+        }
+      }
+      return intent.current.key;
+    },
+    [scope],
+  );
+  const clearBeginIntent = useCallback(() => {
+    if (intent.current?.kind === "begin") intent.current = null;
+    try {
+      sessionStorage.removeItem("iranti-checkout-begin");
+    } catch {
+      /* Optional retry metadata only. */
+    }
+  }, []);
   const load = useCallback(async () => {
     if (authLoading) return;
     const request = ++sequence.current;
+    let waitingForCart = false;
     setLoading(true);
     try {
       const [current, places, addresses] = await Promise.all([
@@ -106,17 +154,81 @@ export function CheckoutPage() {
           : Promise.resolve([]),
       ]);
       if (request !== sequence.current) return;
-      apply(current);
       setDestinations(places);
       setSaved(addresses);
+      if (current) {
+        apply(current);
+        clearBeginIntent();
+        setError("");
+        return;
+      }
+      apply(null);
+      if (cartVersion === undefined) {
+        waitingForCart = !cartError;
+        setError(cartError);
+        return;
+      }
+      if (cartItemCount === 0 || cartNeedsReview) {
+        setError("");
+        return;
+      }
+      const body = { expected_version: cartVersion };
+      const created = await checkoutRequest<Checkout>(
+        "/checkout",
+        "POST",
+        body,
+        keyFor("begin", JSON.stringify(body)),
+      );
+      if (request !== sequence.current) return;
+      apply(created);
+      clearBeginIntent();
       setError("");
     } catch (e) {
-      if (request === sequence.current)
-        setError(e instanceof Error ? e.message : "Unable to load checkout.");
+      if (request !== sequence.current) return;
+      let recovered = false;
+      if (e instanceof CheckoutError && e.details.checkout) {
+        apply(e.details.checkout);
+        clearBeginIntent();
+        setError("");
+        recovered = true;
+      } else if (e instanceof CheckoutError && e.details.checkout_id) {
+        try {
+          const resumed = await checkoutRequest<Checkout>(
+            "/checkout/" + e.details.checkout_id,
+          );
+          if (request === sequence.current) {
+            apply(resumed);
+            clearBeginIntent();
+            setError("");
+            recovered = true;
+          }
+        } catch {
+          if (request === sequence.current) setError(e.message);
+        }
+      } else {
+        setError(
+          e instanceof CheckoutError
+            ? [e.message, ...Object.values(e.fields).flat()].join(" ")
+            : e instanceof Error
+              ? e.message
+              : "Unable to prepare checkout. Retry safely.",
+        );
+      }
+      if (!recovered) errorRef.current?.focus();
     } finally {
-      if (request === sequence.current) setLoading(false);
+      if (request === sequence.current) setLoading(waitingForCart);
     }
-  }, [authLoading, user, apply]);
+  }, [
+    authLoading,
+    user,
+    apply,
+    cartVersion,
+    cartItemCount,
+    cartNeedsReview,
+    cartError,
+    keyFor,
+    clearBeginIntent,
+  ]);
   const invalidate = useCallback(() => {
     sequence.current++;
   }, []);
@@ -166,49 +278,22 @@ export function CheckoutPage() {
     setError("");
     setNotice("");
     const request = ++sequence.current;
-    const encoded = JSON.stringify(body);
-    if (
-      !intent.current ||
-      intent.current.kind !== kind ||
-      intent.current.body !== encoded
-    )
-      intent.current = { kind, body: encoded, key: crypto.randomUUID() };
-    if (kind === "begin") {
-      try {
-        const stored = JSON.parse(
-          sessionStorage.getItem("iranti-checkout-begin") ?? "null",
-        );
-        if (
-          stored?.scope === scope &&
-          stored?.body === encoded &&
-          typeof stored.key === "string"
-        )
-          intent.current.key = stored.key;
-        sessionStorage.setItem(
-          "iranti-checkout-begin",
-          JSON.stringify({ scope, body: encoded, key: intent.current.key }),
-        );
-      } catch {
-        /* Retry still works in memory when browser storage is unavailable. */
-      }
-    }
+    const key = keyFor(kind, JSON.stringify(body));
     try {
       const c = await checkoutRequest<Checkout>(
         path ?? "/checkout/" + shown?.id + "/" + kind,
         method,
         body,
-        intent.current.key,
+        key,
       );
       if (request !== sequence.current) return;
       apply(c);
+      if (kind === "begin") clearBeginIntent();
+      else intent.current = null;
       if (kind === "begin") {
-        try {
-          sessionStorage.removeItem("iranti-checkout-begin");
-        } catch {
-          /* Optional retry metadata only. */
-        }
+        setSummaryExpanded(false);
+        setMobileSummaryOpen(false);
       }
-      intent.current = null;
       if (kind === "reserve")
         setNotice("Your items are reserved. Payment is not available yet.");
       else toast.success("Checkout updated");
@@ -287,6 +372,8 @@ export function CheckoutPage() {
   const areas = destinations.areas.filter(
     (a) => a.state_code === address.state_code && a.locality_code !== null,
   );
+  const itemCount =
+    shown?.lines.reduce((total, line) => total + line.quantity, 0) ?? 0;
   return (
     <main id="main-content" className="checkout-main">
       <Container>
@@ -298,58 +385,63 @@ export function CheckoutPage() {
           Delivery within Nigeria. All prices and totals are confirmed by the
           store in NGN.
         </p>
-        <div role="status" aria-live="polite">
-          {loading ? "Loading checkout…" : notice}
-        </div>
+        {!loading && (
+          <div role="status" aria-live="polite">
+            {notice}
+          </div>
+        )}
+        {loading && (
+          <PageSkeleton
+            kind="checkout"
+            label="Loading checkout"
+            showHeading={false}
+          />
+        )}
         <div
           ref={errorRef}
           tabIndex={-1}
           id="checkout-errors"
           role={error ? "alert" : undefined}
+          className={error ? "checkout-error" : undefined}
         >
           {error && (
             <>
               <p>{error}</p>
               <Button disabled={busy} onClick={() => void load()}>
-                Refresh checkout
+                Retry checkout
               </Button>
+              {!shown && <Link href="/cart">Return to cart</Link>}
             </>
           )}
         </div>
-        {!loading && !shown && (
-          <section>
-            <h2>Begin checkout</h2>
+        {!loading && !shown && !error && (
+          <section className="checkout-notice">
+            <h2>
+              {cartNeedsReview ? "Review your cart" : "Your cart is empty"}
+            </h2>
             <p>
-              Your cart stays intact. Stock is held only after you review and
-              confirm a complete quote.
+              {cartNeedsReview
+                ? "Resolve the items needing attention before checkout can continue."
+                : "Add something from the collection before checking out."}
             </p>
-            <Button
-              disabled={
-                busy || !cart || cart.items.length === 0 || cart.needs_review
-              }
-              onClick={() =>
-                void action(
-                  "begin",
-                  { expected_version: cart?.version },
-                  "/checkout",
-                )
-              }
-            >
-              Continue with your cart
-            </Button>
-            <p>
-              <Link href="/cart">Review cart</Link>
-            </p>
+            <Link href="/cart">Return to cart</Link>
           </section>
         )}
         {shown && (
           <>
-            <p className="checkout-status" role="status">
-              {shown.ownership === "guest"
-                ? "Guest checkout"
-                : "Account checkout"}{" "}
-              · {shown.status.replaceAll("_", " ")}
-            </p>
+            {!terminal && (
+              <p className="checkout-status" role="status">
+                {shown.order_id
+                  ? "Your order is ready for payment"
+                  : terminal
+                    ? "Your selection needs attention"
+                    : shown.status === "DRAFT"
+                      ? "Contact and delivery"
+                      : shown.status === "QUOTED"
+                        ? "Review your total"
+                        : "Your items are reserved"}
+              </p>
+            )}
             {shown.order_id && (
               <section className="checkout-notice">
                 <p>
@@ -374,370 +466,482 @@ export function CheckoutPage() {
               </section>
             )}
             {terminal && (
-              <section className="checkout-notice">
-                <h2>
+              <section
+                className="checkout-recovery"
+                aria-labelledby="checkout-recovery-heading"
+              >
+                <Logo
+                  variant="mark"
+                  linked={false}
+                  className="checkout-recovery-mark"
+                />
+                <p className="eyebrow">Your selection is saved</p>
+                <h2 id="checkout-recovery-heading" tabIndex={-1}>
                   {shown.status === "EXPIRED"
-                    ? "Your checkout expired"
+                    ? "Your cart is ready when you are"
                     : shown.status === "CANCELLED"
-                      ? "Checkout cancelled"
-                      : "Your selection needs another review"}
+                      ? "Checkout stopped"
+                      : "Your cart needs a quick review"}
                 </h2>
                 <p>
-                  Your cart has been kept. Any active hold for this attempt has
-                  been released. Review your cart before starting again.
+                  {shown.status === "REVIEW_REQUIRED"
+                    ? "Something in your cart changed while checkout was being prepared. Your cart is still saved — review it before continuing."
+                    : "Your cart is still saved. Review it before continuing, or try checkout again."}
                 </p>
-                <Link href="/cart">Review cart</Link>
-                <Button
-                  disabled={
-                    busy || !cart || cart.needs_review || !cart.items.length
-                  }
-                  onClick={() => {
-                    intent.current = null;
-                    void action(
-                      "begin",
-                      { expected_version: cart?.version },
-                      "/checkout",
-                    );
-                  }}
-                >
-                  Start a new checkout
-                </Button>
+                <div className="checkout-recovery-actions">
+                  <Link className="button button--primary" href="/cart">
+                    Review my cart
+                  </Link>
+                  <Button
+                    variant="secondary"
+                    disabled={
+                      busy || !cart || cart.needs_review || !cart.items.length
+                    }
+                    onClick={() => {
+                      intent.current = null;
+                      void action(
+                        "begin",
+                        { expected_version: cart?.version },
+                        "/checkout",
+                      );
+                    }}
+                  >
+                    Try checkout again
+                  </Button>
+                </div>
+                {cartNeedsReview && (
+                  <p>
+                    Resolve the marked items in your cart before trying again.
+                  </p>
+                )}
+                <p className="checkout-recovery-detail">
+                  Any temporary stock reservation from this checkout has been
+                  released.
+                </p>
               </section>
             )}
-            <div className="checkout-layout">
-              <div>
-                {!terminal && shown.status !== "RESERVED" && (
-                  <form
-                    method="post"
-                    onSubmit={(event) => void submit(event)}
-                    noValidate
-                    aria-describedby="checkout-errors"
-                  >
-                    <h2>Contact and delivery</h2>
-                    {user && saved.length > 0 && (
-                      <label className="checkout-field">
-                        Saved address
-                        <select
-                          value={selection}
-                          onChange={(e) => {
-                            setSelection(e.target.value);
-                            const a = saved.find(
-                              (a) => a.id === e.target.value,
-                            );
-                            if (a) {
-                              const { id: ignored, ...rest } = a;
-                              void ignored;
-                              setAddress(rest);
-                            } else setAddress(blank);
-                          }}
-                        >
-                          <option value="">Enter a new address</option>
-                          {saved.map((a) => (
-                            <option value={a.id} key={a.id}>
-                              {a.recipient_name} — {a.line1}, {a.city}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <label className="checkout-field" htmlFor="checkout-email">
-                      Contact email
-                      <Input
-                        id="checkout-email"
-                        type="email"
-                        autoComplete="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        aria-describedby="checkout-errors"
-                        required
-                        disabled={busy}
-                      />
-                    </label>
-                    <fieldset disabled={busy || !!selection}>
-                      <legend>Delivery address</legend>
-                      <div className="checkout-fields">
-                        {Object.entries(labels).map(([key, label]) => (
-                          <label
-                            className="checkout-field"
-                            key={key}
-                            htmlFor={"checkout-" + key}
-                          >
-                            {label}
-                            <Input
-                              id={"checkout-" + key}
-                              value={address[key as keyof Address] ?? ""}
-                              type={key === "phone" ? "tel" : "text"}
-                              autoComplete={
-                                key === "phone"
-                                  ? "tel"
-                                  : key === "recipient_name"
-                                    ? "shipping name"
-                                    : key === "line1"
-                                      ? "shipping address-line1"
-                                      : key === "line2"
-                                        ? "shipping address-line2"
-                                        : key === "city"
-                                          ? "shipping address-level2"
-                                          : "shipping postal-code"
-                              }
-                              aria-describedby="checkout-errors"
-                              onChange={(e) =>
-                                setAddress({
-                                  ...address,
-                                  [key]: e.target.value,
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                        <label
-                          className="checkout-field"
-                          htmlFor="checkout-state"
-                        >
-                          State / FCT
+            {!terminal && (
+              <div className="checkout-layout">
+                <div>
+                  {shown.status !== "RESERVED" && (
+                    <form
+                      method="post"
+                      onSubmit={(event) => void submit(event)}
+                      noValidate
+                      aria-describedby="checkout-errors"
+                    >
+                      <h2>Contact and delivery</h2>
+                      {user && saved.length > 0 && (
+                        <label className="checkout-field">
+                          Saved address
                           <select
-                            id="checkout-state"
-                            value={address.state_code}
-                            aria-describedby="checkout-errors"
-                            onChange={(e) =>
-                              setAddress({
-                                ...address,
-                                state_code: e.target.value,
-                                locality_code: null,
-                              })
-                            }
+                            value={selection}
+                            onChange={(e) => {
+                              setSelection(e.target.value);
+                              const a = saved.find(
+                                (a) => a.id === e.target.value,
+                              );
+                              if (a) {
+                                const { id: ignored, ...rest } = a;
+                                void ignored;
+                                setAddress(rest);
+                              } else setAddress(blank);
+                            }}
                           >
-                            <option value="">Choose a state or FCT</option>
-                            {Object.entries(destinations.states).map(
-                              ([code, name]) => (
-                                <option key={code} value={code}>
-                                  {name}
-                                </option>
-                              ),
-                            )}
+                            <option value="">Enter a new address</option>
+                            {saved.map((a) => (
+                              <option value={a.id} key={a.id}>
+                                {a.recipient_name} — {a.line1}, {a.city}
+                              </option>
+                            ))}
                           </select>
                         </label>
-                        {areas.length > 0 && (
+                      )}
+                      <label
+                        className="checkout-field"
+                        htmlFor="checkout-email"
+                      >
+                        Contact email
+                        <Input
+                          id="checkout-email"
+                          type="email"
+                          autoComplete="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          aria-describedby="checkout-errors"
+                          required
+                          disabled={busy}
+                        />
+                      </label>
+                      <fieldset disabled={busy || !!selection}>
+                        <legend>Delivery address</legend>
+                        <div className="checkout-fields">
+                          {Object.entries(labels).map(([key, label]) => (
+                            <label
+                              className="checkout-field"
+                              key={key}
+                              htmlFor={"checkout-" + key}
+                            >
+                              {label}
+                              <Input
+                                id={"checkout-" + key}
+                                value={address[key as keyof Address] ?? ""}
+                                type={key === "phone" ? "tel" : "text"}
+                                autoComplete={
+                                  key === "phone"
+                                    ? "tel"
+                                    : key === "recipient_name"
+                                      ? "shipping name"
+                                      : key === "line1"
+                                        ? "shipping address-line1"
+                                        : key === "line2"
+                                          ? "shipping address-line2"
+                                          : key === "city"
+                                            ? "shipping address-level2"
+                                            : "shipping postal-code"
+                                }
+                                aria-describedby="checkout-errors"
+                                onChange={(e) =>
+                                  setAddress({
+                                    ...address,
+                                    [key]: e.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                          ))}
                           <label
                             className="checkout-field"
-                            htmlFor="checkout-area"
+                            htmlFor="checkout-state"
                           >
-                            Delivery area
+                            State / FCT
                             <select
-                              id="checkout-area"
-                              value={address.locality_code ?? ""}
+                              id="checkout-state"
+                              value={address.state_code}
                               aria-describedby="checkout-errors"
                               onChange={(e) =>
                                 setAddress({
                                   ...address,
-                                  locality_code: e.target.value || null,
+                                  state_code: e.target.value,
+                                  locality_code: null,
                                 })
                               }
                             >
-                              <option value="">
-                                State-wide coverage, if configured
-                              </option>
-                              {areas.map((a) => (
-                                <option
-                                  key={a.locality_code}
-                                  value={a.locality_code!}
-                                >
-                                  {a.locality_code!.replaceAll("_", " ")}
-                                </option>
-                              ))}
+                              <option value="">Choose a state or FCT</option>
+                              {Object.entries(destinations.states).map(
+                                ([code, name]) => (
+                                  <option key={code} value={code}>
+                                    {name}
+                                  </option>
+                                ),
+                              )}
                             </select>
                           </label>
-                        )}
-                      </div>
-                    </fieldset>
-                    {user && !selection && (
-                      <label className="checkout-save">
-                        <input
-                          type="checkbox"
-                          checked={save}
-                          onChange={(e) => setSave(e.target.checked)}
-                        />{" "}
-                        Save this address to my account
-                      </label>
-                    )}
-                    <Button disabled={busy}>Save delivery details</Button>
-                  </form>
-                )}
-                {shown.contact && (
-                  <section>
-                    <h2>Delivery details</h2>
-                    <p>
-                      {shown.contact.email}
-                      <br />
-                      {shown.contact.address.recipient_name}
-                      <br />
-                      {shown.contact.address.line1}
-                      <br />
-                      {shown.contact.address.city},{" "}
-                      {shown.contact.address.state_code}
-                      <br />
-                      {shown.contact.address.phone}
-                    </p>
-                  </section>
-                )}
-                <section>
-                  <h2>Your items</h2>
-                  <ul className="checkout-lines">
-                    {shown.lines.map((l) => (
-                      <li key={l.id}>
-                        <h3>{l.snapshot.name}</h3>
-                        <p>
-                          {l.snapshot.options.join(" · ")} · Quantity{" "}
-                          {l.quantity}
-                        </p>
-                        <p>
-                          Each <Price value={l.unit_price_minor} /> · Items{" "}
-                          <Price value={l.line_subtotal_minor} />
-                        </p>
-                        {l.tax && (
-                          <p>
-                            Line tax <Price value={l.tax.tax_minor} />
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              </div>
-              <aside
-                className="checkout-summary"
-                aria-labelledby="checkout-summary-heading"
-              >
-                <h2 id="checkout-summary-heading">Your total</h2>
-                {shown.calculation?.development_only && (
-                  <p role="status">DEVELOPMENT CONFIGURATION ONLY</p>
-                )}
-                <dl>
-                  <dt>Items subtotal</dt>
-                  <dd>
-                    <Price value={shown.subtotal_minor} />
-                  </dd>
-                  <dt>Delivery</dt>
-                  <dd>
-                    {shown.delivery_minor === null ? (
-                      "Awaiting destination and rate"
-                    ) : (
-                      <Price value={shown.delivery_minor} />
-                    )}
-                  </dd>
-                  <dt>Product tax</dt>
-                  <dd>
-                    {shown.calculation ? (
-                      <Price value={shown.calculation.product_tax_minor} />
-                    ) : (
-                      "Awaiting configuration"
-                    )}
-                  </dd>
-                  <dt>Delivery tax</dt>
-                  <dd>
-                    {shown.calculation ? (
-                      <Price value={shown.calculation.delivery_tax_minor} />
-                    ) : (
-                      "Awaiting configuration"
-                    )}
-                  </dd>
-                  <dt>Tax total</dt>
-                  <dd>
-                    {shown.tax_minor === null ? (
-                      "Not calculated"
-                    ) : (
-                      <Price value={shown.tax_minor} />
-                    )}
-                  </dd>
-                  <dt>Total (NGN)</dt>
-                  <dd>
-                    {shown.total_minor === null ? (
-                      "Not yet available"
-                    ) : (
-                      <Price value={shown.total_minor} />
-                    )}
-                  </dd>
-                </dl>
-                {deliveryDirty && (
-                  <p role="status">
-                    Save your delivery changes and calculate a new total before
-                    confirming.
-                  </p>
-                )}
-                {shown.status === "DRAFT" && (
-                  <Button
-                    disabled={busy || !shown.contact || deliveryDirty}
-                    onClick={() =>
-                      void action("validate", {
-                        expected_version: shown.version,
-                      })
-                    }
+                          {areas.length > 0 && (
+                            <label
+                              className="checkout-field"
+                              htmlFor="checkout-area"
+                            >
+                              Delivery area
+                              <select
+                                id="checkout-area"
+                                value={address.locality_code ?? ""}
+                                aria-describedby="checkout-errors"
+                                onChange={(e) =>
+                                  setAddress({
+                                    ...address,
+                                    locality_code: e.target.value || null,
+                                  })
+                                }
+                              >
+                                <option value="">
+                                  State-wide coverage, if configured
+                                </option>
+                                {areas.map((a) => (
+                                  <option
+                                    key={a.locality_code}
+                                    value={a.locality_code!}
+                                  >
+                                    {a.locality_code!.replaceAll("_", " ")}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                        </div>
+                      </fieldset>
+                      {user && !selection && (
+                        <label className="checkout-save">
+                          <input
+                            type="checkbox"
+                            checked={save}
+                            onChange={(e) => setSave(e.target.checked)}
+                          />{" "}
+                          Save this address to my account
+                        </label>
+                      )}
+                      <Button disabled={busy}>Save delivery details</Button>
+                    </form>
+                  )}
+                  {shown.contact && (
+                    <section>
+                      <h2>Delivery details</h2>
+                      <p>
+                        {shown.contact.email}
+                        <br />
+                        {shown.contact.address.recipient_name}
+                        <br />
+                        {shown.contact.address.line1}
+                        <br />
+                        {shown.contact.address.city},{" "}
+                        {shown.contact.address.state_code}
+                        <br />
+                        {shown.contact.address.phone}
+                      </p>
+                    </section>
+                  )}
+                  {shown.calculation?.delivery && (
+                    <section className="checkout-delivery-step">
+                      <h2>Delivery &amp; review</h2>
+                      <p>
+                        {shown.calculation.delivery.service_label}. Your
+                        delivery charge and taxes are included in the reviewed
+                        total.
+                      </p>
+                    </section>
+                  )}
+                  {shown.status === "DRAFT" && (
+                    <section className="checkout-next-step">
+                      <h2>Review your total</h2>
+                      <p>
+                        Save your delivery details, then calculate the current
+                        charges before confirming.
+                      </p>
+                      <Button
+                        disabled={!shown.contact || deliveryDirty}
+                        loading={busy}
+                        onClick={() =>
+                          void action("validate", {
+                            expected_version: shown.version,
+                          })
+                        }
+                      >
+                        Calculate and review total
+                      </Button>
+                    </section>
+                  )}
+                  {shown.status === "RESERVED" && (
+                    <section className="checkout-next-step">
+                      <h2>Continue to payment</h2>
+                      <PlaceOrder
+                        key={shown.id}
+                        checkout={shown}
+                        onCreated={(id) => apply({ ...shown, order_id: id })}
+                      />
+                    </section>
+                  )}
+                </div>
+                <aside className="checkout-summary" aria-label="Order summary">
+                  <div className="checkout-summary-desktop-heading">
+                    <div>
+                      <h2 id="checkout-summary-heading">Order summary</h2>
+                      <p>
+                        {itemCount} {itemCount === 1 ? "item" : "items"}
+                      </p>
+                    </div>
+                    <Link href="/cart">Edit cart</Link>
+                  </div>
+                  <button
+                    type="button"
+                    className="checkout-summary-mobile-toggle"
+                    aria-expanded={mobileSummaryOpen}
+                    aria-controls="checkout-summary-content"
+                    onClick={() => setMobileSummaryOpen((open) => !open)}
                   >
-                    Calculate and review total
-                  </Button>
-                )}
-                {shown.status === "QUOTED" && (
-                  <>
-                    <p>
-                      Review the delivery charge, tax and total. Stock is not
-                      reserved yet.
-                    </p>
-                    <Button
-                      disabled={busy || deliveryDirty}
-                      onClick={() =>
-                        void action("reserve", {
-                          expected_version: shown.version,
-                          fingerprint: shown.fingerprint,
-                        })
+                    <span>
+                      Order summary · {itemCount}{" "}
+                      {itemCount === 1 ? "item" : "items"}
+                    </span>
+                    <strong>
+                      {shown.total_minor === null ? "Subtotal" : "Total"}:{" "}
+                      <Price
+                        value={shown.total_minor ?? shown.subtotal_minor}
+                      />
+                    </strong>
+                    <span aria-hidden="true">⌄</span>
+                  </button>
+                  <div
+                    id="checkout-summary-content"
+                    className="checkout-summary-content"
+                    data-mobile-open={mobileSummaryOpen}
+                  >
+                    <Link className="checkout-summary-mobile-edit" href="/cart">
+                      Edit cart
+                    </Link>
+                    <ul
+                      className={`checkout-lines ${summaryExpanded ? "checkout-lines--expanded" : ""}`}
+                      aria-label="Items in your order"
+                      tabIndex={
+                        summaryExpanded && shown.lines.length > 5
+                          ? 0
+                          : undefined
                       }
                     >
-                      Confirm total and reserve items
-                    </Button>
-                  </>
-                )}
-                {shown.status === "RESERVED" && !shown.order_id && (
-                  <p role="status">
-                    Your items are reserved until{" "}
-                    <time dateTime={shown.expires_at}>
-                      {new Date(shown.expires_at).toLocaleString()}
-                    </time>
-                    . Payment is not available yet.
-                  </p>
-                )}
-                {shown.status === "RESERVED" && (
-                  <PlaceOrder
-                    key={shown.id}
-                    checkout={shown}
-                    onCreated={(id) => apply({ ...shown, order_id: id })}
-                  />
-                )}
-                {!terminal && !shown.order_id && (
-                  <>
+                      {shown.lines
+                        .slice(0, summaryExpanded ? undefined : 4)
+                        .map((line) => (
+                          <li key={line.id}>
+                            <div className="checkout-line-image">
+                              {line.snapshot.image ? (
+                                <ProductImage image={line.snapshot.image} />
+                              ) : (
+                                <span
+                                  className="checkout-line-image-fallback"
+                                  aria-hidden="true"
+                                />
+                              )}
+                            </div>
+                            <div className="checkout-line-detail">
+                              <h3>{line.snapshot.name}</h3>
+                              {line.snapshot.options.length > 0 && (
+                                <p>{line.snapshot.options.join(" · ")}</p>
+                              )}
+                              <p>Quantity {line.quantity}</p>
+                              <p>
+                                Each <Price value={line.unit_price_minor} />
+                              </p>
+                            </div>
+                            <p className="checkout-line-total">
+                              <Price value={line.line_subtotal_minor} />
+                            </p>
+                          </li>
+                        ))}
+                    </ul>
+                    {shown.lines.length > 4 && (
+                      <Button
+                        variant="quiet"
+                        className="checkout-lines-toggle"
+                        aria-expanded={summaryExpanded}
+                        onClick={() => setSummaryExpanded((open) => !open)}
+                      >
+                        {summaryExpanded
+                          ? "Show fewer items"
+                          : `Show ${shown.lines.length - 4} more ${shown.lines.length - 4 === 1 ? "item" : "items"}`}
+                      </Button>
+                    )}
+                    {shown.calculation?.development_only && (
+                      <p role="status">DEVELOPMENT CONFIGURATION ONLY</p>
+                    )}
+                    <dl>
+                      <dt>Items subtotal</dt>
+                      <dd>
+                        <Price value={shown.subtotal_minor} />
+                      </dd>
+                      <dt>Delivery</dt>
+                      <dd>
+                        {shown.delivery_minor === null ? (
+                          "Awaiting destination and rate"
+                        ) : (
+                          <Price value={shown.delivery_minor} />
+                        )}
+                      </dd>
+                      <dt>Product tax</dt>
+                      <dd>
+                        {shown.calculation ? (
+                          <Price value={shown.calculation.product_tax_minor} />
+                        ) : (
+                          "Awaiting configuration"
+                        )}
+                      </dd>
+                      <dt>Delivery tax</dt>
+                      <dd>
+                        {shown.calculation ? (
+                          <Price value={shown.calculation.delivery_tax_minor} />
+                        ) : (
+                          "Awaiting configuration"
+                        )}
+                      </dd>
+                      <dt>Tax total</dt>
+                      <dd>
+                        {shown.tax_minor === null ? (
+                          "Not calculated"
+                        ) : (
+                          <Price value={shown.tax_minor} />
+                        )}
+                      </dd>
+                      <dt>Total (NGN)</dt>
+                      <dd>
+                        {shown.total_minor === null ? (
+                          "Not yet available"
+                        ) : (
+                          <Price value={shown.total_minor} />
+                        )}
+                      </dd>
+                    </dl>
+                    {deliveryDirty && (
+                      <p role="status">
+                        Save your delivery changes and calculate a new total
+                        before confirming.
+                      </p>
+                    )}
+                    {shown.status === "QUOTED" && (
+                      <>
+                        <p>
+                          Review the delivery charge, tax and total. Stock is
+                          not reserved yet.
+                        </p>
+                        <Button
+                          disabled={deliveryDirty}
+                          loading={busy}
+                          onClick={() =>
+                            void action("reserve", {
+                              expected_version: shown.version,
+                              fingerprint: shown.fingerprint,
+                            })
+                          }
+                        >
+                          Confirm total and reserve items
+                        </Button>
+                      </>
+                    )}
+                    {shown.status === "RESERVED" && !shown.order_id && (
+                      <p role="status">
+                        Your items are reserved until{" "}
+                        <time dateTime={shown.expires_at}>
+                          {new Date(shown.expires_at).toLocaleString()}
+                        </time>
+                        . Payment is not available yet.
+                      </p>
+                    )}
+                    {!terminal && !shown.order_id && (
+                      <>
+                        <p>
+                          Changes in price, availability or configuration
+                          require another review.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void action(
+                              "cancel",
+                              {},
+                              "/checkout/" + shown.id,
+                              "DELETE",
+                            )
+                          }
+                        >
+                          Cancel checkout
+                        </Button>
+                      </>
+                    )}
                     <p>
-                      Changes in price, availability or configuration require
-                      another review.
+                      <Link href="/cart">Back to cart</Link>
                     </p>
-                    <Button
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void action(
-                          "cancel",
-                          {},
-                          "/checkout/" + shown.id,
-                          "DELETE",
-                        )
-                      }
-                    >
-                      Cancel checkout
-                    </Button>
-                  </>
-                )}
-                <p>
-                  <Link href="/cart">Back to cart</Link>
-                </p>
-              </aside>
-            </div>
+                  </div>
+                </aside>
+              </div>
+            )}
           </>
         )}
       </Container>

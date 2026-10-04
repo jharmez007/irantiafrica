@@ -44,6 +44,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class])->
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'throttle:identity-staff'])->prefix('admin/staff')->group(function (): void {
     Route::get('/', [StaffController::class, 'index'])->middleware('can:staff.provision');
     Route::post('/', [StaffController::class, 'provision'])->middleware('can:staff.provision');
+    Route::post('/{id}/resend-invitation', [StaffController::class, 'resendInvitation'])->whereUuid('id')->middleware('can:staff.provision');
     Route::patch('/{id}/roles', [StaffController::class, 'role'])->whereUuid('id')->middleware('can:roles.assign');
     Route::post('/{id}/disable', [StaffController::class, 'disable'])->whereUuid('id')->middleware('can:staff.provision');
     Route::post('/{id}/mfa-reset', [StaffController::class, 'resetMfa'])->whereUuid('id')->middleware('can:security.configure');
@@ -75,6 +76,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::post('/products/{id}/publication', [$c, 'publication'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/archive', [$c, 'archive'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/restore', [$c, 'restore'])->whereUuid('id')->middleware('can:catalog.publish_archive');
+    Route::delete('/products/{id}', [$c, 'deleteProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
     Route::post('/products/{id}/options', [$c, 'addOption'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/products/{id}/variants', [$c, 'createVariant'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/options/{id}/values', [$c, 'addValues'])->whereUuid('id')->middleware('can:catalog.create_update');
@@ -85,6 +87,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::get('/categories', [$c, 'adminCategories']);
     Route::post('/categories', [$c, 'createCategory'])->middleware('can:catalog.create_update');
     Route::patch('/categories/{id}', [$c, 'updateCategory'])->whereUuid('id')->middleware('can:catalog.create_update');
+    Route::delete('/categories/{id}', [$c, 'deleteCategory'])->whereUuid('id')->middleware('can:catalog.categories.delete');
     $m = CatalogMediaController::class;
     Route::middleware('can:media.manage')->group(function () use ($m): void {
         Route::post('/media/uploads', [$m, 'intent']);

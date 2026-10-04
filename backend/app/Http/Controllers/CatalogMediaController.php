@@ -54,7 +54,7 @@ final class CatalogMediaController
     public function upload(CatalogRequest $r, string $id): JsonResponse
     {
         Gate::authorize('media.manage');
-        abort_unless(config('catalog.disk') === 'local', 404);
+        abort_unless(config('catalog.disk') === 'local' || config('catalog.upload_transport') === 'proxy', 404);
         $m = ProductMedia::findOrFail($id);
         abort_unless($m->status === 'quarantined', 409);
         $file = $r->file('file');
@@ -65,7 +65,7 @@ final class CatalogMediaController
         $stream = fopen($file->getPathname(), 'rb');
         abort_unless(is_resource($stream), 503);
         try {
-            abort_unless($this->storage->disk()->put($m->object_key, $stream, ['visibility' => 'private']) !== false, 503);
+            abort_unless($this->storage->putPrivate($m->object_key, $stream, (string) $m->mime_type), 503);
         } finally {
             fclose($stream);
         }

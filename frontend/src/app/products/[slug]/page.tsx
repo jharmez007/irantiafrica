@@ -1,4 +1,4 @@
-import { cache } from "react";
+import { cache, Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
@@ -9,6 +9,7 @@ import {
 import type { Product } from "@/lib/catalog";
 import { ProductDetail } from "@/components/catalog/product-detail";
 import { CatalogShell } from "@/components/catalog/storefront";
+import { RelatedProducts } from "@/components/catalog/related-products";
 import { ApiError } from "@/lib/auth-api";
 export const dynamic = "force-dynamic";
 const product = cache(async (slug: string) => {
@@ -67,6 +68,9 @@ export default async function ProductPage({
         }}
       />
       <ProductDetail product={p} />
+      <Suspense fallback={null}>
+        <RelatedProducts product={p} />
+      </Suspense>
     </CatalogShell>
   );
 }

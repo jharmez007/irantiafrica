@@ -15,7 +15,11 @@ import { toast } from "../src/lib/toast";
 
 const mocks = vi.hoisted(() => ({
   auth: {
-    user: null as null | { authentication_state: string; roles: string[] },
+    user: null as null | {
+      authentication_state: string;
+      roles: string[];
+      permissions: string[];
+    },
     loading: false,
   },
   api: vi.fn(),
@@ -47,7 +51,16 @@ function respond(path: string, current = entry) {
 }
 beforeEach(() => {
   mocks.auth = {
-    user: { authentication_state: "authenticated", roles: ["owner"] },
+    user: {
+      authentication_state: "authenticated",
+      roles: ["owner"],
+      permissions: [
+        "inventory.read",
+        "inventory.adjust",
+        "inventory.movements.read",
+        "audit.read",
+      ],
+    },
     loading: false,
   };
   mocks.api.mockReset();
@@ -70,19 +83,22 @@ it("keeps a direct return path when inventory is opened from a product", async (
 });
 async function selectEntry() {
   const user = userEvent.setup();
-  const role = mocks.auth.user?.roles[0];
-  const action =
-    role === "owner"
-      ? "Adjust stock"
-      : role === "inventory_store"
-        ? "View history"
-        : "View stock";
+  const permissions = mocks.auth.user?.permissions ?? [];
+  const action = permissions.includes("inventory.adjust")
+    ? "Adjust stock"
+    : permissions.includes("inventory.movements.read")
+      ? "View history"
+      : "View stock";
+  if (action === "View history")
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
   await user.click(await screen.findByRole("button", { name: action }));
   await screen.findByRole("dialog", {
     name:
-      role === "owner"
+      action === "Adjust stock"
         ? "Adjust Stock"
-        : role === "inventory_store"
+        : action === "View history"
           ? "Stock movement history"
           : "Stock availability",
   });
@@ -127,6 +143,7 @@ describe("inventory administration", () => {
     ).toBe(false);
     await user.click(within(adjust).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(screen.getByRole("button", { name: "View history" }));
     const history = await screen.findByRole("dialog", {
       name: "Stock movement history",
@@ -190,6 +207,7 @@ describe("inventory administration", () => {
               on_hand_after: 97,
               reserved_after: 2,
               reason: "Damaged units removed",
+              recorded_by: "Owner Person",
               actor: { id: "owner", name: "Owner Person" },
               created_at: "2026-09-22T10:00:00Z",
             },
@@ -202,8 +220,9 @@ describe("inventory administration", () => {
     render(<AdminInventory />);
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: "View history" }),
+      await screen.findByRole("button", { name: "More actions" }),
     );
+    await user.click(screen.getByRole("button", { name: "View history" }));
     const history = await screen.findByRole("dialog", {
       name: "Stock movement history",
     });
@@ -231,13 +250,22 @@ describe("inventory administration", () => {
     mocks.auth.user = {
       authentication_state: "mfa_required",
       roles: ["owner"],
+      permissions: [
+        "inventory.read",
+        "inventory.adjust",
+        "inventory.movements.read",
+      ],
     };
     const view = render(<AdminInventory />);
     expect(
       screen.getByRole("link", { name: "Complete staff verification" }),
     ).toBeTruthy();
     expect(mocks.api).not.toHaveBeenCalled();
-    mocks.auth.user = { authentication_state: "authenticated", roles: [] };
+    mocks.auth.user = {
+      authentication_state: "authenticated",
+      roles: [],
+      permissions: [],
+    };
     view.rerender(<AdminInventory />);
     expect(screen.getByRole("alert").textContent).toContain(
       "do not have inventory access",
@@ -262,6 +290,7 @@ describe("inventory administration", () => {
   });
   it("shows order-processing staff availability without quantities or movement history", async () => {
     mocks.auth.user!.roles = ["order_processing"];
+    mocks.auth.user!.permissions = ["inventory.read"];
     mocks.api.mockImplementation(async (path: string) =>
       respond(path, { ...entry, available: false }),
     );
@@ -280,8 +309,14 @@ describe("inventory administration", () => {
       ),
     ).toBe(false);
   });
-  it("keeps inventory staff read-only and redacts owner-only history information", async () => {
+  it("shows inventory staff operational reasons and actor names without internal identity fields", async () => {
     mocks.auth.user!.roles = ["inventory_store"];
+    mocks.auth.user!.permissions = [
+      "inventory.read",
+      "inventory.adjust",
+      "inventory.movements.read",
+      "reports.stock",
+    ];
     mocks.api.mockImplementation(async (path: string) =>
       path.includes("/movements?")
         ? {
@@ -293,9 +328,21 @@ describe("inventory administration", () => {
                 reserved_delta: 0,
                 on_hand_after: 100,
                 reserved_after: 2,
-                reason: "Sensitive owner reason",
-                actor: { id: "owner", name: "Owner Person" },
+                reason: "New stock received",
+                recorded_by: "Owner Person",
                 created_at: "2026-09-22T10:00:00Z",
+              },
+              {
+                id: "system-movement",
+                kind: "reserve",
+                on_hand_delta: 0,
+                reserved_delta: 1,
+                on_hand_after: 100,
+                reserved_after: 3,
+                reason: "Inventory reservation",
+                recorded_by: "System",
+                operation_key: "private-checkout-id",
+                created_at: "2026-09-22T11:00:00Z",
               },
             ],
             meta,
@@ -303,14 +350,117 @@ describe("inventory administration", () => {
         : respond(path),
     );
     render(<AdminInventory />);
-    await selectEntry();
-    expect(screen.getByText("Operational stock movement")).toBeTruthy();
-    expect(screen.queryByText("Sensitive owner reason")).toBeNull();
-    expect(screen.queryByText(/Owner Person/)).toBeNull();
+    const user = await selectEntry();
+    expect(
+      screen.getByText(
+        "Monitor stock quantities, record adjustments and review movement history.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("spinbutton", { name: "Quantity change" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Reserved stock is held for active checkout or order reservations and cannot be edited manually.",
+      ),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    expect(screen.getByText("New stock received")).toBeTruthy();
+    expect(screen.getByText("Owner Person")).toBeTruthy();
+    expect(screen.getByText("System")).toBeTruthy();
+    expect(screen.getByText("Inventory reservation")).toBeTruthy();
+    expect(screen.queryByText("owner-id")).toBeNull();
+    expect(screen.queryByText("private-checkout-id")).toBeNull();
     expect(screen.queryByLabelText("Quantity change")).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Stock movement history" }),
     ).toBeTruthy();
+  });
+  it("lets inventory staff add and reduce stock through the reviewed workflow", async () => {
+    mocks.auth.user!.roles = ["inventory_store"];
+    mocks.auth.user!.permissions = [
+      "inventory.read",
+      "inventory.adjust",
+      "inventory.movements.read",
+      "reports.stock",
+    ];
+    let current = entry;
+    const success = vi.spyOn(toast, "success");
+    mocks.api.mockImplementation(
+      async (
+        path: string,
+        method?: string,
+        payload?: { delta: number; reason: string },
+      ) => {
+        if (method === "POST") {
+          current = {
+            ...current,
+            on_hand: current.on_hand! + payload!.delta,
+            available_quantity: current.available_quantity! + payload!.delta,
+            version: String(Number(current.version) + 1),
+          };
+          return { data: current };
+        }
+        return respond(path, current);
+      },
+    );
+    render(<AdminInventory />);
+    let user = await selectEntry();
+    await user.type(screen.getByLabelText("Quantity change"), "10");
+    await user.type(screen.getByLabelText("Reason"), "New stock received");
+    await user.click(
+      screen.getByRole("button", { name: "Review stock change" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirm stock change" }),
+    );
+    await waitFor(() => expect(success).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.getByText("110")).toBeTruthy());
+
+    user = await selectEntry();
+    await user.type(screen.getByLabelText("Quantity change"), "-2");
+    await user.type(screen.getByLabelText("Reason"), "Damaged units");
+    await user.click(
+      screen.getByRole("button", { name: "Review stock change" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirm stock change" }),
+    );
+    await waitFor(() => expect(screen.getByText("108")).toBeTruthy());
+    const writes = mocks.api.mock.calls.filter(
+      ([, method]) => method === "POST",
+    );
+    expect(writes.map(([, , payload]) => payload.delta)).toEqual([10, -2]);
+    expect(writes.map(([, , payload]) => payload.reason)).toEqual([
+      "New stock received",
+      "Damaged units",
+    ]);
+    expect(success).toHaveBeenCalledTimes(2);
+  });
+  it("keeps an inventory staff adjustment open when the API rejects it", async () => {
+    mocks.auth.user!.roles = ["inventory_store"];
+    mocks.auth.user!.permissions = [
+      "inventory.read",
+      "inventory.adjust",
+      "inventory.movements.read",
+      "reports.stock",
+    ];
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (method === "POST") throw new ApiError(409, "Stock changed.");
+      return respond(path);
+    });
+    render(<AdminInventory />);
+    const user = await reviewAdjustment();
+    await user.click(
+      screen.getByRole("button", { name: "Confirm stock change" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Review the refreshed quantities",
+    );
+    expect(screen.getByRole("dialog", { name: "Adjust Stock" })).toBeTruthy();
   });
   it("requires owner review and reuses the idempotency key for an unchanged retry", async () => {
     const success = vi.spyOn(toast, "success");

@@ -16,19 +16,21 @@ final class CurrentIdentity
     {
         $user = $request->user();
         abort_unless($user instanceof User, 401);
+        $staff = $user->isStaff();
+        $absoluteSeconds = (int) config($staff ? 'identity.staff_absolute_seconds' : 'identity.absolute_seconds');
         if ($user->status !== 'active' || $request->session()->get('auth_version') !== $user->auth_version
-            || time() - (int) $request->session()->get('authenticated_at', 0) > (int) config('identity.absolute_seconds')) {
+            || time() - (int) $request->session()->get('authenticated_at', 0) >= $absoluteSeconds) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
             abort(401);
         }
 
-        if ($user->isStaff()) {
+        if ($staff) {
             $complete = MfaState::complete($request, $user);
             $expired = $complete
-                ? time() - (int) $request->session()->get('staff_activity_at', 0) > 900 || time() - (int) $request->session()->get('authenticated_at', 0) > 28800
-                : time() - (int) $request->session()->get('authenticated_at', 0) > 600;
+                ? time() - (int) $request->session()->get('staff_activity_at', 0) >= (int) config('identity.staff_idle_seconds')
+                : $request->session()->has('mfa_user_id') || time() - (int) $request->session()->get('authenticated_at', 0) >= (int) config('identity.staff_pending_seconds');
             if ($expired) {
                 Auth::guard('web')->logout();
                 $request->session()->invalidate();

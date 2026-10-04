@@ -3,6 +3,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Header } from "./header";
 import { Footer } from "./footer";
+import { CheckoutChrome } from "./checkout-chrome";
 export function StorefrontChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const separate =
@@ -12,6 +13,8 @@ export function StorefrontChrome({ children }: { children: ReactNode }) {
     );
   return separate ? (
     children
+  ) : pathname === "/checkout" ? (
+    <CheckoutChrome>{children}</CheckoutChrome>
   ) : (
     <>
       <Header />

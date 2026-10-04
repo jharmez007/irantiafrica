@@ -1,0 +1,148 @@
+# Approved ultra-lean topology, configuration only. Do not provision until
+# the verification gates in docs/deployment/render-production.md pass.
+services:
+  - type: web
+    name: iranti-africa-web
+    runtime: docker
+    region: frankfurt
+    plan: 1c-2g
+    maxShutdownDelaySeconds: 240
+    branch: main
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    autoDeployTrigger: off
+    healthCheckPath: /api/v1/health
+    preDeployCommand: /usr/local/bin/iranti-entrypoint migrate
+    envVars:
+      - fromGroup: iranti-production-common
+      - key: NODE_ENV
+        value: production
+      - key: PRELAUNCH_GATE_ENABLED
+        value: "true"
+      - key: PRELAUNCH_BASIC_AUTH_HASH
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: CSP_ASSET_ORIGINS
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: TRUSTED_ORIGINS
+        sync: false
+      - key: SANCTUM_STATEFUL_DOMAINS
+        sync: false
+      - key: APP_KEY
+        sync: false
+      - key: CATALOG_INTERNAL_READ_KEY
+        sync: false
+      - key: CATALOG_MEDIA_ORIGIN
+        sync: false
+      - key: DB_URL
+        fromDatabase:
+          name: iranti-africa-postgres
+          property: connectionString
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_DEFAULT_REGION
+        sync: false
+      - key: AWS_BUCKET
+        sync: false
+      - key: AWS_ENDPOINT
+        sync: false
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
+        value: "true"
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_SCHEME
+        sync: false
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        sync: false
+      - key: MAIL_REPLY_TO_ADDRESS
+        sync: false
+      - key: TRANSACTIONAL_EMAIL_START_AT
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+
+databases:
+  - name: iranti-africa-postgres
+    postgresMajorVersion: "18"
+    region: frankfurt
+    plan: 0.1c-256mb
+    databaseName: iranti_production
+    user: iranti_runtime
+    ipAllowList: []
+
+envVarGroups:
+  - name: iranti-production-common
+    envVars:
+      - key: APP_NAME
+        value: IRANTI Africa
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: info
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: PRODUCTION_NETWORK_PROFILE
+        value: render-private-database
+      - key: DB_SSLMODE
+        value: require
+      - key: CACHE_STORE
+        value: database
+      - key: RATE_LIMIT_CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: DB_QUEUE_RETRY_AFTER
+        value: "90"
+      - key: QUEUE_FAILED_DRIVER
+        value: database-uuids
+      - key: CATALOG_UPLOAD_TRANSPORT
+        value: proxy
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_ENCRYPT
+        value: "true"
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: SESSION_HTTP_ONLY
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: lax
+      - key: SESSION_LIFETIME
+        value: "120"
+      - key: FILESYSTEM_DISK
+        value: s3
+      - key: CATALOG_DISK
+        value: s3
+      - key: MAIL_MAILER
+        value: smtp
+      - key: TRANSACTIONAL_EMAIL_ENABLED
+        value: "false"
+      - key: PAYMENTS_ENABLED
+        value: "false"
+      - key: PAYSTACK_MODE
+        value: test
+      - key: PAYSTACK_LIVE_APPROVED
+        value: "false"
+      - key: REFUNDS_ENABLED
+        value: "false"
+      - key: PAYSTACK_REFUNDS_LIVE_APPROVED
+        value: "false"

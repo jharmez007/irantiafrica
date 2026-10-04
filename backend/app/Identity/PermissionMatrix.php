@@ -9,8 +9,9 @@ final class PermissionMatrix
     {
         return [
             'owner' => [
-                'catalog.read_internal', 'catalog.create_update', 'catalog.publish_archive', 'media.manage',
-                'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'orders.read', 'orders.prepare',
+                'catalog.read_internal', 'catalog.create_update', 'catalog.publish_archive',
+                'catalog.products.delete', 'catalog.categories.delete', 'media.manage',
+                'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'inventory.threshold.configure', 'orders.read', 'orders.prepare',
                 'shipments.record', 'delivery.record', 'orders.cancel', 'payments.read_summary', 'payments.reconcile',
                 'exceptions.resolve', 'returns.read', 'returns.review', 'returns.decide', 'refunds.approve', 'refunds.submit',
                 'reports.sales', 'reports.products', 'reports.orders', 'reports.stock', 'customers.read_operational',
@@ -19,7 +20,7 @@ final class PermissionMatrix
             'order_processing' => ['catalog.read_internal', 'inventory.read', 'orders.read', 'orders.prepare',
                 'shipments.record', 'delivery.record', 'payments.read_summary', 'returns.read', 'returns.review',
                 'reports.orders', 'customers.read_operational'],
-            'inventory_store' => ['catalog.read_internal', 'inventory.read', 'inventory.movements.read', 'reports.stock'],
+            'inventory_store' => ['catalog.read_internal', 'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'reports.stock'],
         ];
     }
 }

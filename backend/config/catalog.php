@@ -5,6 +5,7 @@ return [
     'public_requests_per_minute' => max(1, (int) env('RATE_CATALOG_PUBLIC', 120)),
     'renderer_requests_per_minute' => max(1, (int) env('RATE_CATALOG_RENDERER', 3000)),
     'disk' => env('CATALOG_DISK', 'local'),
+    'upload_transport' => env('CATALOG_UPLOAD_TRANSPORT', 's3-post'),
     'public_origin' => env('CATALOG_MEDIA_ORIGIN'),
     'max_bytes' => 10485760,
     'max_pixels' => 25000000,

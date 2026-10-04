@@ -9,9 +9,17 @@ final class MfaState
 {
     public static function complete(Request $request, User $user): bool
     {
-        return $request->hasSession() && $user->status === 'active' && $user->mfa_confirmed_at !== null
+        if (! $request->hasSession()) {
+            return false;
+        }
+        // Existing verified sessions predate the explicit timestamp. Their
+        // password-login time is a conservative trust-start fallback.
+        $verifiedAt = (int) $request->session()->get('mfa_verified_at', $request->session()->get('authenticated_at', 0));
+
+        return $user->status === 'active' && $user->mfa_confirmed_at !== null
             && $request->session()->get('mfa_user_id') === $user->id
-            && $request->session()->get('auth_version') === $user->auth_version;
+            && $request->session()->get('auth_version') === $user->auth_version
+            && $verifiedAt > 0 && time() - $verifiedAt < (int) config('identity.staff_mfa_trust_seconds');
     }
 
     public static function recent(Request $request, User $user): bool
@@ -28,6 +36,6 @@ final class MfaState
     {
         $request->session()->regenerate(true);
         $request->session()->forget(['pending_mfa_secret', 'pending_mfa_at']);
-        $request->session()->put(['mfa_user_id' => $user->id, 'recent_auth_at' => min(time(), (int) $request->session()->get('authenticated_at', 0)), 'staff_activity_at' => time()]);
+        $request->session()->put(['mfa_user_id' => $user->id, 'mfa_verified_at' => time(), 'recent_auth_at' => min(time(), (int) $request->session()->get('authenticated_at', 0)), 'staff_activity_at' => time()]);
     }
 }

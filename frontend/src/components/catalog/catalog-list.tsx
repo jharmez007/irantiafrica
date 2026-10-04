@@ -7,8 +7,8 @@ import {
   Input,
   Pagination,
   Select,
-  Skeleton,
 } from "@/components/ui";
+import { ProductGridSkeleton } from "@/components/loading";
 import { ProductCard } from "./product-card";
 export function CatalogList({
   result,
@@ -111,6 +111,41 @@ export function CatalogList({
         </p>
         <p>Prices in NGN</p>
       </div>
+      {path === "/search" && search && (
+        <section className="search-quick-paths" aria-label="Search suggestions">
+          <h2>Quick paths</h2>
+          <div>
+            <div>
+              <h3>Products</h3>
+              {result.data.slice(0, 3).map((product) => (
+                <Link key={product.slug} href={`/products/${product.slug}`}>
+                  {product.name}
+                </Link>
+              ))}
+              {!result.data.length && <p>No matching products yet.</p>}
+            </div>
+            <div>
+              <h3>Categories</h3>
+              {categories
+                .filter((category) =>
+                  category.name.toLowerCase().includes(search.toLowerCase()),
+                )
+                .slice(0, 3)
+                .map((category) => (
+                  <Link
+                    key={category.slug}
+                    href={`/categories/${category.slug}`}
+                  >
+                    {category.name}
+                  </Link>
+                ))}
+            </div>
+          </div>
+          <Link href={`/products?q=${encodeURIComponent(search)}`}>
+            View all results
+          </Link>
+        </section>
+      )}
       {result.data.length === 0 ? (
         <EmptyState
           title="No products match these filters."
@@ -145,15 +180,7 @@ export function CatalogLoading() {
   return (
     <div className="catalog-loading" aria-busy="true">
       <p role="status">Loading the collection…</p>
-      <div className="catalog-grid catalog-loading-grid" aria-hidden="true">
-        {Array.from({ length: 8 }, (_, index) => (
-          <div className="product-card-skeleton" key={index}>
-            <Skeleton className="product-card-media" />
-            <Skeleton className="product-card-skeleton-title" />
-            <Skeleton className="product-card-skeleton-price" />
-          </div>
-        ))}
-      </div>
+      <ProductGridSkeleton />
     </div>
   );
 }

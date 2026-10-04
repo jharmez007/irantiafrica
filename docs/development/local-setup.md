@@ -324,11 +324,13 @@ After the additive migration, the existing queue worker and scheduler also servi
 The launcher worker consumes `identity,default,transactional`. Restart an already-running launcher to load that queue list. By default, local mail uses the in-memory sink; the optional local-only Mailpit exception below captures mail without external delivery; commerce notification delivery is disabled by default. See [notification operations](notifications.md) for opt-in local simulation, the relay/status commands, production gates, and [email templates](email-templates.md) for synthetic previews. No email provider is needed for daily local startup.
 
 
-## Phase 3N admin UAT and optional Mailpit (2026-09-25)
+## Phase 3N admin UAT email (2026-10-02)
 
 Use `/admin/products` to list products, `/admin/products/new` to create a draft, and `/admin/products/{id}/edit` for explicit section saves. `/admin/catalog` redirects to Products. Use `/admin/categories` for categories, `/admin/inventory` for opening stock/adjustments, and `/admin/staff` for owner-only staff administration. Product prices are entered in naira (e.g. `4500.50`); the API still stores integer kobo. Tax choices come from existing published checkout configuration; missing configuration is reported, never replaced with guessed tax rates. See [admin UAT report](phase-3n-admin-ux-report.md).
 
-The client approved **optional local-only Mailpit** on 25 September 2026. No package was installed automatically. If you choose to enable it, from the project root:
+Staff setup invitations use the `identity` queue. Choose one local outbound transport. **Mailpit is recommended for isolated testing, but it is optional.** The Staff page reports whether delivery is *configured*, not whether a recipient has received a message. The owner must confirm password and a fresh authenticator code before inviting or resending.
+
+**Option A — Mailpit capture.** No package was installed automatically. If you choose to enable it, from the project root:
 
 ```sh
 brew install mailpit
@@ -343,20 +345,41 @@ In your **private** `backend/.env`, with `APP_ENV=local`, set:
 LOCAL_MAILPIT_ENABLED=true
 ```
 
-Leave production/staging mail settings unchanged. Then clear cached configuration and restart local app workers:
+**Option B — real SMTP (including Gmail App Password).** In the private `backend/.env`, set `LOCAL_MAILPIT_ENABLED=false`, `MAIL_MAILER=smtp`, a valid `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM_ADDRESS`, and the provider's `MAIL_USERNAME`/`MAIL_PASSWORD`. For port 587 use `MAIL_SCHEME=smtp` (STARTTLS); for port 465 use `MAIL_SCHEME=smtps`. `MAIL_ENCRYPTION` is not read by this Laravel 13 mail configuration. Keep app passwords in the ignored `.env` only. A real provider may reject the sender or recipient despite valid configuration; verify delivery in the test mailbox. Never use a real provider for synthetic third-party recipient addresses.
+
+For either option, clear cached configuration and restart the local app processes so the queue worker loads the same mail settings:
 
 ```sh
 cd backend
 /opt/homebrew/bin/php artisan config:clear
+/opt/homebrew/bin/php artisan cache:clear
 cd ..
 make stop
 make dev
+make status
 ```
 
-The existing worker consumes `identity,default,transactional,media`; identity invitations/reset requests use the identity queue. Verify the launcher queue list if running an older worker. From `/admin/staff`, confirm your password and a fresh authenticator code, then enter name/email/approved role and send the invitation. Open the setup link from the local inbox; the recipient sets their own password and enrolls MFA. Never set an employee password in the owner UI.
+The worker must show `queue: running`; it consumes `identity,default,transactional,media`. From `/admin/staff`, enter name/email/approved role and send the invitation. The success toast means the setup notification was queued, **not delivered**. Mailpit messages appear in its local inbox; SMTP messages go to the recipient's inbox. The recipient sets their own password and enrolls MFA. If delivery fails, inspect the failed queue job operationally (`/opt/homebrew/bin/php artisan queue:failed` from `backend`), correct the transport and retry the job (`queue:retry <job-id>`), or use **Resend setup email** on an active staff member who has not completed MFA. Resend uses the same account and issues a new setup link; the password broker may throttle rapid repeats. Do not expose setup links or SMTP credentials in support logs. Never set an employee password in the owner UI.
 
-Transactional capture still requires the existing `COMMUNICATIONS_ENABLED` opt-in and approved event/configuration setup described in [notifications.md](notifications.md). Captured commerce mail is recorded as **SIMULATED**, not externally delivered. Testing always uses array mail; staging/production reject the Mailpit transport and retain their existing external-provider controls. With Mailpit disabled, local array mail has no inbox and the Staff UI explains that invitations need local capture or configured email.
+Transactional commerce capture still requires the existing `COMMUNICATIONS_ENABLED` opt-in and approved event/configuration setup described in [notifications.md](notifications.md). Captured commerce mail is recorded as **SIMULATED**, not externally delivered. Local SMTP for identity invitations does not activate external commerce mail. Automated testing always uses array mail; staging/production reject the Mailpit transport and retain their existing external-provider controls. With neither Mailpit nor valid SMTP configured, the Staff UI and API block new invitations.
 
-To disable capture, set `LOCAL_MAILPIT_ENABLED=false`, clear configuration, restart workers, and stop the foreground helper. Homebrew Mailpit was absent during remediation: **SMTP/inbox delivery NOT VERIFIED**. Test locally after installation; external sender/DNS/provider acceptance remains separate.
+To disable capture, set `LOCAL_MAILPIT_ENABLED=false`, clear configuration, restart workers, and stop the foreground helper. Mailpit availability and SMTP delivery are separate from configuration readiness. The 2026-10-02 local SMTP self-test was accepted by the configured transport; inbox receipt and an actual staff setup-link journey still require human confirmation.
 
 References: [Mailpit installation](https://mailpit.axllent.org/docs/install/) and [runtime options](https://mailpit.axllent.org/docs/configuration/runtime-options/).
+
+## Phase 3N staff session UAT policy (2026-10-02)
+
+Local UAT uses `SESSION_LIFETIME=1440` minutes with PostgreSQL sessions and `AUTH_STAFF_IDLE_SECONDS=86400`, `AUTH_STAFF_ABSOLUTE_SECONDS=86400`, `AUTH_STAFF_MFA_TRUST_SECONDS=86400` in the ignored `backend/.env`. The tracked `.env.example` contains these **local/UAT-only** values; production defaults stay shorter unless explicitly approved and configured. A new staff login still needs MFA. Normal activity within the trusted session does not repeat the TOTP challenge, while logout, expiry and revocation require password plus MFA again. Owner-sensitive changes retain the separate five-minute password-and-TOTP recent-auth check. See [security addendum](../architecture/security.md).
+
+After changing these values, clear cached configuration and restart the backend/worker through the existing launcher when no one is mid-login. Check only the non-secret resolved values with:
+
+```sh
+cd backend
+/opt/homebrew/bin/php artisan config:show session.driver
+/opt/homebrew/bin/php artisan config:show session.lifetime
+/opt/homebrew/bin/php artisan config:show identity.staff_idle_seconds
+/opt/homebrew/bin/php artisan config:show identity.staff_absolute_seconds
+/opt/homebrew/bin/php artisan config:show identity.staff_mfa_trust_seconds
+```
+
+The browser session cookie should have a 24-hour Max-Age in local UAT. It remains HttpOnly, SameSite=Lax and host-only; local HTTP is the sole reason Secure is off. No staff authentication material belongs in browser localStorage.

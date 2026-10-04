@@ -63,7 +63,7 @@ final class NotificationDelivery
         $this->recoverExpired();
         foreach (DB::table('notification_deliveries')->where('status', 'PENDING')->whereRaw('next_attempt_at <= CURRENT_TIMESTAMP')->orderBy('next_attempt_at')->limit(100)->pluck('id') as $id) {
             try {
-                DeliverTransactionalEmail::dispatch($id)->onConnection('redis')->onQueue('transactional')->afterCommit();
+                DeliverTransactionalEmail::dispatch($id)->onQueue('transactional')->afterCommit();
                 DB::table('notification_deliveries')->where('id', $id)->whereNull('queued_at')->update(['queued_at' => now()]);
             } catch (\Throwable) {
                 Log::warning('notification_dispatch_unavailable', ['notification_id' => $id]);

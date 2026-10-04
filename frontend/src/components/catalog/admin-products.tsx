@@ -3,7 +3,7 @@ import { AdminShell } from "@/components/brand/layouts";
 import { AdminTable, ActionMenu } from "@/components/admin/primitives";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Alert, Button, Input, Select } from "@/components/ui";
+import { Alert, Button, Input, Modal, Select } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { catalogAdmin } from "@/lib/catalog-admin-api";
 import {
@@ -49,6 +49,8 @@ function Products() {
   const [busy, setBusy] = useState(false);
   const [archive, setArchive] = useState<Product | null>(null);
   const [restore, setRestore] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -260,6 +262,18 @@ function Products() {
                           Restore
                         </Button>
                       )}
+                      {p.delete_eligibility?.allowed && (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => {
+                            setDeleteError("");
+                            setDeleting(p);
+                          }}
+                        >
+                          Delete product
+                        </Button>
+                      )}
                     </ActionMenu>
                   )}
                 </div>
@@ -292,6 +306,63 @@ function Products() {
             );
           }}
         />
+        <Modal
+          open={!!deleting}
+          onClose={() => {
+            if (!busy) {
+              setDeleting(null);
+              setDeleteError("");
+            }
+          }}
+          title="Delete product?"
+        >
+          <p>
+            This permanently removes the product because it has no historical
+            sales or operational records. This action cannot be undone.
+          </p>
+          {deleteError && <Alert tone="error">{deleteError}</Alert>}
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              setDeleting(null);
+              setDeleteError("");
+            }}
+          >
+            Cancel
+          </Button>{" "}
+          <Button
+            type="button"
+            variant="danger"
+            loading={busy}
+            onClick={async () => {
+              if (!deleting) return;
+              setBusy(true);
+              setDeleteError("");
+              try {
+                await catalogAdmin(`/products/${deleting.id}`, "DELETE", {
+                  content_version: deleting.content_version,
+                });
+                setDeleting(null);
+                setOpenMenu(null);
+                setRefresh((x) => x + 1);
+                toast.success("Product deleted successfully.");
+              } catch (e) {
+                const message =
+                  e instanceof Error
+                    ? e.message
+                    : "Product could not be deleted.";
+                setDeleteError(message);
+                toast.error("Product could not be deleted.", message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Deleting…" : "Delete product"}
+          </Button>
+        </Modal>
         <ArchiveDialog
           product={archive}
           close={() => setArchive(null)}

@@ -1,8 +1,13 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AdminTable, StatusBadge } from "@/components/admin/primitives";
+import {
+  ActionMenu,
+  AdminTable,
+  StatusBadge,
+} from "@/components/admin/primitives";
 import Link from "next/link";
 import { Alert, Badge, Button, Input, Textarea, Modal } from "@/components/ui";
+import { InlineSpinner } from "@/components/loading";
 
 import { useAuth } from "@/components/auth-provider";
 import { ApiError } from "@/lib/auth-api";
@@ -81,7 +86,7 @@ export function AdminInventory() {
       ? `/admin/products/${productContext}/edit`
       : null;
   const { user, loading } = useAuth();
-  const permissions = inventoryPermissions(user?.roles);
+  const permissions = inventoryPermissions(user?.permissions);
   const authorized =
     locationReady &&
     !loading &&
@@ -322,7 +327,7 @@ export function AdminInventory() {
       )}
       <p>
         {permissions.manage
-          ? "Record opening stock and reasoned stock adjustments."
+          ? "Monitor stock quantities, record adjustments and review movement history."
           : permissions.quantities
             ? "Read-only stock quantities and movement history."
             : "Stock availability only."}
@@ -423,24 +428,28 @@ export function AdminInventory() {
                   />
                 </td>
                 <td>
-                  <Button
-                    variant="secondary"
-                    disabled={busy || listingLoading}
-                    onClick={() =>
-                      choose(entry, permissions.manage ? "adjust" : "stock")
-                    }
-                  >
-                    {permissions.manage ? "Adjust stock" : "View stock"}
-                  </Button>
-                  {permissions.quantities && (
+                  <div className="product-row-actions">
                     <Button
-                      variant="quiet"
+                      variant="secondary"
                       disabled={busy || listingLoading}
-                      onClick={() => choose(entry, "history")}
+                      onClick={() =>
+                        choose(entry, permissions.manage ? "adjust" : "stock")
+                      }
                     >
-                      View history
+                      {permissions.manage ? "Adjust stock" : "View stock"}
                     </Button>
-                  )}
+                    {permissions.quantities && (
+                      <ActionMenu label="More actions" compact>
+                        <Button
+                          type="button"
+                          disabled={busy || listingLoading}
+                          onClick={() => choose(entry, "history")}
+                        >
+                          View history
+                        </Button>
+                      </ActionMenu>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -505,6 +514,12 @@ export function AdminInventory() {
                     <dd>{selected.low_stock_threshold ?? "—"}</dd>
                   </div>
                 </dl>
+              )}
+              {permissions.quantities && (
+                <p className="field-hint">
+                  Reserved stock is held for active checkout or order
+                  reservations and cannot be edited manually.
+                </p>
               )}
               {modal === "adjust" &&
                 permissions.manage &&
@@ -596,7 +611,7 @@ export function AdminInventory() {
                       </Button>
                       <Button
                         type="button"
-                        disabled={busy}
+                        loading={busy}
                         onClick={() => void confirm()}
                       >
                         {busy ? "Saving stock change…" : "Confirm stock change"}
@@ -632,7 +647,7 @@ export function AdminInventory() {
             <p>SKU: {selected?.sku ?? "…"}</p>
           </div>
           {!movements && !modalError && (
-            <p role="status">Loading stock movements…</p>
+            <InlineSpinner label="Loading stock movements…" />
           )}
           {movements && (
             <>
@@ -669,14 +684,8 @@ export function AdminInventory() {
                     </td>
                     <td>{movement.on_hand_after}</td>
                     <td>{movement.reserved_after}</td>
-                    <td>
-                      {permissions.manage
-                        ? movement.reason
-                        : "Operational stock movement"}
-                    </td>
-                    <td>
-                      {permissions.manage ? (movement.actor?.name ?? "—") : "—"}
-                    </td>
+                    <td>{movement.reason}</td>
+                    <td>{movement.recorded_by}</td>
                   </tr>
                 ))}
               </AdminTable>

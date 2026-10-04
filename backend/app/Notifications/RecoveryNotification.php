@@ -14,7 +14,7 @@ final class RecoveryNotification extends ResetPassword implements ShouldBeEncryp
     public function __construct(#[\SensitiveParameter] string $token)
     {
         parent::__construct($token);
-        $this->onConnection('redis')->onQueue('identity')->afterCommit();
+        $this->onQueue('identity')->afterCommit();
     }
 
     /** @return list<string> */

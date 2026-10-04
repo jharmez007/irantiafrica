@@ -25,7 +25,7 @@ final class WebhookInbox
         $hash = hash('sha256', $body);
         $key = hash('sha256', json_encode($event, JSON_THROW_ON_ERROR).':'.$hash);
         DB::table('webhook_inbox')->insertOrIgnore(['id' => (string) Str::uuid(), 'provider' => 'paystack', 'event_key' => $key, 'event_type' => $event['event'], 'reference' => $event['reference'], 'payload_hash' => $hash, 'normalized' => json_encode($event, JSON_THROW_ON_ERROR), 'status' => 'PENDING']);
-        // Scheduler reads the committed inbox; Redis downtime cannot lose an acknowledged event.
+        // Scheduler reads the committed inbox; queue transport outages cannot lose an acknowledged event.
     }
 
     public function process(string $id): void

@@ -19,7 +19,7 @@ type CartContextValue = {
   error: string;
   notice: string;
   refresh: () => Promise<void>;
-  add: (variantId: string) => Promise<boolean>;
+  add: (variantId: string) => Promise<CartData | null>;
   update: (itemId: string, quantity: number) => Promise<boolean>;
   remove: (itemId: string) => Promise<boolean>;
   clear: () => Promise<boolean>;
@@ -200,7 +200,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
             : error,
         notice: feedback.scope === scope ? feedback.notice : "",
         refresh,
-        add: (id) => mutate("POST", "/items", { variant_id: id, quantity: 1 }),
+        add: async (id) =>
+          (await mutate("POST", "/items", { variant_id: id, quantity: 1 }))
+            ? confirmed.current?.scope === scope
+              ? confirmed.current.data
+              : null
+            : null,
         update: (id, quantity) => mutate("PATCH", `/items/${id}`, { quantity }),
         remove: (id) => mutate("DELETE", `/items/${id}`),
         clear: () => mutate("DELETE", ""),

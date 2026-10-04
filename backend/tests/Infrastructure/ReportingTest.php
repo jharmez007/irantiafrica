@@ -483,7 +483,7 @@ final class ReportingTest extends TestCase
         $this->assertSame([], $d['products']['items']);
         $this->assertSame([], $d['stock']['items']);
         $this->assertSame([], $d['returns']['queue']);
-        $this->assertSame(31, DB::table('permissions')->count());
+        $this->assertSame(34, DB::table('permissions')->count());
     }
 
     public function test_stock_uses_balance_and_per_variant_threshold_with_unknown_distinct(): void

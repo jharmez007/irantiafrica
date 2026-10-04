@@ -17,3 +17,7 @@ Source: [Sanctum cookie SPA authentication and CSRF](https://laravel.com/framewo
 
 ## Approved staff MFA decision — 2026-09-21
 **MFA: APPROVED FOR STAFF V1. Customer MFA: NOT REQUIRED FOR V1. RBAC Matrix: APPROVED FOR V1.** This supersedes the provisional staff MFA/provisioning references above. All three staff roles, including the owner, require TOTP enrollment and confirmation, with restricted password-verified sessions until MFA completion. Single-use hashed recovery codes and controlled owner reset are approved. See [ADR-012](adr/012-staff-mfa.md); customer email verification remains optional/unapproved.
+
+## Phase 3N local UAT session clarification — 2026-10-02
+
+Local UAT explicitly uses a 24-hour PostgreSQL session idle lifetime and a 24-hour completed-staff idle, absolute and MFA trust window. Password login on a new session still requires TOTP or a one-use recovery code; ordinary requests within the trusted session do not. Logout, expiry and security revocation remove trust. Owner-sensitive operations retain their separate five-minute password-plus-TOTP recent-auth requirement. These local environment values do not silently alter production's shorter defaults. See [session and inventory audit security](security.md) and the addendum to [ADR-012](adr/012-staff-mfa.md).

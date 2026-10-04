@@ -50,6 +50,28 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("branded authentication forms", () => {
+  it("keeps the sign-in action disabled and labelled while the request is pending", async () => {
+    let finish: (identity: Identity) => void = () => {};
+    mocks.request.mockImplementation(
+      () =>
+        new Promise<Identity>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AuthForm mode="login" />);
+    await user.type(screen.getByLabelText("Email"), customer.email);
+    await user.type(screen.getByLabelText("Password"), "A secure passphrase");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    const pending = screen.getByRole("button", {
+      name: "Signing in…",
+    }) as HTMLButtonElement;
+    expect(pending.disabled).toBe(true);
+    await user.click(pending);
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+    finish(customer);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/account"));
+  });
   it.each(["login", "register", "forgot", "reset"] as const)(
     "%s never defaults to a credential-bearing native GET before hydration",
     (mode) => {

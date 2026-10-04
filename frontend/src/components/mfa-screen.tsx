@@ -8,6 +8,7 @@ import { ApiError, authRequest } from "@/lib/auth-api";
 import { useAuth } from "./auth-provider";
 import { toast } from "@/lib/toast";
 import { AuthLayout } from "@/components/brand/layouts";
+import { AppScreenLoader } from "@/components/loading";
 import {
   Alert,
   Button,
@@ -97,12 +98,7 @@ export function MfaScreen() {
       setBusy(false);
     }
   }
-  if (loading)
-    return (
-      <AuthLayout title="Account security">
-        <p role="status">Loading account security…</p>
-      </AuthLayout>
-    );
+  if (loading) return <AppScreenLoader label="Preparing account security…" />;
   if (!user?.roles?.length)
     return (
       <AuthLayout title="Account security">
@@ -149,7 +145,12 @@ export function MfaScreen() {
             <p>Set up an authenticator app before using staff features.</p>
           )}
           {enrollment && !setup && (
-            <Button type="button" disabled={busy} onClick={() => void start()}>
+            <Button
+              type="button"
+              loading={busy}
+              loadingLabel="Preparing authenticator…"
+              onClick={() => void start()}
+            >
               Set up authenticator
             </Button>
           )}
@@ -249,7 +250,7 @@ export function MfaScreen() {
                 code if you just used one.
               </p>
               <div className="form-actions">
-                <Button disabled={busy} type="submit">
+                <Button loading={busy} type="submit">
                   {busy
                     ? "Checking…"
                     : enrollment

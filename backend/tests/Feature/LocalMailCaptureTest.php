@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Identity\StaffInvitationMail;
 use App\Notifications\RecoveryNotification;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -20,7 +21,7 @@ final class LocalMailCaptureTest extends TestCase
         }
         $process = new Process([PHP_BINARY, '-r', 'require "vendor/autoload.php"; echo (require "config/mail.php")["default"];'], base_path(), ['APP_ENV' => 'local', 'LOCAL_MAILPIT_ENABLED' => 'false', 'MAIL_MAILER' => 'smtp']);
         $process->mustRun();
-        $this->assertSame('array', $process->getOutput());
+        $this->assertSame('smtp', $process->getOutput());
     }
 
     public function test_mailpit_configuration_is_loopback_only_and_testing_defaults_to_array(): void
@@ -40,5 +41,31 @@ final class LocalMailCaptureTest extends TestCase
         $this->app->instance('env', 'staging');
         $this->expectException(\LogicException::class);
         (new RecoveryNotification('fixture'))->via(null);
+    }
+
+    public function test_local_mailpit_and_configured_smtp_are_ready_without_exposing_credentials(): void
+    {
+        $this->app->instance('env', 'local');
+        $readiness = app(StaffInvitationMail::class);
+
+        config(['mail.default' => 'mailpit']);
+        $this->assertSame('local_capture', $readiness->status());
+
+        config(['mail.default' => 'smtp', 'mail.mailers.smtp.host' => 'smtp.gmail.com',
+            'mail.mailers.smtp.port' => 587, 'mail.mailers.smtp.scheme' => 'smtp',
+            'mail.mailers.smtp.url' => null, 'mail.mailers.smtp.username' => 'fixture-user',
+            'mail.mailers.smtp.password' => 'fixture-secret', 'mail.from.address' => 'sender@irantiafrica.test']);
+        $this->assertSame('email', $readiness->status());
+        $this->assertTrue($readiness->configured());
+        $this->assertStringNotContainsString('fixture-secret', $readiness->status());
+
+        config(['mail.mailers.smtp.password' => null]);
+        $this->assertSame('unavailable', $readiness->status());
+        config(['mail.mailers.smtp.password' => 'fixture-secret', 'mail.mailers.smtp.port' => 0]);
+        $this->assertSame('unavailable', $readiness->status());
+        config(['mail.mailers.smtp.port' => 587, 'mail.from.address' => 'hello@example.test']);
+        $this->assertSame('unavailable', $readiness->status());
+        config(['mail.default' => 'array']);
+        $this->assertFalse($readiness->configured());
     }
 }

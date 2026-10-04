@@ -7,6 +7,7 @@ import { authRequest, type Identity } from "@/lib/auth-api";
 import { useAuth } from "./auth-provider";
 import { toast } from "@/lib/toast";
 import { AuthLayout } from "@/components/brand/layouts";
+import { AppScreenLoader } from "@/components/loading";
 import {
   Alert,
   Button,
@@ -32,6 +33,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const router = useRouter();
   const { user, loading, refresh } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [handoff, setHandoff] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState("");
   const recovery = useRef({ email: "", token: "" });
   useEffect(() => {
@@ -49,8 +52,15 @@ export function AuthForm({ mode }: { mode: Mode }) {
         authenticationDestination(user.authentication_state, user.roles),
       );
   }, [loading, user, mode, router]);
+  useEffect(() => {
+    if (!handoff) return;
+    const timeout = window.setTimeout(() => setHandoff(false), 12000);
+    return () => window.clearTimeout(timeout);
+  }, [handoff]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current || handoff) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     const values = Object.fromEntries(
@@ -69,6 +79,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
             mode === "login" ? "Signed in successfully" : "Account created",
           );
         else toast.info("Continue with staff verification");
+        if (result.roles?.length) setHandoff(true);
         router.replace(
           authenticationDestination(result.authentication_state, result.roles),
         );
@@ -86,6 +97,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           : "Unable to complete the request.",
       );
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -95,6 +107,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
     forgot: "Enter your email to receive password recovery instructions.",
     reset: "Choose a unique password to keep your account secure.",
   };
+  if (handoff) return <AppScreenLoader label="Preparing your workspace…" />;
   return (
     <AuthLayout
       title={titles[mode]}
@@ -169,16 +182,26 @@ export function AuthForm({ mode }: { mode: Mode }) {
         )}
         {error && <Alert tone="error">{error}</Alert>}
         <div className="form-actions">
-          <Button disabled={busy} type="submit">
-            {busy
-              ? "Please wait…"
-              : mode === "login"
-                ? "Sign in"
+          <Button
+            loading={busy}
+            loadingLabel={
+              mode === "login"
+                ? "Signing in…"
                 : mode === "register"
-                  ? "Create account"
+                  ? "Creating account…"
                   : mode === "forgot"
-                    ? "Send recovery instructions"
-                    : "Change password"}
+                    ? "Sending instructions…"
+                    : "Changing password…"
+            }
+            type="submit"
+          >
+            {mode === "login"
+              ? "Sign in"
+              : mode === "register"
+                ? "Create account"
+                : mode === "forgot"
+                  ? "Send recovery instructions"
+                  : "Change password"}
           </Button>
         </div>
       </form>

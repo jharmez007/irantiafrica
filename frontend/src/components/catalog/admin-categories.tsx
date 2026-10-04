@@ -2,9 +2,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, Select } from "@/components/ui";
+import { Alert, Button, Input, Modal, Select } from "@/components/ui";
 import { AdminShell } from "@/components/brand/layouts";
-import { AdminTable, StatusBadge } from "@/components/admin/primitives";
+import { PageSkeleton } from "@/components/loading";
+import {
+  ActionMenu,
+  AdminTable,
+  StatusBadge,
+} from "@/components/admin/primitives";
 import { catalogAdmin } from "@/lib/catalog-admin-api";
 import type { Category } from "@/lib/catalog";
 import { allCategories, CatalogAccess } from "./admin-common";
@@ -27,6 +32,8 @@ function Categories({ editId, create }: { editId?: string; create: boolean }) {
   const [items, setItems] = useState<Category[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<Category | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   useEffect(() => {
     let active = true;
     allCategories()
@@ -87,7 +94,11 @@ function Categories({ editId, create }: { editId?: string; create: boolean }) {
       {editing ? (
         <>
           {!items ? (
-            <p role="status">Loading categories…</p>
+            <PageSkeleton
+              kind="admin-editor"
+              label="Loading category editor"
+              showHeading={false}
+            />
           ) : editId && !category ? (
             <Alert>
               Category not found. Return to Categories and choose an existing
@@ -113,14 +124,7 @@ function Categories({ editId, create }: { editId?: string; create: boolean }) {
       ) : (
         <AdminTable
           label="Categories"
-          columns={[
-            "Category",
-            "Slug",
-            "Parent",
-            "Products",
-            "Status",
-            "Actions",
-          ]}
+          columns={["Category", "Slug", "Parent", "Status", "Actions"]}
           loading={!items && !error}
           empty={items?.length === 0}
           emptyText="No categories yet. Add a category to organize products."
@@ -131,26 +135,97 @@ function Categories({ editId, create }: { editId?: string; create: boolean }) {
               <td>{c.slug}</td>
               <td>{items.find((p) => p.id === c.parent_id)?.name ?? "—"}</td>
               <td>
-                <Link
-                  href={
-                    "/admin/products?category=" + encodeURIComponent(c.slug)
-                  }
-                >
-                  View products
-                </Link>
-              </td>
-              <td>
                 <StatusBadge value={c.status ?? "draft"} />
               </td>
               <td>
-                <Link href={`/admin/categories/${c.id}/edit`}>
-                  Edit category
-                </Link>
+                <div className="product-row-actions">
+                  <Link
+                    className="button button--secondary"
+                    href={`/admin/categories/${c.id}/edit`}
+                  >
+                    Edit
+                  </Link>
+                  <ActionMenu label="More actions" compact>
+                    <Link
+                      href={
+                        "/admin/products?category=" + encodeURIComponent(c.slug)
+                      }
+                    >
+                      View products
+                    </Link>
+                    {c.delete_eligibility?.allowed && (
+                      <Button
+                        type="button"
+                        variant="danger"
+                        onClick={() => {
+                          setDeleteError("");
+                          setDeleting(c);
+                        }}
+                      >
+                        Delete category
+                      </Button>
+                    )}
+                  </ActionMenu>
+                </div>
               </td>
             </tr>
           ))}
         </AdminTable>
       )}
+      <Modal
+        open={!!deleting}
+        onClose={() => {
+          if (!busy) {
+            setDeleting(null);
+            setDeleteError("");
+          }
+        }}
+        title="Delete category?"
+      >
+        <p>
+          This permanently removes this category. Products must be reassigned or
+          removed from it first.
+        </p>
+        {deleteError && <Alert tone="error">{deleteError}</Alert>}
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={busy}
+          onClick={() => {
+            setDeleting(null);
+            setDeleteError("");
+          }}
+        >
+          Cancel
+        </Button>{" "}
+        <Button
+          type="button"
+          variant="danger"
+          loading={busy}
+          onClick={async () => {
+            if (!deleting) return;
+            setBusy(true);
+            setDeleteError("");
+            try {
+              await catalogAdmin(`/categories/${deleting.id}`, "DELETE");
+              setItems(await allCategories());
+              setDeleting(null);
+              toast.success("Category deleted successfully.");
+            } catch (e) {
+              const message =
+                e instanceof Error
+                  ? e.message
+                  : "Category could not be deleted.";
+              setDeleteError(message);
+              toast.error("Category could not be deleted.", message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Deleting…" : "Delete category"}
+        </Button>
+      </Modal>
     </AdminShell>
   );
 }
@@ -212,7 +287,7 @@ function CategoryForm({
             ))}
         </Select>
       </label>
-      <Button disabled={busy}>
+      <Button loading={busy} loadingLabel="Saving category…">
         {category ? "Save category" : "Create category"}
       </Button>
       <p>Activate the category when ready to publish products in it.</p>

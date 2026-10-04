@@ -14,7 +14,7 @@ return [
     |
     */
 
-    'default' => in_array(env('APP_ENV', 'local'), ['local', 'testing'], true) ? (env('APP_ENV', 'local') === 'local' && env('LOCAL_MAILPIT_ENABLED', false) ? 'mailpit' : 'array') : env('MAIL_MAILER', 'array'),
+    'default' => env('APP_ENV', 'local') === 'testing' ? 'array' : (env('APP_ENV', 'local') === 'local' && env('LOCAL_MAILPIT_ENABLED', false) ? 'mailpit' : env('MAIL_MAILER', 'array')),
 
     /*
     |--------------------------------------------------------------------------

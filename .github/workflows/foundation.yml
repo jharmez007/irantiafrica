@@ -87,4 +87,112 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm audit
+      - name: Production dependency audit (blocking)
+        run: npm audit --omit=dev
+      - name: Full audit with narrowly tracked dev-tooling exception
+        run: node ../scripts/check-frontend-audit.mjs
+      - name: Confirm affected dev tools are absent from runtime bundle
+        run: |
+          for package in braces micromatch fast-glob '@next/eslint-plugin-next' eslint-config-next; do
+            if find .next/standalone -path "*/node_modules/$package" -print -quit | grep -q .; then
+              echo "Unexpected runtime package: $package" >&2
+              exit 1
+            fi
+          done
+  render-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_DB: iranti_container_test
+          POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Build production image
+        run: docker build --pull -f Dockerfile.render -t iranti-render:ci .
+      - name: Boot and inspect production image with isolated test configuration
+        env:
+          TEST_DB_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          app_key="base64:$(openssl rand -base64 32)"
+          runtime=(
+            --network host
+            --memory 2g --cpus 1
+            -e APP_ENV=testing -e APP_DEBUG=false -e "APP_KEY=$app_key"
+            -e DB_CONNECTION=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=5432
+            -e DB_DATABASE=iranti_container_test -e DB_USERNAME=postgres
+            -e "DB_PASSWORD=$TEST_DB_PASSWORD" -e DB_SSLMODE=disable
+            -e CACHE_STORE=database -e QUEUE_CONNECTION=database
+            -e SESSION_DRIVER=database -e MAIL_MAILER=array
+            -e PRELAUNCH_GATE_ENABLED=false -e PORT=10000
+          )
+          docker run --rm "${runtime[@]}" iranti-render:ci migrate
+          container_id="$(docker run -d --rm "${runtime[@]}" iranti-render:ci web)"
+          trap 'docker stop --time 120 "$container_id" >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for attempt in {1..45}; do
+            if curl --fail --silent http://127.0.0.1:10000/api/v1/health >/dev/null &&
+              curl --fail --silent http://127.0.0.1:10000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != true ]]; then
+            docker logs "$container_id" >&2
+            exit 1
+          fi
+          docker exec "$container_id" supervisorctl status
+          docker exec "$container_id" php -v | grep -q 'PHP 8.5'
+          docker exec "$container_id" node --version | grep -q '^v24\.'
+          for extension in pdo_pgsql gd intl mbstring bcmath exif pcntl zip 'Zend OPcache'; do
+            docker exec "$container_id" php -m | grep -iq "^$extension$"
+          done
+          test "$(docker exec "$container_id" id -u)" = 33
+          docker exec "$container_id" test -f /app/frontend/server.js
+          docker exec "$container_id" test -w /app/backend/storage
+          docker exec "$container_id" nginx -t -c /tmp/iranti-nginx.conf
+          for package in braces micromatch fast-glob '@next/eslint-plugin-next' eslint-config-next; do
+            if docker exec "$container_id" find /app/frontend -path "*/node_modules/$package" -print -quit | grep -q .; then
+              echo "Unexpected runtime package: $package" >&2
+              exit 1
+            fi
+          done
+          for process in nginx php-fpm next queue scheduler; do
+            docker exec "$container_id" supervisorctl status "$process" | grep -q RUNNING
+          done
+          docker exec "$container_id" php /app/backend/artisan app:readiness
+          curl --fail --silent http://127.0.0.1:10000/api/v1/health | grep -q '"ok"'
+          docker stats --no-stream --format 'idle {{.MemUsage}} {{.CPUPerc}}' "$container_id"
+          for path in / /products /checkout /admin; do
+            curl --silent --output /dev/null --write-out "$path %{http_code} %{time_total}s\n" "http://127.0.0.1:10000$path"
+          done
+          docker stats --no-stream --format 'after requests {{.MemUsage}} {{.CPUPerc}}' "$container_id"
+          for process in queue next php-fpm scheduler nginx; do
+            old_pid="$(docker exec "$container_id" supervisorctl pid "$process")"
+            docker exec "$container_id" sh -c 'kill -TERM "$1"' sh "$old_pid"
+            restarted=false
+            for attempt in {1..25}; do
+              sleep 2
+              new_pid="$(docker exec "$container_id" supervisorctl pid "$process")"
+              if [[ "$new_pid" != "$old_pid" ]] &&
+                docker exec "$container_id" supervisorctl status "$process" | grep -q RUNNING; then
+                restarted=true
+                break
+              fi
+            done
+            if [[ "$restarted" != true ]]; then
+              docker logs "$container_id" >&2
+              exit 1
+            fi
+            echo "$process restarted under Supervisor"
+          done
+          docker stop --time 120 "$container_id"
+          trap - EXIT

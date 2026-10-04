@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { createRequire } from "node:module";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -56,7 +57,12 @@ const draft: Checkout = {
       quantity: 3,
       unit_price_minor: "335",
       line_subtotal_minor: "1005",
-      snapshot: { name: "Woven basket", sku: "BASKET", options: ["Natural"] },
+      snapshot: {
+        name: "Woven basket",
+        sku: "BASKET",
+        options: ["Natural"],
+        image: null,
+      },
       tax: null,
     },
   ],
@@ -83,6 +89,7 @@ function setup(current: Checkout | null = draft) {
   mock.request.mockImplementation(async (path: string, method = "GET") => {
     if (path === "/checkout/current") return current;
     if (path === "/checkout/destinations") return places;
+    if (path === "/checkout" && method === "POST") return draft;
     if (path === "/addresses" && method === "GET")
       return [{ id: "address-one", ...address }];
     throw new Error("Unexpected request " + path);
@@ -98,22 +105,171 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("checkout flow", () => {
-  it("loads and starts a guest checkout with a retry key and server cart version", async () => {
+  it("automatically starts a guest checkout with a retry key and server cart version", async () => {
     setup(null);
     render(<CheckoutPage />);
-    expect(screen.getByRole("status").textContent).toContain("Loading");
-    await screen.findByRole("button", { name: "Continue with your cart" });
-    mock.request.mockResolvedValueOnce(draft);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Continue with your cart" }),
-    );
+    expect(
+      screen.getByRole("status", { name: "Loading checkout" }),
+    ).toBeTruthy();
     await screen.findByRole("heading", { name: "Contact and delivery" });
+    expect(screen.queryByText("Begin checkout")).toBeNull();
     expect(mock.request).toHaveBeenCalledWith(
       "/checkout",
       "POST",
       { expected_version: 2 },
       expect.any(String),
     );
+    expect(
+      mock.request.mock.calls.filter((call) => call[0] === "/checkout"),
+    ).toHaveLength(1);
+  });
+  it("resumes an existing guest or account checkout without creating another", async () => {
+    setup(quote);
+    render(<CheckoutPage />);
+    await screen.findByRole("button", {
+      name: "Confirm total and reserve items",
+    });
+    expect(
+      mock.request.mock.calls.filter((call) => call[0] === "/checkout"),
+    ).toHaveLength(0);
+  });
+  it("does not create duplicate sessions during Strict Mode initialization", async () => {
+    setup(null);
+    render(
+      <StrictMode>
+        <CheckoutPage />
+      </StrictMode>,
+    );
+    await screen.findByLabelText("Contact email");
+    expect(
+      mock.request.mock.calls.filter((call) => call[0] === "/checkout"),
+    ).toHaveLength(1);
+  });
+  it("starts an account-owned checkout with the same safe cart version flow", async () => {
+    mock.auth.user = { id: "customer" };
+    setup(null);
+    mock.request.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/checkout/current") return null;
+      if (path === "/checkout/destinations") return places;
+      if (path === "/addresses" && method === "GET") return [];
+      if (path === "/checkout" && method === "POST")
+        return { ...draft, ownership: "account" };
+      throw new Error("Unexpected request " + path);
+    });
+    render(<CheckoutPage />);
+    await screen.findByLabelText("Contact email");
+    expect(mock.request).toHaveBeenCalledWith(
+      "/checkout",
+      "POST",
+      { expected_version: 2 },
+      expect.any(String),
+    );
+  });
+  it("keeps cart contents and reuses the initiation key when retrying a failed start", async () => {
+    setup(null);
+    let attempts = 0;
+    mock.request.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/checkout/current") return null;
+      if (path === "/checkout/destinations") return places;
+      if (path === "/checkout" && method === "POST") {
+        attempts++;
+        if (attempts === 1) throw new Error("Network unavailable");
+        return draft;
+      }
+      throw new Error("Unexpected request " + path);
+    });
+    render(<CheckoutPage />);
+    await screen.findByRole("alert");
+    expect(screen.getByText("Network unavailable")).toBeTruthy();
+    expect(mock.cart.items).toHaveLength(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Retry checkout" }),
+    );
+    await screen.findByLabelText("Contact email");
+    const calls = mock.request.mock.calls.filter(
+      (call) => call[0] === "/checkout",
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0][3]).toBe(calls[1][3]);
+  });
+  it("shows snapshot line details in the order summary", async () => {
+    setup({
+      ...draft,
+      lines: [
+        {
+          ...draft.lines[0],
+          snapshot: {
+            ...draft.lines[0].snapshot,
+            image: {
+              id: "image-one",
+              variant_id: null,
+              alt_text: "Woven basket in warm light",
+              position: 0,
+              width: 640,
+              height: 640,
+              sources: [{ url: "/basket.webp", width: 640, height: 640 }],
+            },
+          },
+        },
+      ],
+    });
+    render(<CheckoutPage />);
+    await screen.findByRole("heading", { name: "Order summary" });
+    expect(screen.getByAltText("Woven basket in warm light")).toBeTruthy();
+    expect(screen.getByText("Woven basket")).toBeTruthy();
+    expect(screen.getByText("Natural")).toBeTruthy();
+    expect(screen.getByText("Quantity 3")).toBeTruthy();
+    expect(screen.getAllByText("₦10.05")).toHaveLength(3);
+  });
+  it("keeps a 22-line order compact, expands into a scroll region, and keeps totals outside", async () => {
+    setup({
+      ...quote,
+      lines: Array.from({ length: 22 }, (_, index) => ({
+        ...draft.lines[0],
+        id: `line-${index}`,
+        quantity: 1,
+        snapshot: { ...draft.lines[0].snapshot, name: `Item ${index + 1}` },
+      })),
+    });
+    render(<CheckoutPage />);
+    const summary = await screen.findByRole("complementary", {
+      name: "Order summary",
+    });
+    expect(screen.getByText("22 items")).toBeTruthy();
+    expect(summary.querySelectorAll(".checkout-lines li")).toHaveLength(4);
+    expect(
+      summary
+        .querySelector(".checkout-lines")
+        ?.contains(screen.getByText("Items subtotal")),
+    ).toBe(false);
+    const show = screen.getByRole("button", { name: "Show 18 more items" });
+    await userEvent.click(show);
+    expect(summary.querySelectorAll(".checkout-lines li")).toHaveLength(22);
+    expect(summary.querySelector(".checkout-lines--expanded")).toBeTruthy();
+    expect(screen.getByText("Item 22")).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show fewer items" }),
+    );
+    expect(summary.querySelectorAll(".checkout-lines li")).toHaveLength(4);
+  });
+  it("offers an accessible compact mobile disclosure with the current total", async () => {
+    setup(quote);
+    render(<CheckoutPage />);
+    const toggle = await screen.findByRole("button", {
+      name: /Order summary · 3 items/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("₦16.62");
+    expect(toggle.getAttribute("aria-controls")).toBe(
+      "checkout-summary-content",
+    );
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document
+        .getElementById("checkout-summary-content")
+        ?.getAttribute("data-mobile-open"),
+    ).toBe("true");
   });
   it("submits contact/address without browser totals and updates the review step", async () => {
     render(<CheckoutPage />);
@@ -189,7 +345,7 @@ describe("checkout flow", () => {
   it("renders only server totals and explicitly confirms a reservation", async () => {
     setup(quote);
     render(<CheckoutPage />);
-    await screen.findByText("₦16.62");
+    await screen.findAllByText("₦16.62");
     expect(screen.getByText("DEVELOPMENT CONFIGURATION ONLY")).toBeTruthy();
     mock.request.mockResolvedValueOnce({
       ...quote,
@@ -215,7 +371,7 @@ describe("checkout flow", () => {
   ])("announces %s and focuses the error", async (code) => {
     setup(quote);
     render(<CheckoutPage />);
-    await screen.findByText("₦16.62");
+    await screen.findAllByText("₦16.62");
     mock.request.mockRejectedValueOnce(
       new CheckoutError(409, code, "Please review configuration or stock."),
     );
@@ -231,15 +387,45 @@ describe("checkout flow", () => {
     async (status) => {
       setup({ ...quote, status });
       render(<CheckoutPage />);
-      await screen.findByRole("button", { name: "Start a new checkout" });
+      await screen.findByRole("button", { name: "Try checkout again" });
       expect(
         screen.queryByRole("button", {
           name: "Confirm total and reserve items",
         }),
       ).toBeNull();
-      expect(screen.getByText(/Your cart has been kept/)).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Review my cart" })).toBeTruthy();
+      expect(
+        screen.queryByRole("complementary", { name: "Order summary" }),
+      ).toBeNull();
+      expect(mock.cart.items).toHaveLength(1);
     },
   );
+  it("starts a fresh checkout only when the customer chooses retry in recovery", async () => {
+    setup({ ...quote, status: "REVIEW_REQUIRED" });
+    render(<CheckoutPage />);
+    await screen.findByRole("heading", {
+      name: "Your cart needs a quick review",
+    });
+    expect(
+      screen.getByRole("link", { name: "Review my cart" }).getAttribute("href"),
+    ).toBe("/cart");
+    expect(
+      mock.request.mock.calls.filter(
+        (call) => call[0] === "/checkout" && call[1] === "POST",
+      ),
+    ).toHaveLength(0);
+    mock.request.mockResolvedValueOnce(draft);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Try checkout again" }),
+    );
+    await screen.findByRole("heading", { name: "Contact and delivery" });
+    expect(mock.request).toHaveBeenCalledWith(
+      "/checkout",
+      "POST",
+      { expected_version: 2 },
+      expect.any(String),
+    );
+  });
   it("cancels a reservation without deleting its history", async () => {
     setup({ ...quote, status: "RESERVED" });
     render(<CheckoutPage />);
@@ -248,7 +434,7 @@ describe("checkout flow", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Cancel checkout" }),
     );
-    await screen.findByRole("heading", { name: "Checkout cancelled" });
+    await screen.findByRole("heading", { name: "Checkout stopped" });
     expect(mock.request).toHaveBeenCalledWith(
       "/checkout/checkout-one",
       "DELETE",
@@ -259,7 +445,7 @@ describe("checkout flow", () => {
   it("preserves the retry key after a network failure", async () => {
     setup(quote);
     render(<CheckoutPage />);
-    await screen.findByText("₦16.62");
+    await screen.findAllByText("₦16.62");
     mock.request.mockRejectedValueOnce(new Error("network"));
     await userEvent.click(
       screen.getByRole("button", { name: "Confirm total and reserve items" }),

@@ -2,22 +2,22 @@
 Date: 2026-09-21. **RBAC Matrix: APPROVED FOR V1. MFA: APPROVED FOR STAFF V1. Customer MFA: NOT REQUIRED FOR V1.**
 
 ## Roles and explicit grants
-[Architecture 17](../architecture/17-rbac.md) is authoritative. The client approved its exact matrix; no contradiction or least-privilege correction was needed. [PermissionMatrix](../../backend/app/Identity/PermissionMatrix.php) expands grouped labels into 31 explicit capabilities.
+[Architecture 17](../architecture/17-rbac.md) is authoritative. The client approved its Phase 3B matrix and explicitly revised Inventory / Store Staff stock operations during Phase 3N UAT on 2026-10-02. [PermissionMatrix](../../backend/app/Identity/PermissionMatrix.php) originally expanded grouped labels into 31 explicit capabilities. Phase 3N safe-delete remediation added two owner-only capabilities; the inventory revision adds owner-only `inventory.threshold.configure`, bringing the current matrix to 34 explicit capabilities, and grants the existing `inventory.adjust` to Inventory / Store Staff.
 
 | Role | Code | Explicit permissions |
 |---|---|---|
-| Business Owner / Super Admin | owner | All 31 approved capabilities, subject to MFA, recent-auth and object/state policy |
+| Business Owner / Super Admin | owner | All 34 current explicit capabilities, including owner-only threshold configuration and the two Phase 3N catalog-delete grants, subject to MFA and object/state policy; the existing recent-auth subset is unchanged |
 | Order Processing Staff | order_processing | catalog.read_internal, inventory.read, orders.read, orders.prepare, shipments.record, delivery.record, payments.read_summary, returns.read, returns.review, reports.orders, customers.read_operational |
-| Inventory / Store Staff | inventory_store | catalog.read_internal, inventory.read, inventory.movements.read, reports.stock |
+| Inventory / Store Staff | inventory_store | catalog.read_internal, inventory.read, inventory.adjust, inventory.movements.read, reports.stock |
 
 Customers have no staff role or administrative permissions. No is_admin/is_staff/user_type columns, third-party RBAC package or wildcard owner bypass. Owner is an ordinary explicitly permissioned role, not a database superuser. All staff gates require current active identity and complete MFA, including owner. Marked permissions refunds.approve/refunds.submit, staff.provision, roles.assign and security.configure also require recent authentication at gate level; staff administration repeats checks within its locked transaction.
 
-Availability-only inventory, operational payment/order fields, assigned-order customer visibility and redacted inventory actors remain mandatory field/object policies when those future modules are implemented. returns.review means read/intake, never approval/decision. Capability definitions do not add commerce routes/tables or grant unrestricted data access before those policies exist.
+Availability-only inventory for Order Processing, operational payment/order fields and assigned-order customer visibility remain mandatory field/object policies. Phase 3N UAT authorizes actor display names and inventory-facing reasons for Inventory / Store Staff, while actor IDs/emails and internal references stay hidden; see [inventory](inventory.md). returns.review means read/intake, never approval/decision. Capability definitions do not grant unrestricted data access.
 
 ## Storage and authorization conventions
 UUID roles, permissions, user_roles and role_permissions with unique codes/assignments and approved FKs. Gates query current database grants. Frontend role visibility is convenience only. Every protected route combines TrustedBrowser, auth:web, CurrentIdentity and a specific can gate; object policies must independently enforce ownership/state. Domain staff operations additionally authorize under a global PostgreSQL transaction lock and lock current actor/target rows, preventing stale grants or last-owner races. Never authorize from request-provided role/permission values.
 
-IdentityPermissionsSeeder reconciles exactly approved grants, preserving existing pivot IDs and recording changed before/after code sets as service audit events. Unknown business permissions are not granted; there is no arbitrary permission-edit endpoint. DatabaseSeeder calls this seed. Repeated unchanged seeds do not append false change events.
+IdentityPermissionsSeeder reconciles exactly approved grants, preserving existing pivot IDs and recording changed before/after code sets as service audit events. Unknown business permissions are not granted; there is no arbitrary permission-edit endpoint. DatabaseSeeder calls this seed. Repeated unchanged seeds do not append false change events. Rerun the seeder on an existing local/staging environment before exercising the Phase 3N inventory-staff adjustment grant; it adds only the approved role changes and preserves staff MFA.
 
 ## Bootstrap and provisioning
 After reviewing migration target/environment:
@@ -47,7 +47,7 @@ If the sole owner loses every recovery mechanism, follow the independently verif
 Events: owner_bootstrapped, staff_created, role_assigned, role_changed, staff_disabled, permissions_changed, mfa_reset, plus authentication/MFA events. Stored changes contain only role/permission codes or allowlisted reason codes, never credentials.
 
 ## Verification
-The test matrix independently enumerates every approved grant and tests all 93 role/capability cells through backend gates after MFA. Additional tests cover unapproved permissions, password-only owner denial, customers, self-escalation, role payload injection, recent auth, last-owner defense, session revocation and administrative reset. See [final report](phase-3b-report.md) for executed totals and limits.
+The test matrix independently enumerates every approved grant and originally tested all 93 Phase 3B role/capability cells through backend gates after MFA. The current 34-capability matrix covers 102 cells; the updated StaffMfa integration test includes the new owner-only threshold grant and inventory-staff adjustment grant, plus their denied cells. Additional tests cover unapproved permissions, password-only owner denial, customers, self-escalation, role payload injection, recent auth, last-owner defense, session revocation and administrative reset. See [final report](phase-3b-report.md) for the historical Phase 3B baseline.
 
 ## Phase 3N staff landing correction — 2026-09-25
 

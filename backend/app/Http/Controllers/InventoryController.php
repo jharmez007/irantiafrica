@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\InventoryRequest;
+use App\Inventory\InventoryMovementRead;
 use App\Inventory\InventoryRead;
 use App\Inventory\InventoryService;
 use App\Models\ProductVariant;
@@ -53,16 +54,18 @@ final class InventoryController
     public function movements(InventoryRequest $request, string $id): JsonResponse
     {
         ProductVariant::findOrFail($id);
-        $owner = $this->actor($request)->hasPermission('inventory.adjust');
+        $canReadAudit = $this->actor($request)->hasPermission('audit.read');
         $page = DB::table('inventory_movements as m')->leftJoin('users as u', 'u.id', '=', 'm.actor_user_id')
             ->select(['m.*', 'u.name as actor_name'])->where('m.variant_id', $id)
             ->orderByDesc('m.created_at')->orderByDesc('m.id')->paginate((int) $request->input('per_page', 25));
-        $items = $page->getCollection()->map(function ($row) use ($owner): array {
+        $items = $page->getCollection()->map(function ($row) use ($canReadAudit): array {
             $data = ['id' => $row->id, 'kind' => $row->kind, 'on_hand_delta' => (int) $row->on_hand_delta,
                 'reserved_delta' => (int) $row->reserved_delta, 'on_hand_after' => (int) $row->on_hand_after,
-                'reserved_after' => (int) $row->reserved_after, 'reason' => $owner ? $row->reason : 'Operational stock movement',
+                'reserved_after' => (int) $row->reserved_after,
+                'reason' => $canReadAudit ? $row->reason : InventoryMovementRead::reason($row->kind, $row->reason),
+                'recorded_by' => InventoryMovementRead::recordedBy($row->actor_user_id, $row->actor_name),
                 'created_at' => $row->created_at];
-            if ($owner) {
+            if ($canReadAudit) {
                 $data['actor'] = $row->actor_user_id === null ? null : ['id' => $row->actor_user_id, 'name' => $row->actor_name];
             }
 

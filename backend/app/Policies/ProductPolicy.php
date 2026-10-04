@@ -42,4 +42,9 @@ class ProductPolicy
     {
         return Gate::forUser($user)->allows('catalog.publish_archive');
     }
+
+    public function delete(User $user, Product $product): bool
+    {
+        return Gate::forUser($user)->allows('catalog.products.delete');
+    }
 }

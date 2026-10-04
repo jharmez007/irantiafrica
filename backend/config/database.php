@@ -25,6 +25,7 @@ return [
         'client' => env('REDIS_CLIENT', 'predis'),
         'options' => ['prefix' => env('REDIS_PREFIX', 'iranti_local_')],
         'default' => [
+            'url' => env('REDIS_URL'),
             'scheme' => env('REDIS_SCHEME', 'tcp'),
             'ssl' => array_filter(['verify_peer' => true, 'verify_peer_name' => true, 'cafile' => env('REDIS_TLS_CA')], fn ($value) => $value !== null && $value !== ''),
             'host' => env('REDIS_HOST', '127.0.0.1'),

@@ -22,6 +22,7 @@ export type InventoryMovement = {
   on_hand_after: number;
   reserved_after: number;
   reason: string;
+  recorded_by: string;
   created_at: string;
   actor?: { id: string; name: string } | null;
 };
@@ -34,14 +35,10 @@ export type InventoryPage<T> = {
     total: number;
   };
 };
-export function inventoryPermissions(roles: string[] = []) {
+export function inventoryPermissions(permissions: string[] = []) {
   return {
-    read: roles.some((role) =>
-      ["owner", "inventory_store", "order_processing"].includes(role),
-    ),
-    quantities: roles.some((role) =>
-      ["owner", "inventory_store"].includes(role),
-    ),
-    manage: roles.includes("owner"),
+    read: permissions.includes("inventory.read"),
+    quantities: permissions.includes("inventory.movements.read"),
+    manage: permissions.includes("inventory.adjust"),
   };
 }

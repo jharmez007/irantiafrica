@@ -4,6 +4,14 @@ return [
     'default' => env('QUEUE_CONNECTION', 'redis'),
     'connections' => [
         'sync' => ['driver' => 'sync'],
+        'database' => [
+            'driver' => 'database',
+            'connection' => 'pgsql',
+            'table' => 'jobs',
+            'queue' => 'default',
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'after_commit' => true,
+        ],
         'redis' => [
             'driver' => 'redis',
             'connection' => 'default',

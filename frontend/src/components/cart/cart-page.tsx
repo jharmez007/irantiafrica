@@ -3,8 +3,10 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { Button, Container, Input, Price } from "@/components/ui";
 import { ProductImage } from "@/components/catalog/product-image";
+import { PageSkeleton } from "@/components/loading";
 import { useCart } from "./cart-provider";
 import type { CartLine } from "@/lib/cart-api";
+import { CartRecommendations } from "./cart-recommendations";
 const stateText = {
   AVAILABLE: "Available now. Stock is confirmed again at checkout.",
   QUANTITY_REVIEW:
@@ -163,9 +165,18 @@ export function CartPage() {
           Current prices in NGN. Items are not reserved by adding them to your
           cart.
         </p>
-        <div role="status" aria-live="polite">
-          {loading ? "Loading your cart…" : notice}
-        </div>
+        {!loading && (
+          <div role="status" aria-live="polite">
+            {notice}
+          </div>
+        )}
+        {loading && (
+          <PageSkeleton
+            kind="cart"
+            label="Loading your cart"
+            showHeading={false}
+          />
+        )}
         <div id="cart-error" role={error ? "alert" : undefined}>
           {error && (
             <>
@@ -191,61 +202,64 @@ export function CartPage() {
           </section>
         )}
         {cart && cart.items.length > 0 && (
-          <div className="cart-layout">
-            <ul className="cart-lines" aria-label="Cart items">
-              {cart.items.map((line) => (
-                <Line
-                  key={line.id}
-                  line={line}
-                  maximum={cart.limits.quantity}
-                  onRemoved={() => heading.current?.focus()}
-                />
-              ))}
-            </ul>
-            <aside
-              className="cart-summary"
-              aria-labelledby="cart-summary-heading"
-            >
-              <h2 id="cart-summary-heading">Your selection</h2>
-              <dl>
-                <dt>
-                  Subtotal{cart.needs_review ? " of available items" : ""}
-                </dt>
-                <dd>
-                  <Price value={cart.subtotal_minor} />
-                </dd>
-              </dl>
-              {cart.needs_review && (
-                <p role="status">
-                  Review the marked items. Unavailable or unresolved lines are
-                  not included in this subtotal.
-                </p>
-              )}
-              <p>
-                Prices are checked each time your cart refreshes. Tax and
-                delivery are calculated at checkout.
-              </p>
-              {cart.needs_review ? (
-                <p>Resolve the marked items before checkout.</p>
-              ) : (
-                <Link className="button button--primary" href="/checkout">
-                  Proceed to checkout
-                </Link>
-              )}
-              <Button
-                variant="quiet"
-                disabled={busy}
-                onClick={async () => {
-                  if (await clear()) heading.current?.focus();
-                }}
+          <>
+            <div className="cart-layout">
+              <ul className="cart-lines" aria-label="Cart items">
+                {cart.items.map((line) => (
+                  <Line
+                    key={line.id}
+                    line={line}
+                    maximum={cart.limits.quantity}
+                    onRemoved={() => heading.current?.focus()}
+                  />
+                ))}
+              </ul>
+              <aside
+                className="cart-summary"
+                aria-labelledby="cart-summary-heading"
               >
-                Clear cart
-              </Button>
-              <Link className="text-link" href="/products">
-                Continue shopping
-              </Link>
-            </aside>
-          </div>
+                <h2 id="cart-summary-heading">Your selection</h2>
+                <dl>
+                  <dt>
+                    Subtotal{cart.needs_review ? " of available items" : ""}
+                  </dt>
+                  <dd>
+                    <Price value={cart.subtotal_minor} />
+                  </dd>
+                </dl>
+                {cart.needs_review && (
+                  <p role="status">
+                    Review the marked items. Unavailable or unresolved lines are
+                    not included in this subtotal.
+                  </p>
+                )}
+                <p>
+                  Prices are checked each time your cart refreshes. Tax and
+                  delivery are calculated at checkout.
+                </p>
+                {cart.needs_review ? (
+                  <p>Resolve the marked items before checkout.</p>
+                ) : (
+                  <Link className="button button--primary" href="/checkout">
+                    Proceed to checkout
+                  </Link>
+                )}
+                <Button
+                  variant="quiet"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (await clear()) heading.current?.focus();
+                  }}
+                >
+                  Clear cart
+                </Button>
+                <Link className="text-link" href="/products">
+                  Continue shopping
+                </Link>
+              </aside>
+            </div>
+            <CartRecommendations lines={cart.items} />
+          </>
         )}
       </Container>
     </main>

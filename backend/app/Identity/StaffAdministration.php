@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 final class StaffAdministration
 {
@@ -39,10 +40,28 @@ final class StaffAdministration
             $user->roles()->attach($role->id, ['id' => (string) Str::uuid(), 'granted_by' => $actor->id]);
             SecurityEvents::record('identity.staff_created', $actor, subject: $user->id);
             SecurityEvents::record('identity.role_assigned', $actor, subject: $user->id, changes: ['role' => $roleCode]);
-            Password::broker()->sendResetLink(['email' => $user->email]);
+            $this->queueSetupLink($user);
 
             return $user;
         });
+    }
+
+    public function resendInvitation(Request $request, string $id): void
+    {
+        $this->authorized($request, 'staff.provision', function (User $actor) use ($id): void {
+            abort_if($actor->id === $id, 403);
+            $target = User::whereKey($id)->lockForUpdate()->firstOrFail();
+            abort_unless($target->status === 'active' && $target->mfa_confirmed_at === null && $target->roles()->exists(), 409);
+            $this->queueSetupLink($target);
+            SecurityEvents::record('identity.staff_invitation_resent', $actor, subject: $target->id);
+        });
+    }
+
+    private function queueSetupLink(User $user): void
+    {
+        if (Password::broker()->sendResetLink(['email' => $user->email]) !== Password::RESET_LINK_SENT) {
+            throw ValidationException::withMessages(['email' => ['Setup email could not be queued. Try again shortly.']]);
+        }
     }
 
     public function changeRole(Request $request, string $id, string $roleCode): void

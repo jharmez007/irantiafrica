@@ -85,7 +85,7 @@ final class AuthenticationController
     {
         Auth::guard('web')->login($user, false);
         $request->session()->regenerate(true);
-        $request->session()->forget(['mfa_user_id', 'recent_auth_at', 'pending_mfa_secret', 'pending_mfa_at', 'cart_merge_notice']);
+        $request->session()->forget(['mfa_user_id', 'mfa_verified_at', 'recent_auth_at', 'staff_activity_at', 'pending_mfa_secret', 'pending_mfa_at', 'cart_merge_notice']);
         $request->session()->put(['auth_version' => $user->auth_version, 'authenticated_at' => time()]);
     }
 

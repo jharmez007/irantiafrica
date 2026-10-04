@@ -52,9 +52,18 @@ export function AdminTable({
               <tr>
                 <td colSpan={columns.length}>
                   <div className="admin-table-loading" role="status">
-                    Loading {label.toLowerCase()}…<span className="skeleton" />
-                    <span className="skeleton" />
-                    <span className="skeleton" />
+                    <span>Loading {label.toLowerCase()}…</span>
+                    {Array.from({ length: 4 }, (_, row) => (
+                      <span
+                        className="admin-table-loading-row"
+                        key={row}
+                        aria-hidden="true"
+                      >
+                        {columns.map((column) => (
+                          <span className="skeleton" key={column} />
+                        ))}
+                      </span>
+                    ))}
                   </div>
                 </td>
               </tr>
@@ -181,11 +190,23 @@ export function ActionMenu({
   const open = controlledOpen ?? localOpen;
   const change = useCallback(
     (next: boolean) => {
+      if (next)
+        document.dispatchEvent(
+          new CustomEvent("iranti:admin-menu-open", { detail: panelId }),
+        );
       if (onOpenChange) onOpenChange(next);
       else setLocalOpen(next);
     },
-    [onOpenChange],
+    [onOpenChange, panelId],
   );
+  useEffect(() => {
+    const anotherMenu = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== panelId) change(false);
+    };
+    document.addEventListener("iranti:admin-menu-open", anotherMenu);
+    return () =>
+      document.removeEventListener("iranti:admin-menu-open", anotherMenu);
+  }, [change, panelId]);
   useEffect(() => {
     if (previousPath.current === pathname) return;
     previousPath.current = pathname;

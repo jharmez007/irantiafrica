@@ -14,15 +14,26 @@ const classes = (...values: (string | undefined | false)[]) =>
 export function Button({
   variant = "primary",
   className,
+  loading = false,
+  loadingLabel,
+  children,
+  disabled,
   ...props
 }: ComponentProps<"button"> & {
   variant?: "primary" | "secondary" | "quiet" | "danger";
+  loading?: boolean;
+  loadingLabel?: string;
 }) {
   return (
     <button
       className={classes("button", `button--${variant}`, className)}
       {...props}
-    />
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+    >
+      {loading && <span className="loading-spinner" aria-hidden="true" />}
+      {loading ? (loadingLabel ?? children) : children}
+    </button>
   );
 }
 export function IconButton({

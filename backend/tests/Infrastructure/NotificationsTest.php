@@ -591,6 +591,23 @@ final class NotificationsTest extends TestCase
         }
     }
 
+    public function test_database_worker_delivers_transactional_email_once(): void
+    {
+        $this->paid();
+        app(NotificationDelivery::class)->relay();
+        $id = DB::table('notification_deliveries')->value('id');
+        Queue::swap($this->realQueue);
+        $queue = 'notification-db-test-'.Str::uuid();
+        for ($i = 0; $i < 2; $i++) {
+            Queue::connection('database')->push(new DeliverTransactionalEmail($id), '', $queue);
+            Artisan::call('queue:work', ['connection' => 'database', '--queue' => $queue, '--once' => true, '--tries' => 3, '--timeout' => 30, '--sleep' => 0]);
+        }
+        $this->assertSame('SIMULATED', DB::table('notification_deliveries')->where('id', $id)->value('status'));
+        $this->assertSame(1, DB::table('notification_attempts')->count());
+        $this->assertSame(0, DB::table('failed_jobs')->where('queue', $queue)->count());
+        $this->assertCount(1, Mail::mailer('array')->getSymfonyTransport()->messages());
+    }
+
     public function test_mailpit_capture_remains_simulated_and_cannot_be_used_in_staging(): void
     {
         $o = $this->paid();

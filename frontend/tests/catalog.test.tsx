@@ -12,6 +12,8 @@ import { toast } from "../src/lib/toast";
 import { ProductDetail } from "../src/components/catalog/product-detail";
 import { ProductImage } from "../src/components/catalog/product-image";
 import { ProductCard } from "../src/components/catalog/product-card";
+import { RelatedProducts } from "../src/components/catalog/related-products";
+import { selectRelated } from "../src/lib/recommendations";
 import { CategoryCard } from "../src/components/catalog/category-card";
 import { Storefront } from "../src/components/catalog/storefront";
 import { generateMetadata as categoryMetadata } from "../src/app/categories/[slug]/page";
@@ -21,7 +23,9 @@ import {
   CatalogFailure,
 } from "../src/components/catalog/catalog-list";
 import { AdminCatalog } from "../src/components/catalog/admin-catalog";
+import { AdminCategories } from "../src/components/catalog/admin-categories";
 import { AdminProductEditor } from "../src/components/catalog/product-editor";
+import { ActionMenu } from "../src/components/admin/primitives";
 import { allCategories } from "../src/components/catalog/admin-common";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -132,6 +136,58 @@ const product: Product = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe("deterministic product discovery", () => {
+  const published = { ...product, status: "published" as const };
+  const candidate = (slug: string, category = "home", price = "10000") => ({
+    ...published,
+    id: slug,
+    slug,
+    name: slug,
+    price_min_minor: price,
+    categories: [{ ...product.categories[0], slug: category }],
+  });
+  it("prioritizes same-category and close-price products, excluding current and unavailable items", () => {
+    const selected = selectRelated(
+      published,
+      [
+        candidate("far", "other", "10001"),
+        candidate("close", "home", "11000"),
+        candidate("current", "home", "10000"),
+        candidate("near", "home", "10001"),
+        { ...candidate("sold-out"), available: false },
+        { ...candidate("draft"), status: "draft" },
+      ],
+      new Set(["current"]),
+    );
+    expect(selected.map((item) => item.slug)).toEqual(["near", "close", "far"]);
+    expect(selectRelated(published, [published])).toHaveLength(0);
+  });
+  it("renders bounded related cards with a stable catalogue fallback", async () => {
+    const primary = [published, candidate("same-category")];
+    const fallback = [
+      candidate("different", "other"),
+      candidate("another", "other"),
+    ];
+    mocks.serverApi.mockImplementation(async (path: string) => ({
+      data: path.includes("category=") ? primary : fallback,
+    }));
+    render(await RelatedProducts({ product: published }));
+    expect(
+      screen.getByRole("heading", { name: "You may also like" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(3);
+    expect(
+      document.querySelector('a[href="/products/woven-textile"]'),
+    ).toBeNull();
+    expect(mocks.serverApi).toHaveBeenCalledWith(
+      "/products?category=home&page_size=8",
+    );
+    expect(mocks.serverApi).toHaveBeenCalledWith(
+      "/products?sort=newest&page_size=8",
+    );
+  });
 });
 
 describe("simplified product editor", () => {
@@ -739,7 +795,7 @@ describe("catalog storefront", () => {
     render(
       <>
         <ProductCard product={{ ...product, available: false }} />
-        <CategoryCard category={product.categories[0]} index={0} />
+        <CategoryCard category={product.categories[0]} />
       </>,
     );
     expect(screen.getByRole("heading", { name: product.name })).toBeTruthy();
@@ -755,6 +811,32 @@ describe("catalog storefront", () => {
     expect(
       screen.queryByText(/Ordering is not available|engineering/i),
     ).toBeNull();
+  });
+  it("uses the supplied category artwork and a quiet fallback instead of sequence numbers", () => {
+    render(
+      <>
+        <CategoryCard
+          category={{ name: "Baskets & Storage", slug: "baskets-storage" }}
+        />
+        <CategoryCard category={{ name: "Home Décor", slug: "home-decor" }} />
+        <CategoryCard
+          category={{ name: "Future collection", slug: "future" }}
+        />
+      </>,
+    );
+    expect(
+      screen
+        .getByAltText("Sunlit woven storage baskets with olive greenery")
+        .getAttribute("src"),
+    ).toContain("sunlit_woven_baskets_and_olive_greenery.png");
+    expect(
+      screen
+        .getByAltText("Earthy home décor vignette in warm sunlight")
+        .getAttribute("src"),
+    ).toContain("sunlit_earthy_boho_vignette.png");
+    expect(screen.queryByText("02")).toBeNull();
+    expect(screen.queryByText("04")).toBeNull();
+    expect(document.querySelector(".category-card-fallback")).toBeTruthy();
   });
   it("switches gallery images with labelled buttons while retaining variant controls", async () => {
     const user = userEvent.setup();
@@ -1093,6 +1175,248 @@ describe("UAT catalog workflow", () => {
     expect(triggers[1].getAttribute("aria-expanded")).toBe("true");
     await userEvent.click(screen.getByRole("heading", { name: "Products" }));
     expect(triggers[1].getAttribute("aria-expanded")).toBe("false");
+  });
+  it("uses one shared menu state across rows, toggles, and returns focus on Escape", async () => {
+    render(
+      <>
+        <ActionMenu label="More actions" compact>
+          <button type="button">First action</button>
+        </ActionMenu>
+        <ActionMenu label="More actions" compact>
+          <button type="button">Second action</button>
+        </ActionMenu>
+      </>,
+    );
+    const [first, second] = screen.getAllByRole("button", {
+      name: "More actions",
+    });
+    await userEvent.click(first);
+    expect(first.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(second);
+    expect(first.getAttribute("aria-expanded")).toBe("false");
+    expect(second.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.keyboard("{Escape}");
+    expect(second.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(second);
+    await userEvent.click(second);
+    await userEvent.click(second);
+    expect(second.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(first);
+    await userEvent.click(document.body);
+    expect(first.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("confirms eligible product deletion, refreshes, and reports success", async () => {
+    let removed = false;
+    const success = vi.spyOn(toast, "success");
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (path === "/products/p" && method === "DELETE") {
+        removed = true;
+        return undefined;
+      }
+      return path.startsWith("/products?")
+        ? {
+            data: removed
+              ? []
+              : [
+                  {
+                    ...product,
+                    media: [],
+                    delete_eligibility: { allowed: true, reason: null },
+                  },
+                ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } };
+    });
+    render(<AdminCatalog />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete product" }),
+    );
+    expect(
+      screen.getByText(/no historical sales or operational records/),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      "/products/p",
+      "DELETE",
+      expect.anything(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete product" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete product" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/products/p", "DELETE", {
+        content_version: product.content_version,
+      }),
+    );
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith("Product deleted successfully."),
+    );
+    await screen.findByText(/No products/);
+  });
+  it("hides blocked product deletion and preserves failure context", async () => {
+    const error = vi.spyOn(toast, "error");
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (method === "DELETE")
+        throw new Error("This record now has history. Archive it instead.");
+      return path.startsWith("/products?")
+        ? {
+            data: [
+              {
+                ...product,
+                status: "draft",
+                media: [],
+                delete_eligibility: { allowed: true, reason: null },
+              },
+            ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } };
+    });
+    render(<AdminCatalog />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete product" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete product" }),
+    );
+    await screen.findByText("This record now has history. Archive it instead.");
+    expect(error).toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    cleanup();
+    mocks.api.mockImplementation(async (path: string) =>
+      path.startsWith("/products?")
+        ? {
+            data: [
+              {
+                ...product,
+                delete_eligibility: {
+                  allowed: false,
+                  reason: "Archive it instead.",
+                },
+              },
+            ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } },
+    );
+    render(<AdminCatalog />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    expect(screen.queryByRole("button", { name: "Delete product" })).toBeNull();
+  });
+  it("confirms empty category deletion and hides deletion for assigned categories", async () => {
+    let removed = false;
+    const success = vi.spyOn(toast, "success");
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (path === "/categories/empty" && method === "DELETE") {
+        removed = true;
+        return undefined;
+      }
+      return path.startsWith("/categories?")
+        ? {
+            data: [
+              {
+                id: "assigned",
+                name: "Assigned",
+                slug: "assigned",
+                status: "active",
+                delete_eligibility: {
+                  allowed: false,
+                  reason: "Products assigned",
+                },
+              },
+              ...(removed
+                ? []
+                : [
+                    {
+                      id: "empty",
+                      name: "Empty",
+                      slug: "empty",
+                      status: "active",
+                      delete_eligibility: { allowed: true, reason: null },
+                    },
+                  ]),
+            ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } };
+    });
+    render(<AdminCategories />);
+    const triggers = await screen.findAllByRole("button", {
+      name: "More actions",
+    });
+    await userEvent.click(triggers[0]);
+    expect(
+      screen.queryByRole("button", { name: "Delete category" }),
+    ).toBeNull();
+    await userEvent.click(triggers[1]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete category" }),
+    );
+    expect(screen.getByText(/Products must be reassigned/)).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete category" }),
+    );
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/categories/empty", "DELETE"),
+    );
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith("Category deleted successfully."),
+    );
+    expect(screen.queryByRole("rowheader", { name: "Empty" })).toBeNull();
+  });
+  it("keeps the category confirmation open and reports a safe deletion failure", async () => {
+    const error = vi.spyOn(toast, "error");
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (method === "DELETE")
+        throw new Error(
+          "This category cannot be deleted while products are assigned to it.",
+        );
+      return path.startsWith("/categories?")
+        ? {
+            data: [
+              {
+                id: "c",
+                name: "Test category",
+                slug: "test-category",
+                status: "draft",
+                delete_eligibility: { allowed: true, reason: null },
+              },
+            ],
+            meta: { last_page: 1 },
+          }
+        : { data: [], meta: { last_page: 1 } };
+    });
+    render(<AdminCategories />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete category" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete category" }),
+    );
+    await screen.findByText(
+      "This category cannot be deleted while products are assigned to it.",
+    );
+    expect(error).toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(
+      screen.getByRole("rowheader", { name: "Test category" }),
+    ).toBeTruthy();
   });
   it.each([
     ["draft", ["Archive"], ["View storefront", "Restore"]],

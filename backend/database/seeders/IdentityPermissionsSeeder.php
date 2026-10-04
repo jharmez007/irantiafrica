@@ -22,7 +22,7 @@ final class IdentityPermissionsSeeder extends Seeder
                 $before = $role->permissions()->pluck('code')->sort()->values()->all();
                 $assignments = [];
                 foreach ($codes as $code) {
-                    $permission = Permission::firstOrCreate(['code' => $code], ['description' => 'Approved document 17 capability: '.$code]);
+                    $permission = Permission::firstOrCreate(['code' => $code], ['description' => 'Approved staff capability: '.$code]);
                     $assignments[$permission->id] = ['id' => DB::table('role_permissions')->where('role_id', $role->id)->where('permission_id', $permission->id)->value('id') ?? (string) Str::uuid()];
                 }
                 $role->permissions()->sync($assignments);
