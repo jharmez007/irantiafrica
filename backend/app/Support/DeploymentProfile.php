@@ -46,9 +46,10 @@ final class DeploymentProfile
     {
         $disk = config('filesystems.disks.'.self::FREE_TEST_DISK);
         $root = storage_path('app/render-free-private');
-        // Render injects 0.1 CPU for Free web; a later paid-plan upgrade must fail closed.
+        // Render documents 0.1 CPU for Free web, but this Free service injected
+        // 0.15 at runtime. Both stay below the smallest paid web plan (0.5).
         if (config('production.network_profile') !== 'render-private-database' || ! config('production.render_runtime')
-            || config('production.render_cpu_count') !== '0.1'
+            || ! in_array(config('production.render_cpu_count'), ['0.1', '0.15'], true)
             || config('catalog.disk') !== self::FREE_TEST_DISK || config('filesystems.default') !== self::FREE_TEST_DISK
             || config('catalog.upload_transport') !== 'proxy' || ! is_array($disk)
             || ($disk['driver'] ?? null) !== 'local' || ($disk['root'] ?? null) !== $root

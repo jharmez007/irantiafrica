@@ -142,7 +142,7 @@ jobs:
           )
           free=(
             -e IRANTI_DEPLOYMENT_PROFILE=render-free-test
-            -e RENDER_CPU_COUNT=0.1
+            -e RENDER_CPU_COUNT=0.15
             -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private
           )
           paid=(
@@ -153,6 +153,9 @@ jobs:
             -e AWS_ACCESS_KEY_ID=synthetic-key -e AWS_SECRET_ACCESS_KEY=synthetic-secret
           )
           docker run "${common[@]}" "${free[@]}" iranti-render:ci /app/backend/artisan --version
+          docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-test \
+            -e RENDER_CPU_COUNT=0.1 -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
+            iranti-render:ci /app/backend/artisan --version
           docker run "${common[@]}" "${paid[@]}" iranti-render:ci /app/backend/artisan --version
           if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-tset \
             -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \

@@ -50,6 +50,8 @@ final class DeploymentProfileTest extends TestCase
     {
         $this->freeTestProfile();
         DeploymentProfile::validate();
+        config(['production.render_cpu_count' => '0.15']);
+        DeploymentProfile::validate();
         $this->assertTrue(DeploymentProfile::isFreeTest());
         $this->assertFalse(Route::has('storage.render_free_private'));
         $this->assertFalse(config('filesystems.disks.render_free_private.serve'));
@@ -107,6 +109,8 @@ final class DeploymentProfileTest extends TestCase
         config(['production.render_runtime' => true, 'production.network_profile' => 'verified-tls']);
         $this->expectProfileRejection();
         config(['production.network_profile' => 'render-private-database', 'production.render_cpu_count' => '1']);
+        $this->expectProfileRejection();
+        config(['production.render_cpu_count' => '0.5']);
         $this->expectProfileRejection();
     }
 
