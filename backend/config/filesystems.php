@@ -38,6 +38,16 @@ return [
             'report' => false,
         ],
 
+        // Render Free rehearsal only: outside public/, no Laravel file-serving route.
+        'render_free_private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/render-free-private'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

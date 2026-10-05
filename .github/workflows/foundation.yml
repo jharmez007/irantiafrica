@@ -116,6 +116,62 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Build production image
         run: docker build --pull -f Dockerfile.render -t iranti-render:ci .
+      - name: Check paid and Free-test production profiles inside the image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint php iranti-render:ci -r 'require "/app/backend/vendor/autoload.php"; exit(class_exists(\Resend\Client::class) ? 0 : 1);'
+          app_key="base64:$(openssl rand -base64 32)"
+          fixture_resend_key="re_$(printf '%024d' 0)"
+          common=(
+            --rm --entrypoint php
+            -e APP_ENV=production -e APP_DEBUG=false -e "APP_KEY=$app_key"
+            -e APP_URL=https://free.example.test -e FRONTEND_URL=https://free.example.test
+            -e TRUSTED_ORIGINS=https://free.example.test -e CATALOG_MEDIA_ORIGIN=https://free.example.test
+            -e CATALOG_INTERNAL_READ_KEY=0123456789abcdef0123456789abcdef
+            -e RENDER=true -e RENDER_SERVICE_ID=srv-synthetic-ci
+            -e PRODUCTION_NETWORK_PROFILE=render-private-database
+            -e DB_CONNECTION=pgsql -e DB_SSLMODE=require -e DB_URL=postgresql://test@db.internal/test
+            -e QUEUE_CONNECTION=database -e CACHE_STORE=database -e RATE_LIMIT_CACHE_STORE=database
+            -e DB_QUEUE_RETRY_AFTER=90 -e SESSION_DRIVER=database -e SESSION_ENCRYPT=true
+            -e SESSION_SECURE_COOKIE=true -e SESSION_HTTP_ONLY=true -e SESSION_SAME_SITE=lax
+            -e PRELAUNCH_GATE_ENABLED=true -e PAYSTACK_MODE=test -e PAYSTACK_LIVE_APPROVED=false
+            -e PAYSTACK_REFUNDS_LIVE_APPROVED=false
+            -e MAIL_MAILER=resend -e "RESEND_API_KEY=$fixture_resend_key"
+            -e MAIL_FROM_ADDRESS=sender@ci-fixture.test -e 'MAIL_FROM_NAME=IRANTI Africa'
+            -e CATALOG_UPLOAD_TRANSPORT=proxy
+          )
+          free=(
+            -e IRANTI_DEPLOYMENT_PROFILE=render-free-test
+            -e RENDER_CPU_COUNT=0.1
+            -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private
+          )
+          paid=(
+            -e IRANTI_DEPLOYMENT_PROFILE=render-private
+            -e RENDER_CPU_COUNT=1
+            -e CATALOG_DISK=s3 -e FILESYSTEM_DISK=s3
+            -e AWS_ENDPOINT=https://storage.example.test -e AWS_BUCKET=synthetic-private-bucket
+            -e AWS_ACCESS_KEY_ID=synthetic-key -e AWS_SECRET_ACCESS_KEY=synthetic-secret
+          )
+          docker run "${common[@]}" "${free[@]}" iranti-render:ci /app/backend/artisan --version
+          docker run "${common[@]}" "${paid[@]}" iranti-render:ci /app/backend/artisan --version
+          if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-tset \
+            -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
+            iranti-render:ci /app/backend/artisan --version; then
+            echo 'Unknown production deployment profile was accepted.' >&2
+            exit 1
+          fi
+          if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-private \
+            -e CATALOG_DISK=s3 -e FILESYSTEM_DISK=s3 \
+            iranti-render:ci /app/backend/artisan --version; then
+            echo 'Paid production accepted missing private S3 configuration.' >&2
+            exit 1
+          fi
+          if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-test \
+            -e RENDER_CPU_COUNT=1 -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
+            iranti-render:ci /app/backend/artisan --version; then
+            echo 'Paid compute accepted the ephemeral Free-test media profile.' >&2
+            exit 1
+          fi
       - name: Boot and inspect production image with isolated test configuration
         env:
           TEST_DB_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -167,6 +223,9 @@ jobs:
           test "$(docker exec "$container_id" id -u)" = 33
           docker exec "$container_id" test -f /app/frontend/server.js
           docker exec "$container_id" test -w /app/backend/storage
+          docker exec "$container_id" test -w /app/backend/storage/app/render-free-private
+          docker exec "$container_id" test ! -e /app/backend/public/storage
+          docker exec "$container_id" test ! -L /app/backend/public/storage
           docker exec "$container_id" nginx -t -c /tmp/iranti-nginx.conf
           for package in braces micromatch fast-glob '@next/eslint-plugin-next' eslint-config-next; do
             if docker exec "$container_id" find /app/frontend -path "*/node_modules/$package" -print -quit | grep -q .; then

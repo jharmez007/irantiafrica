@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\DeploymentProfile;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,9 @@ final class Readiness extends Command
 
     public function handle(): int
     {
+        if (DeploymentProfile::isFreeTest()) {
+            $this->warn('EPHEMERAL MEDIA STORAGE ACTIVE — TEST ENVIRONMENT ONLY — MEDIA MAY BE LOST ON REDEPLOY OR RESTART');
+        }
         $healthy = true;
         $cacheStore = (string) config('cache.default');
         $cacheCheck = $cacheStore === 'database'

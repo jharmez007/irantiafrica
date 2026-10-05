@@ -10,6 +10,7 @@
 | `SANCTUM_STATEFUL_DOMAINS`, `SESSION_DOMAIN` | Exact hostname, host-only cookie; no wildcard | NOT VERIFIED |
 | `SESSION_DRIVER`, `SESSION_ENCRYPT`, `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `database`, `true`, `true`, `true`, `lax`; browser CSRF/cookie test | NOT VERIFIED |
 | `PRODUCTION_NETWORK_PROFILE`, `DB_CONNECTION`, `DB_URL`, `DB_SSLMODE` | `render-private-database`, `pgsql`, injected private `connectionString`, `require`; verify private TLS in Render | NOT VERIFIED |
+| `IRANTI_DEPLOYMENT_PROFILE` | `render-private` for paid production; missing value defaults to strict private S3/R2, unknown value fails; `render-free-test` is only for the separate temporary Free rehearsal behind the gate and TEST payments | NOT VERIFIED |
 | DB role / backup | Migrations with owner role; least-privilege runtime role and negative DDL test; paid backup/PITR/export and restore drill | NOT VERIFIED |
 | `QUEUE_CONNECTION`, `DB_QUEUE_RETRY_AFTER`, `QUEUE_FAILED_DRIVER` | `database`, `90`, `database-uuids`; active `jobs`/`failed_jobs`; one Supervisor worker | Local isolated PG passed; Render NOT VERIFIED |
 | `CACHE_STORE`, `RATE_LIMIT_CACHE_STORE`, `SESSION_DRIVER` | `database`; `cache`, `cache_locks`, `sessions`; expiry cleanup and capacity alarms | Local isolated PG passed; Render NOT VERIFIED |
@@ -17,7 +18,7 @@
 | `NEXT_PUBLIC_API_URL`, `API_INTERNAL_URL` | `/api/v1`, `http://127.0.0.1:8080` inside web; same-origin routing | NOT VERIFIED |
 | `CATALOG_INTERNAL_READ_KEY` | Private random 32+ byte key shared by PHP and Next; never `NEXT_PUBLIC_` | NOT VERIFIED |
 | `CSP_ASSET_ORIGINS` | Exact approved HTTPS origins at build time; inspect generated CSP | NOT VERIFIED |
-| `CATALOG_DISK`, `FILESYSTEM_DISK`, `CATALOG_UPLOAD_TRANSPORT`, `CATALOG_MEDIA_ORIGIN` | `s3`, `s3`, `proxy`, owned HTTPS origin; private R2 only | NOT VERIFIED |
+| `CATALOG_DISK`, `FILESYSTEM_DISK`, `CATALOG_UPLOAD_TRANSPORT`, `CATALOG_MEDIA_ORIGIN` | Paid: `s3`, `s3`, `proxy`, owned HTTPS origin; private R2 only. Free-test ephemeral disk is forbidden in this profile | NOT VERIFIED |
 | R2 access | Scoped access key/secret, region `auto`, bucket, HTTPS endpoint, path-style true; upload/derivative/read/delete/restore | NOT VERIFIED |
 | `MAIL_MAILER`, `RESEND_API_KEY`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `resend` HTTPS/API; key and owner-approved sender mailbox entered privately in Render; `irantiafrica.com` is verified, but real application delivery is untested | Mocked code path PASS; real delivery NOT VERIFIED |
 | `TRANSACTIONAL_EMAIL_ENABLED`, `TRANSACTIONAL_EMAIL_START_AT` | Off until real inbox/bounce/retry proof, then deliberate activation | NOT VERIFIED |

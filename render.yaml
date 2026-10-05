@@ -94,6 +94,8 @@ envVarGroups:
         value: pgsql
       - key: PRODUCTION_NETWORK_PROFILE
         value: render-private-database
+      - key: IRANTI_DEPLOYMENT_PROFILE
+        value: render-private
       - key: DB_SSLMODE
         value: require
       - key: CACHE_STORE

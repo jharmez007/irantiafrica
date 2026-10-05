@@ -28,7 +28,7 @@ RUN composer install --no-dev --no-scripts --no-interaction --prefer-dist --opti
 COPY backend/ ./
 RUN APP_ENV=local composer dump-autoload --no-dev --optimize --no-interaction \
     && rm /usr/local/bin/composer \
-    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && mkdir -p storage/app/render-free-private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 COPY --from=frontend-build /app/frontend/.next/standalone/ /app/frontend/
 COPY --from=frontend-build /app/frontend/.next/static/ /app/frontend/.next/static/

@@ -2,12 +2,12 @@
 
 namespace App\Providers;
 
-use App\Communications\MailConfiguration;
 use App\Identity\MfaState;
 use App\Identity\PermissionMatrix;
 use App\Models\User;
 use App\Payments\PaymentGateway;
 use App\Payments\PaystackGateway;
+use App\Support\DeploymentProfile;
 use App\Support\ProductionConfiguration;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -91,18 +91,7 @@ class AppServiceProvider extends ServiceProvider
             if (strlen((string) config('catalog.internal_read_key')) < 32) {
                 throw new \LogicException('Production catalog needs a shared private renderer key.');
             }
-            if (config('catalog.disk') !== 's3' || ! ProductionConfiguration::secureOrigin((string) config('catalog.public_origin'))) {
-                throw new \LogicException('Production catalog requires private S3 storage and an HTTPS owned media origin.');
-            }
-            if (config('production.network_profile') === 'render-private-database') {
-                $s3 = config('filesystems.disks.s3');
-                if (config('catalog.upload_transport') !== 'proxy' || ! is_array($s3)
-                    || ! ProductionConfiguration::secureOrigin((string) ($s3['endpoint'] ?? ''))
-                    || ($s3['bucket'] ?? '') === '' || ($s3['key'] ?? '') === '' || ($s3['secret'] ?? '') === '') {
-                    throw new \LogicException('Render database production requires a private HTTPS R2 endpoint, scoped credentials and bounded proxy uploads.');
-                }
-                MailConfiguration::assertRenderProfile();
-            }
+            DeploymentProfile::validate();
             /** @var array<int, string> $origins */
             $origins = config('cors.allowed_origins', []);
             if (config('session.driver') !== 'database' || config('session.encrypt') !== true || config('session.domain') !== null || config('session.http_only') !== true || config('session.same_site') !== 'lax') {

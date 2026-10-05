@@ -45,6 +45,17 @@ final class DatabaseRuntimeTest extends TestCase
         $this->assertSame(0, Artisan::call('queue:work', ['connection' => 'database', '--queue' => $queue, '--once' => true, '--tries' => 3, '--backoff' => 0, '--timeout' => 30, '--sleep' => 0]));
     }
 
+    public function test_free_test_readiness_warns_about_ephemeral_media_without_exposing_configuration(): void
+    {
+        config(['production.deployment_profile' => 'render-free-test']);
+        $this->assertSame(0, Artisan::call('app:readiness'));
+        $output = Artisan::output();
+        $this->assertStringContainsString('EPHEMERAL MEDIA STORAGE ACTIVE', $output);
+        $this->assertStringContainsString('TEST ENVIRONMENT ONLY', $output);
+        $this->assertStringContainsString('MEDIA MAY BE LOST ON REDEPLOY OR RESTART', $output);
+        $this->assertStringNotContainsString('RESEND_API_KEY', $output);
+    }
+
     public function test_named_jobs_persist_and_a_new_worker_claims_them(): void
     {
         $key = 'db-job-'.Str::uuid();

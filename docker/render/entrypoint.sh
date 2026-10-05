@@ -9,6 +9,9 @@ fi
 
 case "${1:-}" in
   web)
+    if [[ "${IRANTI_DEPLOYMENT_PROFILE:-}" == render-free-test ]]; then
+      echo 'EPHEMERAL MEDIA STORAGE ACTIVE — TEST ENVIRONMENT ONLY — MEDIA MAY BE LOST ON REDEPLOY OR RESTART' >&2
+    fi
     : "${PORT:=10000}"
     if [[ ! "$PORT" =~ ^[0-9]{4,5}$ ]]; then
       echo 'PORT must be an unprivileged numeric port.' >&2
