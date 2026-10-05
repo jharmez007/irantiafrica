@@ -9,6 +9,9 @@ fi
 
 case "${1:-}" in
   web)
+    # Runtime /tmp may lack directories created during the image build.
+    mkdir -p /tmp/supervisor /tmp/nginx/client /tmp/nginx/proxy \
+      /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi
     if [[ "${IRANTI_DEPLOYMENT_PROFILE:-}" == render-free-test ]]; then
       echo 'EPHEMERAL MEDIA STORAGE ACTIVE — TEST ENVIRONMENT ONLY — MEDIA MAY BE LOST ON REDEPLOY OR RESTART' >&2
     fi
