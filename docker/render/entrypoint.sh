@@ -13,6 +13,12 @@ case "${1:-}" in
     mkdir -p /tmp/supervisor /tmp/nginx/client /tmp/nginx/proxy \
       /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi
     if [[ "${IRANTI_DEPLOYMENT_PROFILE:-}" == render-free-test ]]; then
+      printf 'Render free-test attestation: render=%s service_id_present=%s cpu=%s media_origin_matches=%s session_domain_unset=%s\n' \
+        "${RENDER:-unset}" "$(if [[ -n "${RENDER_SERVICE_ID:-}" ]]; then echo yes; else echo no; fi)" \
+        "${RENDER_CPU_COUNT:-unset}" "$(if [[ "${APP_URL:-}" == "${CATALOG_MEDIA_ORIGIN:-}" ]]; then echo yes; else echo no; fi)" \
+        "$(if [[ -z "${SESSION_DOMAIN+x}" ]]; then echo yes; else echo no; fi)" >&2
+    fi
+    if [[ "${IRANTI_DEPLOYMENT_PROFILE:-}" == render-free-test ]]; then
       echo 'EPHEMERAL MEDIA STORAGE ACTIVE — TEST ENVIRONMENT ONLY — MEDIA MAY BE LOST ON REDEPLOY OR RESTART' >&2
     fi
     : "${PORT:=10000}"
