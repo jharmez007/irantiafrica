@@ -1,8 +1,10 @@
 import type { MetadataRoute } from "next";
 import { catalogFetch, siteOrigin } from "@/lib/catalog-server";
 import type { Page, Product, Category } from "@/lib/catalog";
+import { previewNoindex } from "@/lib/preview";
 export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  if (previewNoindex()) return [];
   const result: MetadataRoute.Sitemap = [
     { url: new URL("/products", siteOrigin).href },
   ];

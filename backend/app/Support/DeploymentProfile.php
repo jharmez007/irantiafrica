@@ -62,10 +62,10 @@ final class DeploymentProfile
                 throw new \LogicException('Render free test media cannot be linked into a public directory.');
             }
         }
-        if (! config('production.prelaunch_gate_enabled') || config('payments.mode') !== 'test'
+        if (! config('production.preview_noindex') || config('payments.mode') !== 'test'
             || config('payments.live_approved') || config('refunds.live_approved')
             || str_starts_with((string) config('payments.secret_key'), 'sk_live_')) {
-            throw new \LogicException('Render free test requires the pre-launch gate and TEST-only payment policy.');
+            throw new \LogicException('Render free preview requires noindex and TEST-only payment policy.');
         }
         MailConfiguration::assertRenderProfile();
     }

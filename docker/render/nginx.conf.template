@@ -32,6 +32,7 @@ http {
         listen ${PORT};
         server_name _;
         include /tmp/iranti-gate.conf;
+        include /tmp/iranti-robots.conf;
         add_header Strict-Transport-Security "max-age=31536000" always;
         add_header X-Content-Type-Options nosniff always;
 

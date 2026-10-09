@@ -1,5 +1,6 @@
 import { Storefront } from "@/components/catalog/storefront";
 import { catalogMetadata } from "@/lib/catalog-server";
+import { previewNoindex } from "@/lib/preview";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({
   searchParams,
@@ -14,7 +15,10 @@ export async function generateMetadata({
       "Explore the IRANTI Africa product collection.",
       "/products",
     ),
-    robots: { index: !filtered, follow: true },
+    robots: {
+      index: !filtered && !previewNoindex(),
+      follow: !previewNoindex(),
+    },
   };
 }
 export default function ProductsPage({

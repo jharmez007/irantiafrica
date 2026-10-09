@@ -2,6 +2,7 @@ import { ApiError } from "@/lib/auth-api";
 import { notFound } from "next/navigation";
 import { Storefront } from "@/components/catalog/storefront";
 import { catalogFetch, catalogMetadata } from "@/lib/catalog-server";
+import { previewNoindex } from "@/lib/preview";
 import type { Category } from "@/lib/catalog";
 export const dynamic = "force-dynamic";
 async function category(slug: string) {
@@ -31,7 +32,10 @@ export async function generateMetadata({
       `Explore ${c.name} at IRANTI Africa.`,
       `/categories/${c.slug}`,
     ),
-    robots: { index: !filtered, follow: true },
+    robots: {
+      index: !filtered && !previewNoindex(),
+      follow: !previewNoindex(),
+    },
   };
 }
 export default async function CategoryPage({

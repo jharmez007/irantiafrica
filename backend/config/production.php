@@ -9,4 +9,5 @@ return [
     // Missing configuration stays on the strict private-storage policy.
     'deployment_profile' => env('IRANTI_DEPLOYMENT_PROFILE', 'render-private'),
     'prelaunch_gate_enabled' => (bool) env('PRELAUNCH_GATE_ENABLED', false),
+    'preview_noindex' => (bool) env('PRODUCTION_PREVIEW_NOINDEX', false),
 ];

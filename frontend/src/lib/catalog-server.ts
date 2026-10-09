@@ -1,4 +1,5 @@
 import { ApiError } from "./auth-api";
+import { previewNoindex } from "./preview";
 export async function catalogFetch<T>(path: string): Promise<T> {
   const response = await fetch(
     `${process.env.API_INTERNAL_URL ?? "http://127.0.0.1:8000"}/api/v1${path}`,
@@ -32,7 +33,7 @@ export function catalogMetadata(
     title,
     description,
     alternates: { canonical: new URL(path, siteOrigin).href },
-    robots: { index: true, follow: true },
+    robots: { index: !previewNoindex(), follow: !previewNoindex() },
     openGraph: {
       title,
       description,

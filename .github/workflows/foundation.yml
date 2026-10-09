@@ -134,7 +134,7 @@ jobs:
             -e QUEUE_CONNECTION=database -e CACHE_STORE=database -e RATE_LIMIT_CACHE_STORE=database
             -e DB_QUEUE_RETRY_AFTER=90 -e SESSION_DRIVER=database -e SESSION_ENCRYPT=true
             -e SESSION_SECURE_COOKIE=true -e SESSION_HTTP_ONLY=true -e SESSION_SAME_SITE=lax
-            -e PRELAUNCH_GATE_ENABLED=true -e PAYSTACK_MODE=test -e PAYSTACK_LIVE_APPROVED=false
+            -e PAYSTACK_MODE=test -e PAYSTACK_LIVE_APPROVED=false
             -e PAYSTACK_REFUNDS_LIVE_APPROVED=false
             -e MAIL_MAILER=resend -e "RESEND_API_KEY=$fixture_resend_key"
             -e MAIL_FROM_ADDRESS=sender@ci-fixture.test -e 'MAIL_FROM_NAME=IRANTI Africa'
@@ -142,11 +142,13 @@ jobs:
           )
           free=(
             -e IRANTI_DEPLOYMENT_PROFILE=render-free-test
+            -e PRODUCTION_PREVIEW_NOINDEX=true -e PRELAUNCH_GATE_ENABLED=false
             -e RENDER_CPU_COUNT=0.15
             -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private
           )
           paid=(
             -e IRANTI_DEPLOYMENT_PROFILE=render-private
+            -e PRODUCTION_PREVIEW_NOINDEX=false -e PRELAUNCH_GATE_ENABLED=true
             -e RENDER_CPU_COUNT=1
             -e CATALOG_DISK=s3 -e FILESYSTEM_DISK=s3
             -e AWS_ENDPOINT=https://storage.example.test -e AWS_BUCKET=synthetic-private-bucket
@@ -154,6 +156,7 @@ jobs:
           )
           docker run "${common[@]}" "${free[@]}" iranti-render:ci /app/backend/artisan --version
           docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-test \
+            -e PRODUCTION_PREVIEW_NOINDEX=true -e PRELAUNCH_GATE_ENABLED=false \
             -e RENDER_CPU_COUNT=0.1 -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
             iranti-render:ci /app/backend/artisan --version
           docker run "${common[@]}" "${paid[@]}" iranti-render:ci /app/backend/artisan --version
@@ -170,9 +173,16 @@ jobs:
             exit 1
           fi
           if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-test \
+            -e PRODUCTION_PREVIEW_NOINDEX=true -e PRELAUNCH_GATE_ENABLED=false \
             -e RENDER_CPU_COUNT=1 -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
             iranti-render:ci /app/backend/artisan --version; then
             echo 'Paid compute accepted the ephemeral Free-test media profile.' >&2
+            exit 1
+          fi
+          if docker run "${common[@]}" -e IRANTI_DEPLOYMENT_PROFILE=render-free-test \
+            -e RENDER_CPU_COUNT=0.15 -e CATALOG_DISK=render_free_private -e FILESYSTEM_DISK=render_free_private \
+            iranti-render:ci /app/backend/artisan --version; then
+            echo 'Free preview accepted missing noindex protection.' >&2
             exit 1
           fi
       - name: Boot and inspect production image with isolated test configuration

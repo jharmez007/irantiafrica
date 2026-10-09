@@ -5,6 +5,7 @@ import { StorefrontChrome } from "@/components/brand/storefront-chrome";
 import { CartProvider } from "@/components/cart/cart-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { ToastProvider } from "@/components/toast-provider";
+import { previewNoindex } from "@/lib/preview";
 
 export const metadata: Metadata = {
   title: {
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
     template: "%s | IRANTI Africa",
   },
   description: "IRANTI Africa. Memories of Nigeria.",
-  robots: { index: false, follow: false },
+  robots: { index: !previewNoindex(), follow: !previewNoindex() },
 };
 
 export default function RootLayout({

@@ -30,7 +30,8 @@ final class DeploymentProfileTest extends TestCase
             'production.network_profile' => 'render-private-database',
             'production.render_runtime' => true,
             'production.render_cpu_count' => '0.1',
-            'production.prelaunch_gate_enabled' => true,
+            'production.prelaunch_gate_enabled' => false,
+            'production.preview_noindex' => true,
             'app.url' => 'https://iranti-africa-free-test.onrender.com',
             'catalog.public_origin' => 'https://iranti-africa-free-test.onrender.com',
             'catalog.disk' => DeploymentProfile::FREE_TEST_DISK,
@@ -127,11 +128,11 @@ final class DeploymentProfileTest extends TestCase
         $this->expectProfileRejection();
     }
 
-    public function test_free_profile_retains_gate_test_payments_resend_and_debug_protection(): void
+    public function test_free_preview_retains_noindex_test_payments_resend_and_debug_protection(): void
     {
         $this->freeTestProfile();
         foreach ([
-            ['production.prelaunch_gate_enabled', false],
+            ['production.preview_noindex', false],
             ['payments.mode', 'live'],
             ['payments.live_approved', true],
             ['refunds.live_approved', true],
