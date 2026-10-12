@@ -54,19 +54,28 @@ export function CatalogList({
           action={path.startsWith("/categories/") ? "/products" : path}
           className="catalog-filters"
         >
-          <label>
-            Search products
+          <div className="catalog-filter-field">
+            <label className="sr-only" htmlFor="catalog-search">
+              Search products
+            </label>
             <Input
+              id="catalog-search"
               type="search"
               name="q"
               defaultValue={params.get("q") ?? ""}
               maxLength={100}
-              placeholder="What are you looking for?"
+              placeholder="Search products"
             />
-          </label>
-          <label>
-            Category
-            <Select name="category" defaultValue={params.get("category") ?? ""}>
+          </div>
+          <div className="catalog-filter-field">
+            <label className="sr-only" htmlFor="catalog-category">
+              Category
+            </label>
+            <Select
+              id="catalog-category"
+              name="category"
+              defaultValue={params.get("category") ?? ""}
+            >
               <option value="">All categories</option>
               {categories.map((c) => (
                 <option key={c.slug} value={c.slug}>
@@ -74,16 +83,22 @@ export function CatalogList({
                 </option>
               ))}
             </Select>
-          </label>
-          <label>
-            Sort
-            <Select name="sort" defaultValue={params.get("sort") ?? "newest"}>
+          </div>
+          <div className="catalog-filter-field">
+            <label className="sr-only" htmlFor="catalog-sort">
+              Sort
+            </label>
+            <Select
+              id="catalog-sort"
+              name="sort"
+              defaultValue={params.get("sort") ?? "newest"}
+            >
               <option value="newest">Newest</option>
               <option value="name">Name</option>
               <option value="price_asc">Price: low to high</option>
               <option value="price_desc">Price: high to low</option>
             </Select>
-          </label>
+          </div>
           {params.has("min_price") && (
             <input
               type="hidden"

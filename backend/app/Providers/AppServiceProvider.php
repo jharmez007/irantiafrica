@@ -84,6 +84,15 @@ class AppServiceProvider extends ServiceProvider
                 ->by(($renderer ? 'catalog-renderer:' : 'catalog:').$r->ip());
         });
         RateLimiter::for('catalog-admin', fn (Request $r) => Limit::perMinute((int) config('limits.admin', 120))->by('catalog-admin:'.$r->user()?->getAuthIdentifier()));
+        RateLimiter::for('contact', function (Request $request): array {
+            $digest = fn (string $value): string => hash_hmac('sha256', $value, (string) config('app.key'));
+            $email = is_string($request->input('email')) ? strtolower(trim($request->input('email'))) : '';
+
+            return [
+                Limit::perMinute((int) config('limits.contact.network', 5))->by('contact:network:'.$digest($request->ip() ?? 'unknown')),
+                Limit::perMinute((int) config('limits.contact.email', 3))->by('contact:email:'.$digest($email)),
+            ];
+        });
 
         if ($this->app->environment('production')) {
             $debug = (bool) config('app.debug');

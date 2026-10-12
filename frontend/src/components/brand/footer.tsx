@@ -19,7 +19,7 @@ export function Footer() {
           </nav>
           <div className="footer-policies">
             <h2>Here to help</h2>
-            <span>Contact</span>
+            <Link href="/contact">Contact</Link>
             <span>Shipping &amp; delivery</span>
             <span>Returns &amp; exchanges</span>
             <p>Details will be shared here.</p>

@@ -29,8 +29,8 @@ export function CheckoutChrome({ children }: { children: ReactNode }) {
         <Container>
           <p>© {new Date().getFullYear()} IRANTI Africa</p>
           <p>
-            Contact · Shipping &amp; delivery · Returns &amp; exchanges ·
-            Privacy policy · Terms &amp; conditions
+            <Link href="/contact">Contact</Link> · Shipping &amp; delivery ·
+            Returns &amp; exchanges · Privacy policy · Terms &amp; conditions
           </p>
         </Container>
       </footer>

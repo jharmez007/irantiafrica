@@ -16,10 +16,10 @@ export function StorefrontChrome({ children }: { children: ReactNode }) {
   ) : pathname === "/checkout" ? (
     <CheckoutChrome>{children}</CheckoutChrome>
   ) : (
-    <>
+    <div className="storefront-shell">
       <Header />
       {children}
       <Footer />
-    </>
+    </div>
   );
 }

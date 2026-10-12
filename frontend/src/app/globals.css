@@ -4246,3 +4246,317 @@ svg {
     border-right-color: currentColor;
   }
 }
+
+/* Customer type and controls are scoped away from compact admin data screens. */
+.storefront-shell,
+.auth-layout,
+.checkout-main {
+  --customer-nav-size: 1rem;
+  --customer-copy-size: 1rem;
+  --customer-meta-size: 0.875rem;
+  --customer-control-radius: 8px;
+  --customer-control-height: 48px;
+}
+.storefront-shell .brand-line {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.storefront-shell .desktop-navigation {
+  font-size: var(--customer-nav-size);
+  line-height: 1.5;
+  gap: clamp(1.25rem, 2.4vw, 2.5rem);
+}
+.storefront-shell .mobile-navigation a {
+  min-height: 48px;
+  align-items: center;
+}
+.storefront-shell .eyebrow,
+.storefront-shell .catalog-kicker,
+.auth-layout .eyebrow,
+.checkout-main .eyebrow {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.storefront-shell .section-description,
+.storefront-shell .catalog-intro-copy,
+.storefront-shell .story-copy > p:not(.eyebrow),
+.storefront-shell .empty-state p,
+.storefront-shell .product-description p,
+.storefront-shell .catalog-description,
+.auth-layout .auth-intro {
+  font-size: var(--customer-copy-size);
+  line-height: 1.65;
+}
+.storefront-shell .product-card-title {
+  font-size: clamp(1.125rem, 1.55vw, 1.375rem);
+  line-height: 1.35;
+}
+.storefront-shell .product-card-price,
+.storefront-shell .catalog-results-bar,
+.storefront-shell .category-card-body,
+.storefront-shell .cart-line-content,
+.checkout-main .checkout-field {
+  font-size: var(--customer-copy-size);
+}
+.storefront-shell .product-card-category,
+.storefront-shell .product-categories,
+.storefront-shell .product-selection-note,
+.storefront-shell .product-reference,
+.storefront-shell .catalog-note,
+.storefront-shell .product-gallery-caption,
+.storefront-shell .footer-bottom,
+.storefront-shell .footer-policies > p,
+.storefront-shell .footer-grid h2,
+.storefront-shell .field-hint,
+.auth-layout .field-hint,
+.checkout-main .field-hint {
+  font-size: var(--customer-meta-size);
+}
+.storefront-shell .footer-grid nav a,
+.storefront-shell .footer-policies > a,
+.storefront-shell .footer-identity > p,
+.storefront-shell .text-link,
+.storefront-shell .form-field label,
+.auth-layout .form-field label,
+.checkout-main .checkout-field label {
+  font-size: 0.95rem;
+}
+.storefront-shell .footer-policies > a {
+  display: block;
+  margin-bottom: 0.9rem;
+}
+.storefront-shell .footer-policies > a:hover,
+.checkout-site-footer a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.storefront-shell .button,
+.auth-layout .button,
+.checkout-main .button {
+  border-radius: var(--customer-control-radius);
+  font-size: 0.95rem;
+}
+.storefront-shell input:not([type="checkbox"]):not([type="radio"]),
+.storefront-shell select,
+.storefront-shell textarea,
+.auth-layout input:not([type="checkbox"]):not([type="radio"]),
+.auth-layout select,
+.auth-layout textarea,
+.checkout-main input:not([type="checkbox"]):not([type="radio"]),
+.checkout-main select,
+.checkout-main textarea {
+  min-height: var(--customer-control-height);
+  border-radius: var(--customer-control-radius);
+  font-size: var(--customer-copy-size);
+}
+.storefront-shell .catalog-filter-panel {
+  padding-block: 1.1rem;
+}
+.storefront-shell .catalog-filters {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.25fr) minmax(0, 1.25fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+}
+.storefront-shell .catalog-filter-field {
+  min-width: 0;
+}
+.storefront-shell .catalog-filter-actions {
+  grid-column: auto;
+  white-space: nowrap;
+}
+.storefront-shell .catalog-filter-actions .button {
+  min-height: var(--customer-control-height);
+}
+.storefront-shell .catalog-results-bar {
+  line-height: 1.5;
+}
+
+.contact-page {
+  padding-block: clamp(2.5rem, 5vw, 5rem) 6rem;
+}
+.contact-intro {
+  max-width: 48rem;
+  margin-bottom: clamp(2rem, 4vw, 3.5rem);
+}
+.contact-intro > p:last-child {
+  margin-top: 1.4rem;
+  max-width: 42rem;
+  color: var(--text-muted);
+  font-size: var(--customer-copy-size);
+}
+.contact-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(15rem, 0.75fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+.contact-layout > * {
+  min-width: 0;
+}
+.contact-form-panel h2,
+.contact-aside h2 {
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+}
+.contact-form {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2rem;
+}
+.contact-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+.contact-form-row > * {
+  min-width: 0;
+}
+.contact-form .field-error {
+  margin-top: 0.35rem;
+}
+.contact-form > .button {
+  justify-self: start;
+  min-width: 10rem;
+}
+.contact-success {
+  padding: 0.85rem 1rem;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--background));
+}
+.contact-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.contact-aside {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.5rem;
+}
+.contact-aside > p:last-child {
+  margin-top: 1.2rem;
+  color: var(--text-muted);
+}
+@media (max-width: 1100px) {
+  .storefront-shell .catalog-filters {
+    grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr));
+  }
+  .storefront-shell .catalog-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 800px) {
+  .contact-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .contact-aside {
+    max-width: 36rem;
+  }
+}
+@media (max-width: 600px) {
+  .storefront-shell .brand-line {
+    font-size: 0.625rem;
+  }
+  .storefront-shell .header-inner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto 44px;
+    min-height: 0;
+    column-gap: 0.5rem;
+    row-gap: 0.25rem;
+    padding-block: 0.4rem 0.5rem;
+  }
+  .storefront-shell .header-inner > .logo-link {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+    margin: 0;
+  }
+  .storefront-shell .header-inner .logo--horizontal {
+    width: 140px;
+    height: 52px;
+  }
+  .storefront-shell .mobile-menu-toggle {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .storefront-shell .header-actions {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+  }
+  .storefront-shell .catalog-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .storefront-shell .catalog-filter-actions,
+  .storefront-shell .catalog-filter-field:first-child {
+    grid-column: auto;
+  }
+  .storefront-shell .catalog-filter-actions {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .storefront-shell .catalog-intro,
+  .storefront-shell .contact-intro,
+  .storefront-shell .section-header,
+  .storefront-shell .story-copy,
+  .storefront-shell .collection-invitation,
+  .storefront-shell .empty-state {
+    text-align: center;
+  }
+  .storefront-shell .catalog-intro-copy,
+  .storefront-shell .contact-intro,
+  .storefront-shell .section-header,
+  .storefront-shell .story-copy,
+  .storefront-shell .collection-invitation {
+    margin-inline: auto;
+  }
+  .storefront-shell .section-header,
+  .storefront-shell .collection-invitation {
+    align-items: center;
+  }
+  .storefront-shell .catalog-grid,
+  .storefront-shell .category-grid {
+    justify-items: stretch;
+    width: 100%;
+    margin-inline: auto;
+  }
+  .storefront-shell .catalog-results-bar {
+    justify-content: center;
+    text-align: center;
+    flex-wrap: wrap;
+  }
+  .storefront-shell .footer-grid {
+    text-align: center;
+    justify-items: center;
+  }
+  .storefront-shell .footer-identity .logo {
+    margin-inline: auto;
+  }
+  .storefront-shell .footer-policies,
+  .storefront-shell .footer-grid nav {
+    justify-self: stretch;
+  }
+  .storefront-shell .footer-bottom {
+    justify-content: center;
+    text-align: center;
+  }
+  .contact-intro {
+    margin-inline: auto;
+  }
+  .contact-layout {
+    text-align: left;
+  }
+  .contact-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 359px) {
+  .storefront-shell .header-inner .logo--horizontal {
+    width: 132px;
+  }
+  .storefront-shell .catalog-filter-actions .button {
+    flex: 1 1 auto;
+  }
+}

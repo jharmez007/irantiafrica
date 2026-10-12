@@ -5,6 +5,7 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\CatalogMediaController;
 use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\ContactController;
 use App\Http\Controllers\FulfilmentController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\MfaController;
@@ -19,6 +20,9 @@ use App\Http\Middleware\TrustedBrowser;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json(['data' => ['status' => 'ok']]));
+
+Route::post('/contact', [ContactController::class, 'store'])
+    ->middleware([TrustedBrowser::class, 'throttle:contact']);
 
 Route::middleware([TrustedBrowser::class])->prefix('auth')->group(function (): void {
     Route::post('/register', [AuthenticationController::class, 'register'])->middleware('throttle:identity-register');

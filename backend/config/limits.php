@@ -30,4 +30,8 @@ return [
         'network' => max(1, (int) env('RATE_CART_NETWORK', 120)),
     ],
     'admin' => max(1, (int) env('RATE_ADMIN', 120)),
+    'contact' => [
+        'network' => max(1, (int) env('RATE_CONTACT_NETWORK', 5)),
+        'email' => max(1, (int) env('RATE_CONTACT_EMAIL', 3)),
+    ],
 ];

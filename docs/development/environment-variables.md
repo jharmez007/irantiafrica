@@ -11,7 +11,7 @@ Templates contain placeholders only. Ignored .env/.env.testing/.env.local files 
 | Redis queue | REDIS_CLIENT, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB, REDIS_PREFIX | Predis; local loopback 63790, noeviction |
 | Redis cache | REDIS_CACHE_HOST, REDIS_CACHE_PORT, REDIS_CACHE_PASSWORD, REDIS_CACHE_DB | Separate local process, port 63791; not used by the approved Render production profile |
 | Queue/cache | QUEUE_CONNECTION, REDIS_QUEUE, REDIS_QUEUE_RETRY_AFTER, DB_QUEUE_RETRY_AFTER, QUEUE_FAILED_DRIVER, CACHE_STORE, RATE_LIMIT_CACHE_STORE | Local uses Redis; approved Render uses database queue/cache/limiter and a 90-second queue lease; failed jobs stay PostgreSQL |
-| Mail | MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_SCHEME, MAIL_FROM_ADDRESS, MAIL_FROM_NAME | Array for local tests; SMTP for real delivery; identity recovery rejects log mail |
+| Mail | MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_SCHEME, MAIL_FROM_ADDRESS, MAIL_FROM_NAME, CONTACT_RECIPIENT_EMAIL | Array for local tests; SMTP or the approved Resend API transport for real delivery; identity recovery rejects log mail. Contact recipient is private server-side configuration and the endpoint fails closed when absent |
 | Storage | FILESYSTEM_DISK, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION, AWS_BUCKET, AWS_ENDPOINT, AWS_USE_PATH_STYLE_ENDPOINT | Local private disk now; S3 abstraction installed, no live bucket/provider |
 | Logging | LOG_CHANNEL, LOG_LEVEL | JSON stderr, no raw exception/request secrets |
 | Frontend public | NEXT_PUBLIC_API_URL | /api/v1 only; public variables are visible to browsers, never secrets |

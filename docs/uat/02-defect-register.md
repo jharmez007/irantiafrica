@@ -1,5 +1,19 @@
 # Phase 3N defect and change register
 
+## Phase 3O client storefront refinements — 2026-10-12
+
+These are client-requested presentation refinements, not architecture or commerce defects. Developer retest is complete; client retest remains pending. The Contact recipient is an owner-controlled **private** mailbox and must be supplied through `CONTACT_RECIPIENT_EMAIL` in the deployment environment; it is not displayed on the site.
+
+| ID | Client request | Implementation | Developer retest | Client status |
+|---|---|---|---|---|
+| CLIENT-UX-001 | Storefront and navbar type is too small | Scoped customer typography tokens; Shop, Collections and Our story are 16px, with larger primary copy and a deliberate meta hierarchy | Chrome category/Contact at 320, 375, 390, 430, 768, 1024 and 1440px; other customer routes sampled at 320, 768 and 1440px; no document overflow | Pending |
+| CLIENT-UX-002 | Catalogue filter labels are visually redundant | Search, Category and Sort labels use real `sr-only` labels; compact aligned GET filter controls retain the Apply action | Browser accessible names and visible layout checked at seven widths; component test confirms semantic labels and GET behavior | Pending |
+| CLIENT-UX-003 | Contact page is missing | `/contact`, footer links, five-field form, inline validation and confirmation; validated CSRF-protected, rate-limited endpoint queues encrypted email without a submission table or public recipient address | Backend Contact tests 5/42 pass; frontend route/form tests pass; browser page and form layout checked at seven widths. Actual provider delivery awaits private recipient configuration and a controlled provider retest | Pending |
+| CLIENT-UX-004 | Customer fields are too square | Storefront, auth and checkout controls use a scoped 8px radius and consistent minimum control height; admin geometry is unchanged | Browser computed radius 8px on catalogue, Contact and auth fields; checkout component styles inspected; production build passes | Pending |
+| CLIENT-UX-005 | Mobile composition is not centered or balanced | Centered mobile logo and intros, symmetric product grids, footer composition, and responsive filter stacking; a browser-found 320px header overflow was fixed | Chrome loaded category and Contact pages: zero horizontal overflow at all seven widths; two 320px product cards align symmetrically; mobile drawer opens, Escape closes and focus returns to trigger | Pending |
+
+The guarded full backend infrastructure suite could not run in this local profile: `.env.testing` expects isolated PostgreSQL on port 54320, which is not running. The standard PHPUnit run passed 50 tests with 212 infrastructure tests skipped. This is a validation-environment limit, not a Contact test failure. No Render deployment was made.
+
 Phase 3O release follow-up (2026-10-04): **UAT-DEP-004 / HIGH, OPEN TEMPORARY EXCEPTION.** Full npm audit reports five HIGH nodes in the development-only `eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch → braces@3.0.3` chain ([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)); the advisory has no patched version. Production audit reports zero. Current standalone output excludes the affected packages. CI now blocks on production audit and on any full-audit result outside this exact chain; lint remains required. [ADR-019](../architecture/adr/019-dev-tooling-audit-exception.md) records owner, review cadence, release risk and expiry. Final Docker image and hosted CI verification remain pending; this is **not closed**.
 
 Version 2.6 — 2026-10-03 (customer commerce UX remediation). The original 2026-09-24 preparation pass found no verified defect. Subsequent human administrator UAT reports identified publication reliability, catalog usability and admin interaction problems. Authorized remediation and developer retests are recorded here; **business closure remains pending client retest**.
