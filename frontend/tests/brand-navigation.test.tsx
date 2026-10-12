@@ -103,6 +103,31 @@ async function scan() {
 }
 
 describe("brand navigation behavior", () => {
+  it("announces the branding message once while the visual loop repeats seamlessly", () => {
+    render(<Header />);
+    const message =
+      "Discover Nigeria · Support local artisans · Take a piece of Nigeria with you";
+    const strip = document.querySelector(".brand-line");
+    expect(strip).not.toBeNull();
+    expect(strip?.querySelector(".announcement-accessible")?.textContent).toBe(
+      message,
+    );
+    expect(strip?.hasAttribute("aria-live")).toBe(false);
+    expect(strip?.getAttribute("role")).toBeNull();
+    const track = strip?.querySelector(".announcement-track");
+    expect(track?.getAttribute("aria-hidden")).toBe("true");
+    const groups = Array.from(
+      track?.querySelectorAll(".announcement-group") ?? [],
+    );
+    expect(groups).toHaveLength(2);
+    for (const group of groups) {
+      const items = Array.from(group.querySelectorAll(".announcement-item"));
+      expect(items).toHaveLength(4);
+      expect(items.every((item) => item.textContent === message)).toBe(true);
+    }
+    expect(groups[0]?.textContent).toBe(groups[1]?.textContent);
+  });
+
   it("uses a focused checkout shell with a return path and compact support labels", () => {
     mocks.pathname = "/checkout";
     render(<PublicPage />);

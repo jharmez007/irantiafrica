@@ -469,9 +469,62 @@ svg {
   background: var(--primary);
   color: var(--color-cream);
   text-align: center;
-  padding: 0.5rem 1rem;
-  font-size: 0.6rem;
-  letter-spacing: 0.16em;
+  padding-block: 0.45rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.11em;
+  overflow: hidden;
+}
+.announcement-accessible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.announcement-track,
+.announcement-group {
+  display: flex;
+  width: max-content;
+}
+.announcement-track {
+  animation: announcement-scroll 40s linear infinite;
+  will-change: transform;
+}
+.announcement-group {
+  flex: 0 0 auto;
+}
+.announcement-item {
+  flex: 0 0 auto;
+  padding-inline: 1.75rem;
+  white-space: nowrap;
+}
+.brand-line:hover .announcement-track,
+.brand-line:focus-within .announcement-track {
+  animation-play-state: paused;
+}
+@keyframes announcement-scroll {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-line {
+    padding-inline: 1rem;
+  }
+  .announcement-track {
+    display: none;
+  }
+  .announcement-accessible {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
 }
 .site-header {
   border-bottom: 1px solid var(--border-subtle);
@@ -4455,7 +4508,9 @@ svg {
 }
 @media (max-width: 600px) {
   .storefront-shell .brand-line {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    padding-block: 0.4rem;
   }
   .storefront-shell .home-hero .hero-copy {
     display: flex;

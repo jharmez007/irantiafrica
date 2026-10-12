@@ -52,6 +52,8 @@ const links = [
   { href: "/#collections", label: "Collections" },
   { href: "/#our-story", label: "Our story" },
 ];
+const announcement =
+  "Discover Nigeria · Support local artisans · Take a piece of Nigeria with you";
 export function Header() {
   const [open, setOpen] = useState(false);
   const { cart, loading, error } = useCart();
@@ -62,7 +64,18 @@ export function Header() {
         Skip to content
       </a>
       <div className="brand-line">
-        IRANTI AFRICA <span aria-hidden="true"> · </span> MEMORIES OF NIGERIA
+        <p className="announcement-accessible">{announcement}</p>
+        <div className="announcement-track" aria-hidden="true">
+          {[0, 1].map((group) => (
+            <div className="announcement-group" key={group}>
+              {Array.from({ length: 4 }, (_, index) => (
+                <span className="announcement-item" key={index}>
+                  {announcement}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
       <header className="site-header">
         <Container className="header-inner">
