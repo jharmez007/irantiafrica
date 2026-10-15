@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Price } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -176,7 +177,15 @@ export function ReturnsPanel({ order }: { order: OrderRecord }) {
       )}
       {data && (
         <>
-          <p>{data.eligibility.reason}</p>
+          {data.eligibility.reason.startsWith(
+            "Return policy is awaiting configuration.",
+          ) ? (
+            <p>
+              For help with returns, <Link href="/contact">contact us</Link>.
+            </p>
+          ) : (
+            <p>{data.eligibility.reason}</p>
+          )}
           {data.eligibility.cutoff && (
             <p>
               Request before{" "}

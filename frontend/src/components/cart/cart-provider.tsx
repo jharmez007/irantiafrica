@@ -19,7 +19,7 @@ type CartContextValue = {
   error: string;
   notice: string;
   refresh: () => Promise<void>;
-  add: (variantId: string) => Promise<CartData | null>;
+  add: (variantId: string, quantity?: number) => Promise<CartData | null>;
   update: (itemId: string, quantity: number) => Promise<boolean>;
   remove: (itemId: string) => Promise<boolean>;
   clear: () => Promise<boolean>;
@@ -146,7 +146,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             old.unit_price_minor !== line.unit_price_minor,
         ),
       );
-      if (!priceChanged)
+      if (!priceChanged && method !== "PATCH")
         toast.success(
           method === "POST" && suffix === "/items"
             ? "Added to cart"
@@ -173,13 +173,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setFeedback({
         scope,
         error:
-          e instanceof CartApiError && e.status === 409
-            ? `${e.message} Review the refreshed cart; the previous request may already have completed.`
-            : e instanceof Error
-              ? e.message
-              : "Unable to update your cart.",
+          e instanceof CartApiError && e.code === "CART_STOCK_CHANGED"
+            ? `${e.message} We've refreshed your cart.`
+            : e instanceof CartApiError && e.status === 409
+              ? "Your cart changed. We've refreshed it; check your items before trying again."
+              : e instanceof Error
+                ? "We couldn't confirm that change. Check your refreshed cart before trying again."
+                : "We couldn't confirm that change. Check your refreshed cart before trying again.",
         notice: "",
       });
+      toast.error(
+        "Cart changed. Review the current quantity before trying again.",
+      );
       return false;
     } finally {
       locked.current = false;
@@ -200,8 +205,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
             : error,
         notice: feedback.scope === scope ? feedback.notice : "",
         refresh,
-        add: async (id) =>
-          (await mutate("POST", "/items", { variant_id: id, quantity: 1 }))
+        add: async (id, quantity = 1) =>
+          (await mutate("POST", "/items", { variant_id: id, quantity }))
             ? confirmed.current?.scope === scope
               ? confirmed.current.data
               : null

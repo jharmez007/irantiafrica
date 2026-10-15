@@ -404,10 +404,14 @@ final class ReportingTest extends TestCase
         $receipt['exception_code'] = 'EXTRA_PAYMENT';
         DB::table('payments')->insert($receipt);
         DB::table('orders')->where('id', $o->id)->update(['financial_hold' => true, 'version' => $o->version + 1]);
+        // These are independent fixture orders. The paid order's source cart
+        // remains financially held and cannot be reused for a new checkout.
+        unset($this->jar['iranti_cart']);
         $unpaid = $this->place($this->prepared())->assertCreated()->json('data');
         $this->provider('failed');
         $attempt = $this->init($unpaid)->assertCreated()->json('data');
         $this->verifyApi($unpaid, $attempt)->assertOk();
+        unset($this->jar['iranti_cart']);
         $cancelled = $this->place($this->prepared())->assertCreated()->json('data');
         $this->browser('POST', '/api/v1/orders/'.$cancelled['id'].'/cancel', ['expected_version' => 1, 'reason' => 'Fixture cancellation'])->assertOk();
         $this->login($this->owner);

@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $status
  * @property int $version
  * @property string|null $configuration_id
+ * @property string|null $shipping_method_code
  * @property string|null $inventory_reference_id
  * @property string|null $current_reservation_id
  * @property string|null $reserve_key

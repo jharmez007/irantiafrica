@@ -1,5 +1,17 @@
 # Shipping and tracking — Phase 3I
 
+## Local commerce UAT fixture — 2026-10-14
+
+`cd backend && php artisan iranti:seed-uat-commerce-settings --dry-run` checks the native `iranti_local` PostgreSQL connection and proposed values without writing. `--yes` explicitly publishes through `CheckoutConfiguration::publish` as the sole existing Business Owner. The command is restricted to `APP_ENV=local`, loopback PostgreSQL on port 5432, the `iranti_local` database, a development-only predecessor, and published products using only the existing `STANDARD` treatment. It is repeatable; an identical current payload publishes nothing. Each actual publication creates an immutable new bundle/audit entry, never a direct row update or historical order edit. To reset test rates safely, the owner publishes another complete reviewed development-only bundle in Admin → Settings → Shipping/Tax; do not delete prior versions or order evidence.
+
+**UAT SHIPPING VALUES ONLY — NOT PRODUCTION-APPROVED COVERAGE OR PRICES.** FCT Standard ₦4,500 and Express ₦7,500; Lagos Standard ₦5,000 and Express ₦8,000; Kaduna Standard ₦6,000; Rivers Standard ₦7,000. All six are State-wide and active, have stable `UAT_` codes, and omit delivery-time promises. Their internal source reference explicitly identifies the local/UAT fixture. Production must receive owner-approved States, methods, charges and logistics process before activation. No fixture is automatically loaded outside the guarded command.
+
+## Checkout rate administration refinement — 2026-10-14
+
+The owner-only `/admin/settings/shipping` screen edits methods in the existing immutable checkout configuration bundle. A method has a stable code, controlled State/FCT, optional existing locality code, name, optional description/estimate, integer-kobo charge and active flag. Multiple active methods may serve one destination; inactive methods remain visible to the owner but are omitted from customer lookup. Archiving omits a method from the **next** bundle, not from past bundles or order snapshots. No carrier integration or tariff is invented. The editor exposes no new locality creation; existing configured localities remain intact when editing a method.
+
+`GET /api/v1/checkout/shipping-methods?state_code=...` returns only eligible current methods and public prices. An exact configured locality takes precedence over statewide methods; an unknown selected locality never falls back. A destination with no active method returns an empty list, which blocks checkout. Selecting a method calls the owned checkout command; the server verifies eligibility and calculates the quote from the current configuration. Changing the address clears the chosen method and all calculated amounts. The accepted delivery object, including method code/name/amount, remains in the order's historical calculation snapshot. Owner publication retains the previous version, actor, timestamp and before/after bundle references in audit history. Client-approved production coverage/rates are still required.
+
 Implementation baseline v1.0, 2026-09-24. Phase 3H is approved as an implementation baseline; actual Paystack external verification remains a production/UAT gate. Phase 3I does not select a logistics provider.
 
 ## Ownership and commercial boundary

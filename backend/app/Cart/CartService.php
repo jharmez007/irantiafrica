@@ -2,9 +2,12 @@
 
 namespace App\Cart;
 
+use App\Checkout\CheckoutConfiguration;
 use App\Inventory\StockMath;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Order;
+use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -68,6 +71,7 @@ final class CartService
             }
 
             $data = $this->revalidate($cart);
+            $data['linked_order'] = $user ? $this->linkedOrder($cart, $user, $data) : null;
             if (in_array($action, ['add', 'update'], true) && $data['amount_limit']) {
                 throw new CartConflict('CART_TOTAL_LIMIT', 'This cart exceeds the supported amount. Reduce its quantity.');
             }
@@ -75,6 +79,72 @@ final class CartService
 
             return new CartResult($data, $newToken, $user !== null && $token !== null && ($merge === null || $merge['status'] !== 'REVIEW_REQUIRED'));
         }, 3);
+    }
+
+    /** @param  array<string,mixed>  $data
+     * @return array<string,mixed>|null
+     */
+    private function linkedOrder(Cart $cart, User $user, array &$data): ?array
+    {
+        $blocking = Order::where('source_cart_id', $cart->id)->where('user_id', $user->id)
+            ->where(fn ($query) => $query->where('status', 'PENDING_PAYMENT')->orWhere('payment_state', 'REQUIRES_REVIEW'))
+            ->orderByDesc('created_at')->get();
+        foreach ($blocking as $order) {
+            $probe = ['items' => []];
+            $state = $this->projectOrder($cart, $order, $probe);
+            if ($state['payment_unresolved'] || ! $state['can_start_new']) {
+                return $this->projectOrder($cart, $order, $data);
+            }
+        }
+        $latest = Order::where('source_cart_id', $cart->id)->where('user_id', $user->id)
+            ->where(fn ($query) => $query->where('source_cart_version', $cart->version)
+                ->orWhere('status', 'PENDING_PAYMENT')->orWhere('payment_state', 'REQUIRES_REVIEW'))
+            ->orderByDesc('created_at')->first();
+
+        return $latest ? $this->projectOrder($cart, $latest, $data) : null;
+    }
+
+    /** @return array{linked_order:array<string,mixed>,held_items:array<string,int>} */
+    public function recoveryForOrder(Cart $cart, Order $order): array
+    {
+        $data = ['items' => []];
+        $projection = $this->projectOrder($cart, $order, $data);
+        $held = $projection['reservation_active']
+            ? DB::table('reservation_items')->where('reservation_id', $order->current_reservation_id)->pluck('quantity', 'variant_id')->map(fn ($quantity): int => (int) $quantity)->all()
+            : [];
+
+        return ['linked_order' => $projection, 'held_items' => $held];
+    }
+
+    /** @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    private function projectOrder(Cart $cart, Order $order, array &$data): array
+    {
+        $reservation = Reservation::findOrFail($order->current_reservation_id);
+        $active = $reservation->status === 'ACTIVE' && $reservation->expires_at->gt(CheckoutConfiguration::now());
+        $attempts = DB::table('payment_attempts')->where('order_id', $order->id)->orderByDesc('created_at')->get(['status']);
+        $unresolved = $attempts->contains(fn ($attempt): bool => in_array($attempt->status, ['INITIALIZING', 'PENDING', 'UNKNOWN'], true));
+        $latestAttemptStatus = $attempts->first()?->status;
+        if ($active) {
+            $held = DB::table('reservation_items')->where('reservation_id', $reservation->id)->pluck('quantity', 'variant_id');
+            foreach ($data['items'] as &$line) {
+                $line['held_by_order_quantity'] = (int) ($held[$line['variant_id']] ?? 0);
+            }
+            unset($line);
+        }
+
+        return ['id' => $order->id, 'number' => $order->public_reference, 'ownership' => $order->user_id ? 'account' : 'guest',
+            'status' => $order->status, 'payment_state' => $order->payment_state, 'total_minor' => $order->total_minor,
+            'currency' => $order->currency, 'version' => $order->version, 'cart_changed' => $order->source_cart_version !== $cart->version,
+            'reservation_status' => $reservation->status, 'reservation_expires_at' => $reservation->expires_at->toIso8601String(),
+            'reservation_active' => $active, 'attempt_status' => $latestAttemptStatus,
+            'release_confirmed' => in_array($reservation->status, ['EXPIRED', 'RELEASED'], true),
+            'payment_unresolved' => $unresolved, 'can_continue' => $order->status === 'PENDING_PAYMENT' && $active && ! $order->financial_hold
+                && (! $unresolved || $latestAttemptStatus === 'PENDING'),
+            'can_cancel' => $order->status === 'PENDING_PAYMENT' && $order->payment_state === 'NOT_STARTED' && $attempts->isEmpty(),
+            'can_start_new' => ! $unresolved && ($order->status === 'CANCELLED' || ($order->status === 'PENDING_PAYMENT' && ! $active && $reservation->status === 'EXPIRED'))
+                && in_array($reservation->status, ['EXPIRED', 'RELEASED'], true)];
     }
 
     public function mergeGuestCart(User $user, ?string $token): CartResult
@@ -190,7 +260,9 @@ final class CartService
             throw new CartConflict('ITEM_UNAVAILABLE', 'This item is no longer available.');
         }
         if ($desired > $data['available']) {
-            throw new CartConflict('CART_STOCK_CHANGED', 'The requested quantity is no longer available. Review your cart.');
+            throw new CartConflict('CART_STOCK_CHANGED', $data['available'] === 0
+                ? 'This item is now out of stock. Refresh your cart to review it.'
+                : 'Only '.$data['available'].' are available. Reduce the quantity to continue.');
         }
         CartMoney::line($data['unit_price_minor'], $desired);
         $item ??= new CartItem;
@@ -240,6 +312,8 @@ final class CartService
                 'options' => $data['options'] ?? [], 'image' => $data['image'] ?? null,
                 'unit_price_minor' => $data['unit_price_minor'] ?? null,
                 'line_subtotal_minor' => $lineTotal === null ? null : (string) $lineTotal,
+                'available_quantity' => $data !== null && $data['sellable'] ? $data['available'] : 0,
+                'low_stock' => $data['low_stock'] ?? false,
                 'suggested_quantity' => $suggested, 'state' => $state];
         }
 

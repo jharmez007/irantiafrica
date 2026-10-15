@@ -159,13 +159,13 @@ final class PaymentTest extends TestCase
         return $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/reserve', ['expected_version' => $s['version'], 'fingerprint' => $s['fingerprint']]);
     }
 
-    private function prepared(?User $user = null): array
+    private function prepared(?User $user = null, int $stock = 10): array
     {
         if ($user) {
             $this->login($user);
         }
         app(CheckoutConfiguration::class)->publish($this->configuration(), $this->owner);
-        $v = $this->variant(10, '335');
+        $v = $this->variant($stock, '335');
         $this->add($v, 3)->assertOk();
 
         return $this->reserve($this->quoted($this->addressed($this->start())))->assertOk()->json('data');
@@ -324,7 +324,209 @@ final class PaymentTest extends TestCase
         $this->paidOnce();
         $this->assertSame('18446744073709551615', DB::table('payments')->value('provider_transaction_id'));
         $this->init($o)->assertConflict();
-        $this->assertDatabaseCount('cart_items', 1);
+        $this->assertDatabaseCount('cart_items', 0);
+        $this->assertDatabaseCount('cart_payment_reconciliations', 1);
+    }
+
+    public function test_hosted_checkout_offers_only_existing_card_and_transfer_channels(): void
+    {
+        $this->provider('success', ['channel' => 'bank_transfer']);
+        $o = $this->place($this->prepared())->assertCreated()->json('data');
+        $this->operationKey = (string) Str::uuid();
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $this->init($o, 'hosted')->assertCreated()->assertJsonPath('data.id', $a['id']);
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/initialize') && $r['channels'] === ['card', 'bank_transfer'] && $r['amount'] === '1662' && $r['currency'] === 'NGN');
+        $this->assertDatabaseCount('payment_attempts', 1);
+        $result = $this->verifyApi($o, $a)->assertOk()->json('data');
+        $this->assertSame('SUCCESSFUL', $result['order']['payment']['state'], (string) DB::table('payments')->value('exception_code'));
+        $this->paidOnce();
+    }
+
+    public function test_cart_projects_its_own_unpaid_hold_and_cancellation_releases_it_once(): void
+    {
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer, 3))->assertCreated()->json('data');
+        $held = $this->cartView();
+        $this->assertTrue($held['needs_review']);
+        $this->assertSame('OUT_OF_STOCK', $held['items'][0]['state']);
+        $this->assertSame(3, $held['items'][0]['held_by_order_quantity']);
+        $this->assertSame($o['id'], $held['linked_order']['id']);
+        $this->assertTrue($held['linked_order']['can_continue']);
+        $this->assertTrue($held['linked_order']['can_cancel']);
+        $this->assertFalse($held['linked_order']['can_start_new']);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $held['version']])
+            ->assertConflict()->assertJsonPath('error.code', 'ORDER_CHECKOUT_PENDING');
+
+        $this->browser('POST', '/api/v1/orders/'.$o['id'].'/cancel', ['expected_version' => $o['version'], 'reason' => 'Customer cancelled before payment'])->assertOk();
+        $released = $this->cartView();
+        $this->assertFalse($released['needs_review']);
+        $this->assertSame(3, $released['items'][0]['quantity']);
+        $this->assertSame('CANCELLED', $released['linked_order']['status']);
+        $this->assertTrue($released['linked_order']['release_confirmed']);
+        $this->assertTrue($released['linked_order']['can_start_new']);
+        $this->browser('POST', '/api/v1/orders/'.$o['id'].'/cancel', ['expected_version' => $o['version'], 'reason' => 'Retry cancellation'])->assertOk();
+        $this->assertSame(0, Inventory::sum('reserved'));
+        $this->assertSame(1, DB::table('inventory_movements')->where('kind', 'RELEASE')->count());
+        $this->assertDatabaseCount('orders', 1);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $released['version']])->assertOk();
+    }
+
+    public function test_guest_cart_recovery_requires_both_scoped_order_capability_and_current_cart(): void
+    {
+        $o = $this->place($this->prepared(null, 3))->assertCreated()->json('data');
+        $this->assertNull($this->cartView()['linked_order']);
+        $path = '/api/v1/orders/'.$o['id'].'/cart-recovery';
+        $recovery = $this->browser('GET', $path)->assertOk()->json('data');
+        $this->assertSame($o['id'], $recovery['linked_order']['id']);
+        $this->assertSame('guest', $recovery['linked_order']['ownership']);
+        $this->assertSame(3, array_values($recovery['held_items'])[0]);
+
+        $jar = $this->jar;
+        unset($this->jar['iranti_cart']);
+        $this->browser('GET', $path)->assertNotFound();
+        $this->jar = $jar;
+        unset($this->jar['iranti_order_'.str_replace('-', '', $o['id'])]);
+        $this->browser('GET', $path)->assertNotFound();
+        $this->jar = $jar;
+    }
+
+    public function test_existing_pending_attempt_is_resumable_only_for_its_owner_and_unknown_attempt_is_not(): void
+    {
+        $this->provider('ongoing');
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer, 3))->assertCreated()->json('data');
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $cart = $this->cartView();
+        $this->assertSame('PENDING', $cart['linked_order']['attempt_status']);
+        $this->assertTrue($cart['linked_order']['payment_unresolved']);
+        $this->assertFalse($cart['linked_order']['can_cancel']);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $cart['version']])
+            ->assertConflict()->assertJsonPath('error.code', 'ORDER_CHECKOUT_PENDING');
+        $this->browser('GET', '/api/v1/orders/'.$o['id'].'/payment-attempts/'.$a['id'].'/resume')->assertOk()->assertJsonPath('data.authorization_url', $a['authorization_url']);
+        $this->verifyApi($o, $a)->assertOk();
+        $this->assertDatabaseCount('payment_attempts', 1);
+
+        $this->login($this->customer());
+        $this->browser('GET', '/api/v1/orders/'.$o['id'].'/payment-attempts/'.$a['id'].'/resume')->assertNotFound();
+    }
+
+    public function test_uncertain_payment_disables_cart_resume_cancellation_and_new_checkout(): void
+    {
+        Http::fake(['*' => Http::response([], 503)]);
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer, 3))->assertCreated()->json('data');
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $this->assertSame('UNKNOWN', $a['status']);
+
+        $linked = $this->cartView()['linked_order'];
+        $this->assertSame('UNKNOWN', $linked['attempt_status']);
+        $this->assertTrue($linked['payment_unresolved']);
+        $this->assertFalse($linked['can_continue']);
+        $this->assertFalse($linked['can_cancel']);
+        $this->assertFalse($linked['can_start_new']);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $this->cartView()['version']])
+            ->assertConflict()->assertJsonPath('error.code', 'ORDER_CHECKOUT_PENDING');
+        $this->assertDatabaseCount('payment_attempts', 1);
+        $this->assertDatabaseCount('orders', 1);
+    }
+
+    public function test_expired_hold_is_released_before_new_checkout(): void
+    {
+        config(['inventory.reservation_ttl_seconds' => 2]);
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer, 3))->assertCreated()->json('data');
+        sleep(3);
+        Artisan::call('inventory:expire-reservations');
+        $cart = $this->cartView();
+        $this->assertFalse($cart['needs_review']);
+        $this->assertSame('EXPIRED', $cart['linked_order']['reservation_status']);
+        $this->assertTrue($cart['linked_order']['release_confirmed']);
+        $this->assertTrue($cart['linked_order']['can_start_new']);
+        $this->assertSame(0, Inventory::sum('reserved'));
+        $this->assertSame(3, $cart['items'][0]['quantity']);
+        $this->assertDatabaseCount('orders', 1);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $cart['version']])->assertOk();
+    }
+
+    public function test_verified_paid_order_retires_purchased_bag_once(): void
+    {
+        $this->provider('success', ['channel' => 'card']);
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer))->assertCreated()->json('data');
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $result = $this->verifyApi($o, $a)->assertOk()->json('data');
+        $this->assertSame('SUCCESSFUL', $result['order']['payment']['state'], (string) DB::table('payments')->value('exception_code'));
+        $cart = $this->cartView();
+        $this->assertSame(0, $cart['item_count']);
+        $this->assertSame([], $cart['items']);
+        $this->assertSame(1, (int) DB::table('cart_payment_reconciliations')->value('removed_lines'));
+        $this->verifyApi($o, $a)->assertOk();
+        $this->assertDatabaseCount('cart_payment_reconciliations', 1);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $cart['version']])
+            ->assertConflict()->assertJsonPath('error.code', 'CART_REVIEW_REQUIRED');
+        $variant = ProductVariant::findOrFail(DB::table('order_items')->where('order_id', $o['id'])->value('variant_id'));
+        $this->add($variant, 1)->assertOk();
+        $this->verifyApi($o, $a)->assertOk();
+        $this->assertSame(1, $this->cartView()['item_count']);
+        $this->assertDatabaseCount('cart_payment_reconciliations', 1);
+        $this->browser('POST', '/api/v1/checkout', ['expected_version' => $this->cartView()['version']])->assertOk();
+        $this->paidOnce();
+    }
+
+    public function test_verified_payment_preserves_bag_lines_added_after_order_creation(): void
+    {
+        $this->provider('success', ['channel' => 'card']);
+        $customer = $this->customer();
+        $prepared = $this->prepared($customer);
+        sleep(1); // Cart line timestamps must precede the placed order distinctly.
+        $o = $this->place($prepared)->assertCreated()->json('data');
+        $purchasedVariant = DB::table('order_items')->where('order_id', $o['id'])->value('variant_id');
+        $extra = $this->variant(5);
+        $this->add($extra, 2)->assertOk();
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $this->verifyApi($o, $a)->assertOk()->assertJsonPath('data.order.status', 'PAID');
+        $cart = $this->cartView();
+        $this->assertSame(2, $cart['item_count']);
+        $this->assertCount(1, $cart['items']);
+        $this->assertSame($extra->id, $cart['items'][0]['variant_id']);
+        $this->assertSame(0, DB::table('cart_items')->where('variant_id', $purchasedVariant)->count());
+        $this->assertSame(1, (int) DB::table('cart_payment_reconciliations')->value('removed_lines'));
+        $this->verifyApi($o, $a)->assertOk();
+        $this->assertSame(2, $this->cartView()['item_count']);
+    }
+
+    public function test_verified_payment_preserves_a_purchased_line_edited_after_placement(): void
+    {
+        $this->provider('success', ['channel' => 'card']);
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer))->assertCreated()->json('data');
+        $item = $this->cartView()['items'][0];
+        $this->browser('PATCH', '/api/v1/cart/items/'.$item['id'], ['quantity' => 4, 'expected_version' => $this->cartView()['version']])->assertOk();
+        $a = $this->init($o, 'hosted')->assertCreated()->json('data');
+        $this->verifyApi($o, $a)->assertOk()->assertJsonPath('data.order.status', 'PAID');
+        $this->assertSame(4, $this->cartView()['items'][0]['quantity']);
+        $this->assertSame(0, (int) DB::table('cart_payment_reconciliations')->value('removed_lines'));
+        $this->assertSame(1, (int) DB::table('cart_payment_reconciliations')->value('preserved_lines'));
+    }
+
+    public function test_edited_bag_does_not_change_its_earlier_order_and_other_holds_remain_real_shortages(): void
+    {
+        $customer = $this->customer();
+        $o = $this->place($this->prepared($customer))->assertCreated()->json('data');
+        $another = $this->variant(3);
+        $this->add($another, 2)->assertOk();
+        $cart = $this->cartView();
+        $this->assertTrue($cart['linked_order']['cart_changed']);
+        $this->assertSame($o['total_minor'], $cart['linked_order']['total_minor']);
+        $this->assertTrue($cart['linked_order']['can_continue']);
+
+        app(InventoryService::class)->reserveMany((string) Str::uuid(), [['variant_id' => $another->id, 'quantity' => 2]]);
+        $short = $this->cartView();
+        $line = collect($short['items'])->firstWhere('variant_id', $another->id);
+        $this->assertSame('QUANTITY_REVIEW', $line['state']);
+        $this->assertSame(1, $line['available_quantity']);
+        $this->assertSame(0, $line['held_by_order_quantity']);
+        $this->assertDatabaseCount('orders', 1);
     }
 
     public function test_webhook_signature_raw_bytes_inbox_deduplication_quarantine_and_recovery(): void
@@ -383,6 +585,8 @@ final class PaymentTest extends TestCase
         $o = $this->place($this->prepared())->assertCreated()->json('data');
         $a = $this->init($o)->assertCreated()->json('data');
         $this->verifyApi($o, $a)->assertOk()->assertJsonPath('data.order.payment.state', 'FAILED');
+        $this->assertSame(3, $this->cartView()['item_count']);
+        $this->assertDatabaseCount('cart_payment_reconciliations', 0);
         $this->assertSame(3, Inventory::sum('reserved'));
         $expiry = Reservation::firstOrFail()->expires_at;
         $this->provider('abandoned');
@@ -466,6 +670,30 @@ final class PaymentTest extends TestCase
         $this->init($o)->assertConflict();
     }
 
+    public function test_definitive_provider_rejection_fails_attempt_without_a_payable_url(): void
+    {
+        Http::fake(['*' => Http::response(['status' => false, 'message' => 'Invalid request'], 400)]);
+        $o = $this->place($this->prepared())->assertCreated()->json('data');
+        $a = $this->init($o)->assertCreated()->json('data');
+        $this->assertSame('FAILED', $a['status']);
+        $this->assertSame('INITIALIZATION_REJECTED', $a['failure_code']);
+        $this->assertNull($a['authorization_url']);
+        $this->assertSame('INITIALIZATION_REJECTED', DB::table('payment_attempts')->where('id', $a['id'])->value('failure_code'));
+        $this->assertSame('FAILED', Order::findOrFail($o['id'])->payment_state);
+        $this->assertSame('ACTIVE', Reservation::findOrFail(Order::findOrFail($o['id'])->current_reservation_id)->status);
+        $this->assertDatabaseCount('payment_attempts', 1);
+        $this->assertSame('INITIALIZATION_REJECTED', DB::table('payment_reconciliation_records')->where('attempt_id', $a['id'])->orderByDesc('created_at')->value('outcome'));
+        $this->assertSame(400, json_decode(DB::table('payment_reconciliation_records')->where('attempt_id', $a['id'])->orderByDesc('created_at')->value('normalized'), true)['http_status']);
+
+        $this->provider('ongoing');
+        $this->operationKey = (string) Str::uuid();
+        $retry = $this->init($o)->assertCreated()->json('data');
+        $this->assertSame('PENDING', $retry['status']);
+        $this->assertNotSame($a['id'], $retry['id']);
+        $this->assertDatabaseCount('payment_attempts', 2);
+        $this->assertDatabaseCount('reservations', 1);
+    }
+
     public function test_admin_mfa_and_role_restrictions(): void
     {
         $this->provider();
@@ -491,7 +719,7 @@ final class PaymentTest extends TestCase
         $this->assertFalse($g->ready());
         config(['payments.secret_key' => 'sk_test_00000000000000000000000000000000']);
         Http::fake(['*' => Http::response(['status' => true, 'data' => ['reference' => 'ref', 'authorization_url' => 'https://checkout.paystack.com.evil.example/token']])]);
-        $this->assertNull($g->initializePayment('ref', '100', 'NGN', 'x@example.test', 'http://localhost:3000', 'card'));
+        $this->assertSame('UNKNOWN', $g->initializePayment('ref', '100', 'NGN', 'x@example.test', 'http://localhost:3000', 'card')->state);
         Http::swap(new Factory);
         Http::fake(['*' => Http::response(['status' => true, 'data' => ['id' => 1.2, 'reference' => 'ref', 'amount' => 100, 'currency' => 'NGN', 'channel' => 'card', 'domain' => 'test', 'status' => 'success']])]);
         $this->assertSame('UNKNOWN', $g->verifyPayment('ref')->state);

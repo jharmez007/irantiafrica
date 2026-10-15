@@ -32,9 +32,19 @@ class PublicProductResource extends JsonResource
             'price_min_minor' => $priced->isEmpty() ? null : (string) $priced->min(fn (ProductVariant $v): int => (int) $v->unit_price_minor),
             'price_max_minor' => $priced->isEmpty() ? null : (string) $priced->max(fn (ProductVariant $v): int => (int) $v->unit_price_minor),
             'categories' => $this->categories->where('status', 'active')->map(fn (Category $c): array => ['name' => $c->name, 'slug' => $c->slug])->values(),
-            'options' => $this->options->map(fn (ProductOption $o): array => ['id' => $o->id, 'name' => $o->name, 'values' => $o->values->map(fn (OptionValue $v): array => ['id' => $v->id, 'value' => $v->value])->values()])->values(),
-            'variants' => $variants->map(fn (ProductVariant $v): array => ['id' => $v->id, 'sku' => $v->sku, 'unit_price_minor' => $v->unit_price_minor, 'currency' => $v->currency, 'available' => $v->isAvailable(), 'option_value_ids' => $v->selections->map(fn (VariantOptionValue $s): string => $s->option_value_id)->values()]),
-            'media' => $this->media->where('status', 'ready')->map(fn (ProductMedia $m): array => self::image($m))->values(),
+            'options' => $this->options->map(fn (ProductOption $o): array => ['id' => $o->id, 'name' => $o->name, 'values' => $o->values->whereNull('archived_at')->map(fn (OptionValue $v): array => ['id' => $v->id, 'value' => $v->value, 'swatch_hex' => $v->swatch_hex])->values()])->values(),
+            'variants' => $variants->map(function (ProductVariant $v): array {
+                $stock = $v->inventory;
+                $quantity = max(0, $stock?->available() ?? 0);
+                $status = $quantity === 0 ? 'out_of_stock'
+                    : ($stock !== null && $quantity <= $stock->low_stock_threshold ? 'low_stock' : 'in_stock');
+
+                return ['id' => $v->id, 'unit_price_minor' => $v->unit_price_minor, 'currency' => $v->currency,
+                    'available' => $quantity > 0, 'available_quantity' => $quantity,
+                    'availability_status' => $status, 'low_stock' => $status === 'low_stock',
+                    'option_value_ids' => $v->selections->map(fn (VariantOptionValue $s): string => $s->option_value_id)->values()];
+            }),
+            'media' => $this->media->where('status', 'ready')->filter(fn (ProductMedia $m): bool => $m->variant_id === null || $variants->contains('id', $m->variant_id))->map(fn (ProductMedia $m): array => self::image($m))->values(),
         ];
     }
 

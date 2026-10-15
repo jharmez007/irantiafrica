@@ -85,14 +85,14 @@ final class CatalogAvailabilityTest extends TestCase
         $this->assertSame([$available->id], CatalogRead::query()->pluck('id')->all());
     }
 
-    public function test_sold_out_detail_and_media_remain_public_without_quantity_disclosure(): void
+    public function test_sold_out_detail_and_media_remain_public_without_internal_inventory_disclosure(): void
     {
         $product = $this->product('Informational basket', [['stock' => [12, 12]]]);
-        $data = $this->getJson('/api/v1/products/'.$product->slug)->assertOk()->assertJsonPath('data.available', false)->assertJsonPath('data.variants.0.available', false)->assertJsonPath('data.price_min_minor', '1000')->json('data');
+        $data = $this->getJson('/api/v1/products/'.$product->slug)->assertOk()->assertJsonPath('data.available', false)->assertJsonPath('data.variants.0.available', false)->assertJsonPath('data.variants.0.available_quantity', 0)->assertJsonPath('data.variants.0.availability_status', 'out_of_stock')->assertJsonPath('data.price_min_minor', '1000')->json('data');
         $this->getJson('/api/v1/products')->assertOk()->assertJsonCount(0, 'data');
         $this->get($data['media'][0]['sources'][0]['url'])->assertOk()->assertHeader('Content-Type', 'image/webp');
         $json = json_encode($data, JSON_THROW_ON_ERROR);
-        foreach (['on_hand', 'reserved', 'low_stock_threshold', 'inventory', 'available_quantity'] as $field) {
+        foreach (['on_hand', 'reserved', 'low_stock_threshold', 'inventory', 'inventory_movements'] as $field) {
             $this->assertStringNotContainsString('"'.$field.'"', $json);
         }
 

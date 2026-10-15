@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 final class PaystackGateway implements PaymentGateway
 {
@@ -26,24 +27,49 @@ final class PaystackGateway implements PaymentGateway
             && ($mode === 'test' || (app()->environment('production') && config('payments.live_approved') === true));
     }
 
-    public function initializePayment(string $reference, string $amount, string $currency, string $email, string $callback, string $method): ?string
+    public function initializePayment(string $reference, string $amount, string $currency, string $email, string $callback, string $method): Initialization
     {
         if (! $this->ready()) {
-            return null;
+            return new Initialization('UNKNOWN');
         }
         try {
+            $channels = $method === 'hosted' ? config('payments.channels') : [$method];
             $r = Http::withToken((string) config('payments.secret_key'))->acceptJson()->connectTimeout(3)->timeout(12)->withoutRedirecting()
-                ->post('https://api.paystack.co/transaction/initialize', ['reference' => $reference, 'amount' => $amount, 'currency' => $currency, 'email' => $email, 'callback_url' => $callback, 'channels' => [$method], 'metadata' => json_encode(['payment_reference' => $reference], JSON_THROW_ON_ERROR)]);
+                ->post('https://api.paystack.co/transaction/initialize', ['reference' => $reference, 'amount' => $amount, 'currency' => $currency, 'email' => $email, 'callback_url' => $callback, 'channels' => $channels, 'metadata' => json_encode(['payment_reference' => $reference], JSON_THROW_ON_ERROR)]);
+            // Paystack's documented validation/authentication failures did not create a
+            // payable transaction. A timeout, rate limit, server error or malformed
+            // response remains uncertain and must be reconciled before another POST.
+            if (in_array($r->status(), [400, 401, 403, 422], true)) {
+                Log::warning('paystack_initialization_rejected', ['http_status' => $r->status()]);
+
+                return new Initialization('REJECTED', httpStatus: $r->status());
+            }
+            if (! $r->successful()) {
+                Log::warning('paystack_initialization_uncertain', ['http_status' => $r->status()]);
+
+                return new Initialization('UNKNOWN', httpStatus: $r->status());
+            }
             $j = json_decode($r->body(), true, 32, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
             $url = $j['data']['authorization_url'] ?? null;
-            if (! $r->successful() || ($j['status'] ?? null) !== true || ($j['data']['reference'] ?? null) !== $reference || ! is_string($url)) {
-                return null;
+            if (($j['status'] ?? null) !== true || ($j['data']['reference'] ?? null) !== $reference || ! is_string($url)) {
+                Log::warning('paystack_initialization_invalid_response');
+
+                return new Initialization('UNKNOWN', httpStatus: $r->status());
             }
             $p = parse_url($url);
 
-            return ($p['scheme'] ?? '') === 'https' && ($p['host'] ?? '') === 'checkout.paystack.com' && ! isset($p['user']) && ! isset($p['pass']) && ! isset($p['port']) ? $url : null;
-        } catch (\Throwable) {
-            return null;
+            if (($p['scheme'] ?? '') !== 'https' || ($p['host'] ?? '') !== 'checkout.paystack.com' || isset($p['user']) || isset($p['pass']) || isset($p['port'])) {
+                Log::warning('paystack_initialization_invalid_url');
+
+                return new Initialization('UNKNOWN', httpStatus: $r->status());
+            }
+
+            return new Initialization('INITIALIZED', $url, $r->status());
+        } catch (\Throwable $e) {
+            // Never log the exception: transport messages can contain request details.
+            Log::warning('paystack_initialization_transport_error', ['exception_type' => $e::class]);
+
+            return new Initialization('UNKNOWN');
         }
     }
 

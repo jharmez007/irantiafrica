@@ -1,5 +1,15 @@
 # Tax calculation and configuration
 
+## Local/UAT 7.5% fixture — 2026-10-14
+
+The explicit, local-only `iranti:seed-uat-commerce-settings` command publishes one `STANDARD` product rule at exact fractional rate `0.075000000`, sets `STANDARD` as the default for new/unassigned products, and marks delivery separately taxable at the same exact rate. Existing published product treatments are not bulk rewritten. The client has **not** approved this percentage or treatment as Nigerian legal/production tax policy. The command records `development_only=true`; production refuses to quote from it. See [shipping](shipping.md) for the guarded command and safe replacement procedure. This is **DEVELOPMENT/UAT TAX RATE ONLY — NOT PRODUCTION TAX POLICY**.
+
+## Owner settings refinement — 2026-10-14
+
+`/admin/settings/tax` presents the existing exact product-rule rates as human-readable percentages and publishes a **new complete immutable bundle** through the owner/MFA-protected configuration API. No legal rate or classification is pre-filled when the installation has no configuration. The owner may add/edit approved treatment codes/labels/rates, choose a default treatment for **new or unassigned** products, and explicitly mark delivery taxable with its own exact rate or non-taxable with a null rate and zero tax. Existing products are never bulk rewritten, and publication rejects removal of a treatment still assigned to any published product. A single configured treatment remains the existing unambiguous fallback when no explicit default is set. Tax-exclusive prices, line-level HALF_UP rounding in integer kobo and historical order snapshots remain unchanged. The production guard still rejects development-only configuration and blocks live quoting when approved configuration is absent.
+
+`/admin/settings/shipping` and `/admin/settings/tax` each publish the whole bundle, protecting the other section from accidental removal. Publication accepts an optional expected-current UUID to reject stale owner screens. The immutable old/new rows and audit event record actor, time, previous version and new payload. The owner must confirm actual production treatments/rates with an accountant or tax adviser; the local sample is DEVELOPMENT/UAT ONLY.
+
 Phase 3F implementation baseline v1.0, 2026-09-23. **A04 is formally APPROVED.** This implements the client's binding approval; no production tax percentage or legal treatment was supplied.
 
 ## Approved engineering semantics

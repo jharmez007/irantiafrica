@@ -86,6 +86,9 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::post('/options/{id}/values', [$c, 'addValues'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::delete('/options/{id}', [$c, 'removeOption'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::delete('/options/{id}/values/{valueId}', [$c, 'removeValue'])->whereUuid('id')->whereUuid('valueId')->middleware('can:catalog.create_update');
+    Route::get('/options/{id}/values/{valueId}/removal-preview', [$c, 'valueRemovalPreview'])->whereUuid('id')->whereUuid('valueId')->middleware('can:catalog.create_update');
+    Route::patch('/options/{id}/values/{valueId}', [$c, 'updateValue'])->whereUuid('id')->whereUuid('valueId')->middleware('can:catalog.create_update');
+    Route::patch('/options/{id}/values/{valueId}/swatch', [$c, 'updateSwatch'])->whereUuid('id')->whereUuid('valueId')->middleware('can:catalog.create_update');
     Route::patch('/variants/{id}', [$c, 'updateVariant'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::get('/categories/{slug}', [CatalogController::class, 'categoryShow'])->where('slug', '[a-z0-9-]+');
     Route::get('/categories', [$c, 'adminCategories']);
@@ -113,10 +116,12 @@ Route::middleware([TrustedBrowser::class, CartIdentity::class, 'throttle:cart'])
 Route::middleware([TrustedBrowser::class, CartIdentity::class, 'throttle:checkout'])->prefix('checkout')->group(function (): void {
     $c = CheckoutController::class;
     Route::get('/destinations', [$c, 'destinations']);
+    Route::get('/shipping-methods', [$c, 'shippingMethods']);
     Route::get('/current', [$c, 'current']);
     Route::post('/', [$c, 'begin']);
     Route::get('/{id}', [$c, 'show'])->whereUuid('id');
     Route::patch('/{id}/address', [$c, 'address'])->whereUuid('id');
+    Route::post('/{id}/shipping-method', [$c, 'selectMethod'])->whereUuid('id');
     Route::post('/{id}/validate', [$c, 'validateCheckout'])->whereUuid('id');
     Route::post('/{id}/reserve', [$c, 'reserve'])->whereUuid('id');
     Route::delete('/{id}', [$c, 'cancel'])->whereUuid('id');
@@ -127,6 +132,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::post('/addresses', [$c, 'saveAddress']);
     Route::delete('/addresses/{id}', [$c, 'deleteAddress'])->whereUuid('id');
     Route::post('/admin/checkout-configurations', [$c, 'publish'])->middleware(['can:tax.configure', 'can:shipping.configure']);
+    Route::get('/admin/checkout-configurations/current', [$c, 'adminConfiguration'])->middleware(['can:tax.configure', 'can:shipping.configure']);
 });
 
 Route::middleware([TrustedBrowser::class, CartIdentity::class, 'throttle:orders'])->prefix('orders')->group(function (): void {
@@ -134,6 +140,7 @@ Route::middleware([TrustedBrowser::class, CartIdentity::class, 'throttle:orders'
     Route::post('/', [$c, 'create']);
     Route::get('/', [$c, 'index'])->middleware('auth:web');
     Route::get('/{id}', [$c, 'show'])->whereUuid('id');
+    Route::get('/{id}/cart-recovery', [$c, 'cartRecovery'])->whereUuid('id');
     Route::post('/{id}/cancel', [$c, 'cancel'])->whereUuid('id');
 });
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'throttle:orders', 'can:orders.read'])->prefix('admin/orders')->group(function (): void {
@@ -149,6 +156,7 @@ Route::middleware([TrustedBrowser::class, CartIdentity::class, 'throttle:payment
     $p = PaymentController::class;
     Route::post('/payment-attempts', [$p, 'initialize']);
     Route::get('/payment-status', [$p, 'status']);
+    Route::get('/payment-attempts/{attempt}/resume', [$p, 'resume'])->whereUuid('attempt');
     Route::post('/payment-attempts/{attempt}/verify', [$p, 'verify'])->whereUuid('attempt');
 });
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'can:payments.reconcile', 'throttle:payments'])->prefix('admin/payments')->group(function (): void {

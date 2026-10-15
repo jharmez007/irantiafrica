@@ -147,7 +147,7 @@ describe("brand navigation behavior", () => {
     const destinations = {
       Shop: "/products",
       Collections: "/#collections",
-      "Our story": "/#our-story",
+      "Our story": "/our-story",
     };
     for (const [name, href] of Object.entries(destinations)) {
       expect(

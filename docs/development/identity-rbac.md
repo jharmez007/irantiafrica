@@ -1,5 +1,9 @@
 # Identity and RBAC — Phase 3N inventory staff revision
 
+## Commerce configuration access — 2026-10-14
+
+The Commerce settings navigation and screens require the existing granular `shipping.configure` **and** `tax.configure` permissions and completed staff MFA. Their GET and publication API routes enforce the same grants server-side; a hidden navigation item is not the security boundary. The current permission matrix grants both only to Business Owner / Super Admin. Order Processing and Inventory / Store Staff receive neither. Owner publication is audited with version and prior/current immutable configuration references. No role-name override or new staff grant was added.
+
 The maintained RBAC reference is [rbac.md](rbac.md), with the approved current matrix in [architecture 17](../architecture/17-rbac.md). This note records the 2026-10-02 UAT change to the Inventory / Store Staff role.
 
 `inventory_store` has exactly `catalog.read_internal`, `inventory.read`, `inventory.adjust`, `inventory.movements.read`, and `reports.stock`. `inventory.adjust` authorizes existing opening stock and signed, reasoned on-hand adjustments through `InventoryService`; it does not authorize reserved-stock edits or direct balance writes. Each operation uses a version/idempotency key, immutable movement and audit records, and the server's no-overdraw rule.

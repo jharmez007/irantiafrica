@@ -199,7 +199,34 @@ final class CatalogController
     {
         $option = ProductOption::findOrFail($id);
         Gate::authorize('update', Product::findOrFail($option->product_id));
-        $productId = $this->actions->removeValue($id, $valueId, (int) $r->validated('content_version'));
+        $productId = $this->actions->removeValue($id, $valueId, (int) $r->validated('content_version'), (bool) $r->validated('reassign_variant_media', false));
+
+        return $this->adminShow($productId);
+    }
+
+    /** @return array{data:array{allowed:bool,mode:string,variant_count:int,media_count:int,reason:string,variants:list<array{sku:string,status:string}>}} */
+    public function valueRemovalPreview(string $id, string $valueId): array
+    {
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
+
+        return ['data' => $this->actions->valueRemovalPreview($id, $valueId)];
+    }
+
+    public function updateValue(CatalogRequest $r, string $id, string $valueId): AdminProductResource
+    {
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
+        $productId = $this->actions->updateValue($id, $valueId, $r->validated('value'), $r->validated('swatch_hex'), (int) $r->validated('content_version'));
+
+        return $this->adminShow($productId);
+    }
+
+    public function updateSwatch(CatalogRequest $r, string $id, string $valueId): AdminProductResource
+    {
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
+        $productId = $this->actions->updateSwatch($id, $valueId, $r->validated('swatch_hex'), (int) $r->validated('content_version'));
 
         return $this->adminShow($productId);
     }

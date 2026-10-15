@@ -45,7 +45,7 @@ final class FulfilmentController
             }
         }
         $o = $this->fulfilment->act($id, $actor, $action, $input);
-        $data = $this->orders->projection($o);
+        $data = $this->orders->projection($o, true, false, true);
         if (! $actor->hasPermission('payments.reconcile')) {
             $data['payment'] = ['state' => $o->paid_at ? 'SUCCESSFUL' : 'PENDING', 'available' => false];
         }

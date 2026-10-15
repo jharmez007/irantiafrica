@@ -263,7 +263,7 @@ export function ActionMenu({
         ref={trigger}
         type="button"
         className={`admin-action-trigger${compact ? " admin-action-trigger--compact" : ""}`}
-        aria-label={compact ? "More actions" : label}
+        aria-label={compact && label === "Actions" ? "More actions" : label}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => change(!open)}

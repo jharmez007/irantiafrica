@@ -60,6 +60,13 @@ const items = [
     icon: "return",
   },
   {
+    group: "Commerce",
+    label: "Commerce settings",
+    href: "/admin/settings",
+    permission: "shipping.configure",
+    icon: "grid",
+  },
+  {
     group: "Management",
     label: "Staff",
     href: "/admin/staff",

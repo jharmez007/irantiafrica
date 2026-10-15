@@ -14,7 +14,7 @@ export function Footer() {
             <h2>Explore</h2>
             <Link href="/products">The collection</Link>
             <Link href="/#collections">Categories</Link>
-            <Link href="/#our-story">Our story</Link>
+            <Link href="/our-story">Our story</Link>
             <Link href="/account">Your account</Link>
           </nav>
           <div className="footer-policies">

@@ -102,10 +102,14 @@ final class CatalogMediaController
             $this->actions->lock();
             $m = ProductMedia::lockForUpdate()->findOrFail($id);
             abort_if(in_array($m->status, ['retired', 'rejected'], true), 409);
-            $before = $m->only(['alt_text', 'position']);
-            $m->update($r->validated());
+            $data = $r->validated();
+            if (isset($data['variant_id']) && ! ProductVariant::where('product_id', $m->product_id)->whereKey($data['variant_id'])->exists()) {
+                $this->actions->invalid('variant_id', 'Variant must belong to this product.');
+            }
+            $before = $m->only(['alt_text', 'position', 'variant_id']);
+            $m->update($data);
             Product::whereKey($m->product_id)->increment('content_version');
-            CatalogAudit::record('media_updated', 'media', $id, ['before' => $before, 'after' => $m->only(['alt_text', 'position'])]);
+            CatalogAudit::record('media_updated', 'media', $id, ['before' => $before, 'after' => $m->only(['alt_text', 'position', 'variant_id'])]);
         });
 
         return response()->json(['data' => ['id' => $id]]);

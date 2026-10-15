@@ -9,7 +9,9 @@ use App\Inventory\InventoryConflict;
 use App\Inventory\InventoryService;
 use App\Models\Cart;
 use App\Models\CheckoutSession;
+use App\Models\Order;
 use App\Models\ProductVariant;
+use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -71,6 +73,7 @@ final class CheckoutService
                     throw new CheckoutConflict('CHECKOUT_ALREADY_ACTIVE', 'Resume or cancel your existing checkout before starting another.', ['checkout_id' => $active->id]);
                 }
             }
+            $this->assertOrderAllowsNewCheckout($cart);
             if ($cart->version !== $version || $view->data['items'] === [] || $view->data['needs_review']) {
                 throw new CheckoutConflict('CART_REVIEW_REQUIRED', 'Review every cart item before checkout.', ['cart' => $view->data]);
             }
@@ -86,6 +89,28 @@ final class CheckoutService
 
             return ['checkout' => $s->refresh(), 'token' => $token];
         }, 3);
+    }
+
+    private function assertOrderAllowsNewCheckout(Cart $cart): void
+    {
+        $orders = Order::where('source_cart_id', $cart->id)
+            ->where(fn ($query) => $query->where('status', 'PENDING_PAYMENT')
+                ->orWhere('payment_state', 'SUCCESSFUL')->orWhere('financial_hold', true))
+            ->lockForUpdate()->get();
+        foreach ($orders as $order) {
+            if ($order->financial_hold || ($order->payment_state === 'SUCCESSFUL' && $order->source_cart_version === $cart->version)) {
+                throw new CheckoutConflict('ORDER_CHECKOUT_PENDING', 'Review your existing order before starting a new checkout.');
+            }
+            if ($order->status !== 'PENDING_PAYMENT') {
+                continue;
+            }
+            $reservation = Reservation::findOrFail($order->current_reservation_id);
+            $unresolved = DB::table('payment_attempts')->where('order_id', $order->id)
+                ->whereIn('status', ['INITIALIZING', 'PENDING', 'UNKNOWN'])->exists();
+            if ($unresolved || ! in_array($reservation->status, ['EXPIRED', 'RELEASED'], true)) {
+                throw new CheckoutConflict('ORDER_CHECKOUT_PENDING', 'Finish or cancel the existing order before starting a new checkout.');
+            }
+        }
     }
 
     public function owned(string $id, ?User $user, ?string $token): CheckoutSession
@@ -167,7 +192,7 @@ final class CheckoutService
                 }
                 $address = NigeriaAddress::validate($address ?? []);
                 DB::table('checkout_addresses')->updateOrInsert(['checkout_id' => $s->id], ['id' => DB::table('checkout_addresses')->where('checkout_id', $s->id)->value('id') ?? (string) Str::uuid(), 'email' => strtolower(trim($data['email'])), 'address' => json_encode($address, JSON_THROW_ON_ERROR), 'updated_at' => CheckoutConfiguration::now()]);
-                $s->forceFill(['status' => 'DRAFT', 'configuration_id' => null, 'calculation' => null, 'tax_minor' => null, 'delivery_minor' => null, 'total_minor' => null, 'fingerprint' => null]);
+                $s->forceFill(['status' => 'DRAFT', 'shipping_method_code' => null, 'configuration_id' => null, 'calculation' => null, 'tax_minor' => null, 'delivery_minor' => null, 'total_minor' => null, 'fingerprint' => null]);
                 DB::table('checkout_lines')->where('checkout_id', $s->id)->update(['tax_snapshot' => null]);
                 $this->save($s);
 
@@ -177,6 +202,19 @@ final class CheckoutService
                 if ($s->status === 'RESERVED') {
                     return $s;
                 }
+                try {
+                    $this->quote($s);
+                } catch (CheckoutConflict $e) {
+                    return $e;
+                }
+
+                return $s;
+            }
+            if ($action === 'method') {
+                if ($s->status === 'RESERVED') {
+                    return new CheckoutConflict('CHECKOUT_STATE_CONFLICT', 'Cancel this reservation before changing delivery details.');
+                }
+                $s->shipping_method_code = $data['code'];
                 try {
                     $this->quote($s);
                 } catch (CheckoutConflict $e) {
@@ -358,7 +396,8 @@ final class CheckoutService
         if (! $row) {
             throw new CheckoutConflict('ADDRESS_REQUIRED', 'Enter your contact and delivery address.');
         }
-        $delivery = $this->configuration->delivery($config, json_decode($row->address, true));
+        $delivery = $this->configuration->delivery($config, json_decode($row->address, true), $s->shipping_method_code);
+        $s->shipping_method_code = $delivery['code'];
         $rules = array_column($config['payload']['product_rules'], null, 'category');
         $productTax = 0;
         $taxes = [];
@@ -395,7 +434,7 @@ final class CheckoutService
     {
         $address = DB::table('checkout_addresses')->where('checkout_id', $s->id)->first();
 
-        return ['id' => $s->id, 'order_id' => $s->promoted_at ? DB::table('orders')->where('checkout_id', $s->id)->value('id') : null, 'ownership' => $s->user_id ? 'account' : 'guest', 'status' => $s->status, 'version' => $s->version, 'currency' => 'NGN', 'expires_at' => $s->expires_at->toIso8601String(), 'fingerprint' => $s->fingerprint, 'subtotal_minor' => $s->subtotal_minor, 'tax_minor' => $s->tax_minor, 'delivery_minor' => $s->delivery_minor, 'total_minor' => $s->total_minor, 'calculation' => $s->calculation, 'contact' => $address ? ['email' => $address->email, 'address' => json_decode($address->address, true)] : null, 'lines' => DB::table('checkout_lines')->where('checkout_id', $s->id)->orderBy('id')->get()->map(fn ($l) => ['id' => $l->id, 'quantity' => $l->quantity, 'unit_price_minor' => (string) $l->unit_price_minor, 'line_subtotal_minor' => (string) $l->line_subtotal_minor, 'snapshot' => array_intersect_key(json_decode($l->snapshot, true), array_flip(['name', 'sku', 'options', 'image'])), 'tax' => $l->tax_snapshot ? json_decode($l->tax_snapshot, true) : null])->all()];
+        return ['id' => $s->id, 'order_id' => $s->promoted_at ? DB::table('orders')->where('checkout_id', $s->id)->value('id') : null, 'ownership' => $s->user_id ? 'account' : 'guest', 'status' => $s->status, 'version' => $s->version, 'currency' => 'NGN', 'expires_at' => $s->expires_at->toIso8601String(), 'fingerprint' => $s->fingerprint, 'shipping_method_code' => $s->shipping_method_code, 'subtotal_minor' => $s->subtotal_minor, 'tax_minor' => $s->tax_minor, 'delivery_minor' => $s->delivery_minor, 'total_minor' => $s->total_minor, 'calculation' => $s->calculation, 'contact' => $address ? ['email' => $address->email, 'address' => json_decode($address->address, true)] : null, 'lines' => DB::table('checkout_lines')->where('checkout_id', $s->id)->orderBy('id')->get()->map(fn ($l) => ['id' => $l->id, 'quantity' => $l->quantity, 'unit_price_minor' => (string) $l->unit_price_minor, 'line_subtotal_minor' => (string) $l->line_subtotal_minor, 'snapshot' => array_intersect_key(json_decode($l->snapshot, true), array_flip(['name', 'options', 'image'])), 'tax' => $l->tax_snapshot ? json_decode($l->tax_snapshot, true) : null])->all()];
     }
 
     public function expireDue(int $limit): int

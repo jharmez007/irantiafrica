@@ -1,23 +1,41 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { type Product, resolveVariant, optionAvailable } from "@/lib/catalog";
-import { Badge, Breadcrumbs, Price, Select } from "@/components/ui";
+import {
+  type Product,
+  chooseOptionValue,
+  resolveVariant,
+  variantImageGallery,
+} from "@/lib/catalog";
+import { Badge, Breadcrumbs, Price } from "@/components/ui";
 import { AddToCart } from "@/components/cart/add-to-cart";
 import { ProductImage } from "./product-image";
+import { ProductOptionSelector } from "./product-option-selector";
 export function ProductDetail({ product }: { product: Product }) {
   const [selection, setSelection] = useState<Record<string, string>>({});
   const [selectedImage, setSelectedImage] = useState<string>();
-  const variant = resolveVariant(product, selection);
-  const media = product.media.filter(
-    (m) => !m.variant_id || m.variant_id === variant?.id,
-  );
-  const gallery = media.length ? media : product.media;
+  const [refreshed, setRefreshed] = useState<Product | null>(null);
+  const currentProduct = refreshed?.slug === product.slug ? refreshed : product;
+  const variant = resolveVariant(currentProduct, selection);
+  const gallery = variantImageGallery(currentProduct, variant?.id);
   const activeImage =
     gallery.find((image) => image.id === selectedImage) ?? gallery[0];
-  const complete = product.options.every((o) => selection[o.id]);
-  const unavailable = !product.available || variant?.available === false;
-  const category = product.categories[0];
+  const unavailable = !currentProduct.available || variant?.available === false;
+  const category = currentProduct.categories[0];
+  async function refreshAvailability() {
+    const response = await fetch(
+      `/api/v1/products/${encodeURIComponent(product.slug)}`,
+      {
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (response.ok) {
+      const body = (await response.json()) as { data: Product };
+      setRefreshed(body.data);
+    }
+  }
   return (
     <>
       <div className="product-breadcrumbs">
@@ -71,100 +89,86 @@ export function ProductDetail({ product }: { product: Product }) {
         </div>
         <div className="product-summary">
           <p className="product-categories">
-            {product.categories.map((c, index) => (
+            {currentProduct.categories.map((c, index) => (
               <Link key={c.slug} href={`/categories/${c.slug}`}>
                 {index > 0 && <span aria-hidden="true"> · </span>}
                 {c.name}
               </Link>
             ))}
           </p>
-          <h1 className="product-heading">{product.name}</h1>
+          <h1 className="product-heading">{currentProduct.name}</h1>
           <p className="catalog-price" aria-live="polite">
             <Price
               value={
-                variant ? variant.unit_price_minor : product.price_min_minor
+                variant
+                  ? variant.unit_price_minor
+                  : currentProduct.price_min_minor
               }
-              max={variant ? undefined : product.price_max_minor}
+              max={variant ? undefined : currentProduct.price_max_minor}
             />
           </p>
-          <div className="product-stock" role="status">
-            {unavailable ? (
-              <Badge tone="unavailable">Out of stock</Badge>
-            ) : variant ? (
-              <Badge tone="success">In stock</Badge>
-            ) : (
-              <span>Select available options below.</span>
-            )}
-          </div>
-          {product.options.length > 0 && (
+          {currentProduct.options.length > 0 && (
             <div className="product-options">
-              {product.options.map((option) => (
-                <fieldset key={option.id} className="product-option">
-                  <legend>{option.name}</legend>
-                  <label className="sr-only" htmlFor={`option-${option.id}`}>
-                    Choose {option.name}
-                  </label>
-                  <Select
-                    id={`option-${option.id}`}
-                    value={selection[option.id] ?? ""}
-                    onChange={(e) =>
-                      setSelection({
-                        ...selection,
-                        [option.id]: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="">Choose {option.name}</option>
-                    {option.values.map((v) => (
-                      <option
-                        key={v.id}
-                        value={v.id}
-                        disabled={
-                          !optionAvailable(product, selection, option.id, v.id)
-                        }
-                      >
-                        {v.value}
-                        {!optionAvailable(product, selection, option.id, v.id)
-                          ? " — unavailable"
-                          : ""}
-                      </option>
-                    ))}
-                  </Select>
-                </fieldset>
+              {currentProduct.options.map((option) => (
+                <ProductOptionSelector
+                  key={option.id}
+                  product={currentProduct}
+                  option={option}
+                  selection={selection}
+                  onChange={(value) => {
+                    setSelection((current) =>
+                      chooseOptionValue(
+                        currentProduct,
+                        current,
+                        option.id,
+                        value,
+                      ),
+                    );
+                    setSelectedImage(undefined);
+                  }}
+                />
               ))}
             </div>
           )}
-          <p
-            role="status"
-            className={variant ? "product-reference" : "product-selection-note"}
-          >
-            {variant
-              ? `SKU: ${variant.sku}`
-              : complete
-                ? "This combination is not offered in the catalog."
-                : "Choose each option to see its price."}
-          </p>
+          <div className="product-stock" role="status">
+            {unavailable ? (
+              <Badge tone="unavailable">Out of stock</Badge>
+            ) : variant?.availability_status === "low_stock" ||
+              variant?.low_stock ? (
+              <Badge tone="warning">
+                {variant.available_quantity !== undefined
+                  ? `Only ${variant.available_quantity} left`
+                  : "Low stock"}
+              </Badge>
+            ) : variant ? (
+              <Badge tone="success">In stock</Badge>
+            ) : (
+              <span>Choose your options to see availability.</span>
+            )}
+          </div>
           <AddToCart
+            key={variant?.id ?? "unselected"}
             variantId={variant?.id}
             available={!unavailable && !!variant}
+            outOfStock={unavailable}
+            availableQuantity={variant?.available_quantity}
+            onAddFailure={refreshAvailability}
           />
-          <div className="product-confidence" aria-label="Shopping information">
-            <p>Stock is checked again before your order is placed.</p>
-            <p>
-              Delivery charges and tax are shown before you confirm your total.
-            </p>
-            <p>Payment follows order review.</p>
+          <div className="product-information">
+            <details open>
+              <summary>Product details</summary>
+              <p className="catalog-description">
+                {currentProduct.description}
+              </p>
+            </details>
+            <details>
+              <summary>Delivery &amp; checkout</summary>
+              <p>
+                Delivery and taxes are shown before you place your order.
+                Payment follows order review.
+              </p>
+            </details>
           </div>
-          <section
-            className="product-description"
-            aria-labelledby="product-description-heading"
-          >
-            <h2 id="product-description-heading">Product details</h2>
-            <p className="catalog-description">{product.description}</p>
-          </section>
-          <p className="catalog-note">
-            Prices in NGN. Tax is calculated separately.
-          </p>
         </div>
       </article>
     </>

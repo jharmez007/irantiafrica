@@ -17,6 +17,13 @@ export type Destinations = {
   states: Record<string, string>;
   areas: { state_code: string; locality_code: string | null }[];
 };
+export type ShippingMethod = {
+  code: string;
+  name: string;
+  description: string | null;
+  estimate: string | null;
+  amount_minor: string;
+};
 export type Checkout = {
   order_id?: string | null;
   id: string;
@@ -32,6 +39,7 @@ export type Checkout = {
   currency: "NGN";
   expires_at: string;
   fingerprint: string | null;
+  shipping_method_code: string | null;
   subtotal_minor: string;
   tax_minor: string | null;
   delivery_minor: string | null;
@@ -42,7 +50,12 @@ export type Checkout = {
     product_tax_minor: string;
     delivery_tax_minor: string;
     delivery_taxable: boolean;
-    delivery: { service_label: string };
+    delivery: {
+      code: string;
+      service_label: string;
+      description?: string | null;
+      estimate?: string | null;
+    };
   } | null;
   lines: {
     id: string;
@@ -51,7 +64,6 @@ export type Checkout = {
     line_subtotal_minor: string;
     snapshot: {
       name: string;
-      sku: string;
       options: string[];
       image: CatalogImage | null;
     };

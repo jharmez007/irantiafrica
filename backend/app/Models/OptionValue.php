@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
@@ -10,17 +11,19 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $product_id
  * @property string $option_id
  * @property string $value
+ * @property string|null $swatch_hex
+ * @property CarbonImmutable|null $archived_at
  * @property int $position
  */
 class OptionValue extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['product_id', 'option_id', 'value', 'position'];
+    protected $fillable = ['product_id', 'option_id', 'value', 'swatch_hex', 'position', 'archived_at'];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
-        return ['position' => 'integer'];
+        return ['position' => 'integer', 'archived_at' => 'immutable_datetime'];
     }
 }

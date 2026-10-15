@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Cart\CartService;
 use App\Checkout\CheckoutConfiguration;
 use App\Fulfilment\FulfilmentService;
+use App\Models\Cart;
 use App\Models\Order;
 use App\Models\User;
 use App\Orders\OrderService;
@@ -16,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 
 final class OrderController
 {
-    public function __construct(private OrderService $orders) {}
+    public function __construct(private OrderService $orders, private CartService $cart) {}
 
     private function user(Request $r): ?User
     {
@@ -105,6 +107,26 @@ final class OrderController
         return response()->json(['data' => $this->orders->projection($this->orders->read($o), true, true)]);
     }
 
+    public function cartRecovery(Request $r, string $id): JsonResponse
+    {
+        $this->only($r, []);
+        $token = $r->cookie('iranti_order_'.str_replace('-', '', $id));
+        $order = $this->orders->owned($id, $this->user($r), is_string($token) ? $token : null);
+        $user = $this->user($r);
+        if ($user) {
+            $cart = Cart::where('user_id', $user->id)->where('status', 'active')->first();
+        } else {
+            $cartToken = $r->cookie('iranti_cart');
+            $cart = is_string($cartToken) && preg_match('/^[0-9a-f]{64}$/D', $cartToken)
+                ? Cart::whereNull('user_id')->where('guest_token_hash', hash('sha256', $cartToken))->where('status', 'active')->where('expires_at', '>', CheckoutConfiguration::now())->first()
+                : null;
+        }
+        abort_unless($cart && $cart->id === $order->source_cart_id, 404);
+        abort_unless($order->source_cart_version === $cart->version || $order->status === 'PENDING_PAYMENT' || $order->payment_state === 'REQUIRES_REVIEW', 404);
+
+        return response()->json(['data' => $this->cart->recoveryForOrder($cart, $order)], 200, ['Cache-Control' => 'no-store, private']);
+    }
+
     public function adminShow(Request $r, string $id): JsonResponse
     {
         $this->only($r, []);
@@ -115,7 +137,7 @@ final class OrderController
     /** @return array<string,mixed> */
     private function orderProjection(Order $o, bool $detail, bool $cancel, bool $admin, ?User $user): array
     {
-        $data = $this->orders->projection($o, $detail, $cancel);
+        $data = $this->orders->projection($o, $detail, $cancel, $admin);
         if ($admin && ! $user?->hasPermission('payments.reconcile')) {
             $data['payment'] = ['state' => $o->paid_at ? 'SUCCESSFUL' : 'PENDING', 'available' => false];
         }
@@ -144,6 +166,6 @@ final class OrderController
         $token = $r->cookie('iranti_order_'.str_replace('-', '', $id));
         $o = $this->orders->cancelUnpaid($id, $this->user($r), is_string($token) ? $token : null, $data['expected_version'], trim($data['reason']), $admin);
 
-        return response()->json(['data' => $this->orders->projection($o, true, true)]);
+        return response()->json(['data' => $this->orders->projection($o, true, true, $admin)]);
     }
 }

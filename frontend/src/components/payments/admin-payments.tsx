@@ -32,6 +32,29 @@ type AdminAttempt = Attempt & {
     created_at: string;
   }[];
 };
+function paymentDate(value: string | null) {
+  if (!value) return null;
+  const iso = value.includes("T") ? value : value.replace(" ", "T");
+  const withOffset = /[+-]\d{2}$/.test(iso) ? `${iso}:00` : iso;
+  const timestamp = new Date(withOffset);
+  if (Number.isNaN(timestamp.getTime())) return value;
+  return `${new Intl.DateTimeFormat("en-NG", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Africa/Lagos",
+  }).format(timestamp)} WAT`;
+}
+function paymentDay(value: string) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return value;
+  return new Intl.DateTimeFormat("en-NG", {
+    dateStyle: "medium",
+    timeZone: "Africa/Lagos",
+  }).format(timestamp);
+}
+function paymentEvent(event: NonNullable<AdminAttempt["history"]>[number]) {
+  return event.outcome.replaceAll("_", " ").toLowerCase();
+}
 export function AdminPayments() {
   const { user, loading } = useAuth();
   const allowed =
@@ -118,7 +141,7 @@ export function AdminPayments() {
           <Link href="/admin/orders">Order payment summaries</Link>
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && !selected && <p role="alert">{error}</p>}
       {allowed && !rows && !error && (
         <PageSkeleton
           kind="admin-table"
@@ -127,8 +150,8 @@ export function AdminPayments() {
         />
       )}
       {allowed && rows?.user === user?.id && (
-        <>
-          <p role="status">
+        <div className="admin-payments">
+          <p className="admin-payments-intro" role="status">
             {rows?.items.length
               ? "Payment attempts, newest first."
               : "No payment attempts."}
@@ -148,7 +171,9 @@ export function AdminPayments() {
           >
             {rows.items.map((a) => (
               <tr key={a.id}>
-                <th scope="row">{a.reference}</th>
+                <th scope="row" className="admin-payment-reference-cell">
+                  {a.reference}
+                </th>
                 <td>
                   <Link href={`/admin/orders/${a.order_id}`}>
                     {a.order_number}
@@ -172,7 +197,7 @@ export function AdminPayments() {
                     </p>
                   )}
                 </td>
-                <td>{new Date(a.created_at).toLocaleDateString("en-NG")}</td>
+                <td>{paymentDay(a.created_at)}</td>
                 <td>
                   <Button
                     variant="secondary"
@@ -194,60 +219,180 @@ export function AdminPayments() {
               if (!busy) setSelected(null);
             }}
             title="Payment details"
+            className="admin-payment-modal"
           >
             {rows.items
               .filter((a) => a.id === selected)
               .map((a) => (
-                <div key={a.id}>
-                  <p>Reference: {a.reference}</p>
-                  <p>
-                    <Link href={`/admin/orders/${a.order_id}`}>
-                      {a.order_number}
-                    </Link>
-                  </p>
-                  <p>
-                    <StatusBadge value={a.status} /> ·{" "}
-                    <Price value={a.amount_minor} />
-                  </p>
-                  {error && <p role="alert">{error}</p>}
-                  {a.financial_hold && <p>Financial hold — review required.</p>}
-                  {a.review_reason && (
-                    <p>
-                      Review:{" "}
-                      {a.review_reason.replaceAll("_", " ").toLowerCase()}
+                <div className="admin-payment-detail" key={a.id}>
+                  <div className="admin-payment-summary">
+                    <div>
+                      <p className="eyebrow">Payment reference</p>
+                      <p className="admin-payment-reference">{a.reference}</p>
+                      <StatusBadge value={a.status} />
+                    </div>
+                    <div className="admin-payment-amount">
+                      <span>Amount</span>
+                      <strong>
+                        <Price value={a.amount_minor} />
+                      </strong>
+                    </div>
+                  </div>
+                  <dl className="admin-payment-facts">
+                    <div>
+                      <dt>Order</dt>
+                      <dd>
+                        <Link href={`/admin/orders/${a.order_id}`}>
+                          {a.order_number}
+                        </Link>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Created</dt>
+                      <dd>{paymentDate(a.created_at)}</dd>
+                    </div>
+                    <div>
+                      <dt>Last checked</dt>
+                      <dd>{paymentDate(a.last_checked_at) ?? "Not checked"}</dd>
+                    </div>
+                    <div>
+                      <dt>Next check</dt>
+                      <dd>
+                        {paymentDate(a.next_check_at) ??
+                          "Manual review or final result"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {(a.financial_hold || a.review_reason) && (
+                    <section
+                      className="admin-payment-review"
+                      aria-label="Payment review"
+                    >
+                      <h3>Review required</h3>
+                      {a.review_reason && (
+                        <p>
+                          Reason:{" "}
+                          {a.review_reason.replaceAll("_", " ").toLowerCase()}
+                        </p>
+                      )}
+                      {a.financial_hold && (
+                        <p>
+                          Financial hold is active. Review before fulfilment or
+                          refunds.
+                        </p>
+                      )}
+                    </section>
+                  )}
+                  {a.receipts.length > 0 && (
+                    <section
+                      className="admin-payment-receipts"
+                      aria-label="Receipts"
+                    >
+                      <h3>Receipts</h3>
+                      <ul>
+                        {a.receipts.map((r, i) => (
+                          <li key={i}>
+                            <span>
+                              <Price value={r.amount_minor} />
+                            </span>
+                            <span>
+                              {r.applied_at
+                                ? "Applied"
+                                : "Unapplied — review required"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  {error && (
+                    <p className="admin-payment-error" role="alert">
+                      {error}
                     </p>
                   )}
-                  <p>Last checked: {a.last_checked_at ?? "Not checked"}</p>
-                  <p>
-                    Next check:{" "}
-                    {a.next_check_at ?? "Manual review or final result"}
-                  </p>
-                  {a.receipts.map((r, i) => (
-                    <p key={i}>
-                      Receipt <Price value={r.amount_minor} /> ·{" "}
-                      {r.applied_at ? "Applied" : "Unapplied — review required"}
-                    </p>
-                  ))}
-                  <Button
-                    loading={busy}
-                    onClick={() => void inspect(a.id, true)}
+                  <div className="admin-payment-actions">
+                    <Button
+                      loading={busy}
+                      onClick={() => void inspect(a.id, true)}
+                    >
+                      {busy ? "Checking…" : "Verify with provider"}
+                    </Button>
+                  </div>
+                  <section
+                    className="admin-payment-history"
+                    aria-labelledby="admin-payment-history-heading"
                   >
-                    {busy ? "Checking…" : "Verify with provider"}
-                  </Button>
-                  <h3>History</h3>
-                  {!a.history ? (
-                    <InlineSpinner label="Loading payment history…" />
-                  ) : (
-                    <ul>
-                      {a.history.map((h, i) => (
-                        <li key={i}>
-                          {h.created_at} ·{" "}
-                          {h.outcome.replaceAll("_", " ").toLowerCase()} ·{" "}
-                          <StatusBadge value={h.status} />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                    <div className="admin-payment-section-heading">
+                      <h3 id="admin-payment-history-heading">History</h3>
+                      {a.history && (
+                        <span>
+                          {a.history.length}{" "}
+                          {a.history.length === 1 ? "event" : "events"}
+                        </span>
+                      )}
+                    </div>
+                    {!a.history ? (
+                      <InlineSpinner label="Loading payment history…" />
+                    ) : a.history.length === 0 ? (
+                      <p>No payment events recorded.</p>
+                    ) : (
+                      <>
+                        <ol className="admin-payment-event-list">
+                          {a.history.slice(0, 4).map((h, i) => (
+                            <li key={i}>
+                              <div>
+                                <strong>{paymentEvent(h)}</strong>
+                                {h.status !== h.outcome && (
+                                  <StatusBadge value={h.status} />
+                                )}
+                              </div>
+                              <p className="admin-payment-event-meta">
+                                <time dateTime={h.created_at}>
+                                  {paymentDate(h.created_at)}
+                                </time>
+                                <span>
+                                  {" "}
+                                  ·{" "}
+                                  {h.source.replaceAll("_", " ").toLowerCase()}
+                                </span>
+                              </p>
+                            </li>
+                          ))}
+                        </ol>
+                        {a.history.length > 4 && (
+                          <details className="admin-payment-earlier">
+                            <summary>
+                              Show {a.history.length - 4} earlier events
+                            </summary>
+                            <ol className="admin-payment-event-list" start={5}>
+                              {a.history.slice(4).map((h, i) => (
+                                <li key={i}>
+                                  <div>
+                                    <strong>{paymentEvent(h)}</strong>
+                                    {h.status !== h.outcome && (
+                                      <StatusBadge value={h.status} />
+                                    )}
+                                  </div>
+                                  <p className="admin-payment-event-meta">
+                                    <time dateTime={h.created_at}>
+                                      {paymentDate(h.created_at)}
+                                    </time>
+                                    <span>
+                                      {" "}
+                                      ·{" "}
+                                      {h.source
+                                        .replaceAll("_", " ")
+                                        .toLowerCase()}
+                                    </span>
+                                  </p>
+                                </li>
+                              ))}
+                            </ol>
+                          </details>
+                        )}
+                      </>
+                    )}
+                  </section>
                 </div>
               ))}
           </Modal>
@@ -256,7 +401,7 @@ export function AdminPayments() {
               Next page
             </Button>
           )}
-        </>
+        </div>
       )}
     </AdminShell>
   );

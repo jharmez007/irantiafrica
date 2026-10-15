@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   PaymentPanel,
@@ -84,7 +90,7 @@ describe("payments", () => {
         attempts: [{ ...attempt, status: "SUCCEEDED" }],
       });
     render(<PaymentPanel order={order} returning />);
-    await screen.findByText(/Payment confirmed/);
+    await screen.findByText("Payment successful");
     expect(mock.request).toHaveBeenCalledWith(
       "/orders/owned-order/payment-attempts/attempt/verify",
       "POST",
@@ -103,7 +109,10 @@ describe("payments", () => {
       };
       mock.request.mockResolvedValue({ order: current, attempts: [attempt] });
       render(<PaymentPanel order={current} />);
-      await screen.findByText(/Reference:/);
+      await screen.findByText("Payment details");
+      expect(screen.getByText("Payment details").closest("details")?.open).toBe(
+        false,
+      );
       expect(screen.queryByLabelText("Payment method")).toBeNull();
       expect(screen.getByRole("status").textContent).not.toBe("");
     },
@@ -123,6 +132,34 @@ describe("payments", () => {
       expect(screen.getByLabelText("Payment method")).toBeTruthy();
     },
   );
+  it.each([
+    ["PENDING", "PENDING", "Awaiting confirmation"],
+    ["PENDING", "UNKNOWN", "Unable to confirm payment status"],
+    ["SUCCESSFUL", "SUCCEEDED", "Payment successful"],
+    ["FAILED", "FAILED", "Payment unsuccessful"],
+    ["REQUIRES_REVIEW", "UNKNOWN", "Unable to confirm payment status"],
+  ])(
+    "uses customer-facing copy for %s / %s",
+    async (state, attemptStatus, expected) => {
+      const current = {
+        ...order,
+        payment: { state, available: false },
+      };
+      mock.request.mockResolvedValue({
+        order: current,
+        attempts: [{ ...attempt, status: attemptStatus }],
+      });
+      render(<PaymentPanel order={current} compact />);
+      await screen.findByText("Payment details");
+      expect(screen.getByRole("status").textContent).toContain(expected);
+      expect(screen.getByRole("status").textContent).not.toMatch(
+        /UNKNOWN|hosted/,
+      );
+      expect(screen.getByText("Payment details").closest("details")?.open).toBe(
+        false,
+      );
+    },
+  );
   it("focuses verification status and keeps errors readable", async () => {
     mock.request
       .mockResolvedValueOnce({
@@ -131,13 +168,105 @@ describe("payments", () => {
       })
       .mockRejectedValue(new Error("Unable to check payment"));
     render(<PaymentPanel order={order} />);
-    await screen.findByText(/Reference:/);
+    await screen.findByText("Payment details");
     await userEvent
       .setup()
-      .click(screen.getByRole("button", { name: "Recheck payment" }));
+      .click(screen.getByRole("button", { name: "Check payment status" }));
     await screen.findByRole("alert");
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("status")),
+    );
+  });
+  it("shows a clear result when an unknown attempt remains unconfirmed", async () => {
+    const pending = {
+      ...order,
+      payment: { state: "PENDING", available: false },
+    };
+    const unknown = {
+      ...attempt,
+      status: "UNKNOWN",
+      last_checked_at: "2026-10-15T00:10:00Z",
+    };
+    mock.request
+      .mockResolvedValueOnce({ order: pending, attempts: [unknown] })
+      .mockResolvedValueOnce({ order: pending, attempts: [unknown] })
+      .mockResolvedValueOnce({
+        order: pending,
+        attempts: [{ ...unknown, last_checked_at: "2026-10-15T00:11:00Z" }],
+      });
+    render(<PaymentPanel order={pending} compact />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Check payment status" }),
+    );
+    await screen.findByText(
+      /We tried again, but the payment status is still unconfirmed/,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Unable to confirm payment status",
+    );
+    expect(
+      mock.request.mock.calls.filter((call) => call[1] === "POST"),
+    ).toHaveLength(1);
+  });
+  it("shows the last local check time and a safe next step for exhausted uncertainty", async () => {
+    const pending = {
+      ...order,
+      payment: { state: "PENDING", available: false },
+      reservation: {
+        status: "EXPIRED",
+        expires_at: "2026-10-15T00:00:00Z",
+        eligible: false,
+      },
+    } as OrderRecord;
+    mock.request.mockResolvedValue({
+      order: pending,
+      attempts: [
+        {
+          ...attempt,
+          status: "UNKNOWN",
+          failure_code: "RECONCILIATION_EXHAUSTED",
+          last_checked_at: "2026-10-15 07:28:22+00",
+        },
+      ],
+    });
+    render(<PaymentPanel order={pending} compact />);
+    await screen.findByText(/Last checked 15 Oct 2026, 08:28 WAT/);
+    expect(screen.getByRole("status").textContent).toContain(
+      "Repeated checks have not confirmed this payment. Do not make another payment.",
+    );
+    expect(screen.getByRole("status").textContent).not.toMatch(
+      /UNKNOWN|RECONCILIATION_EXHAUSTED/,
+    );
+  });
+  it("explains when no fresh verification completed", async () => {
+    const pending = {
+      ...order,
+      payment: { state: "PENDING", available: false },
+    };
+    const unknown = { ...attempt, status: "UNKNOWN", last_checked_at: null };
+    mock.request.mockResolvedValue({ order: pending, attempts: [unknown] });
+    render(<PaymentPanel order={pending} compact />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Check payment status" }),
+    );
+    await screen.findByText(/No new payment confirmation was available/);
+  });
+  it("refreshes a terminal attempt without verifying it again", async () => {
+    const failed = {
+      ...order,
+      payment: { state: "FAILED", available: false },
+    };
+    mock.request.mockResolvedValue({
+      order: failed,
+      attempts: [{ ...attempt, status: "FAILED" }],
+    });
+    render(<PaymentPanel order={failed} compact />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Check payment status" }),
+    );
+    await screen.findByText(/The payment was unsuccessful/);
+    expect(mock.request.mock.calls.some((call) => call[1] === "POST")).toBe(
+      false,
     );
   });
   it("rejects an unsafe redirect", async () => {
@@ -193,6 +322,55 @@ describe("payments", () => {
       {},
     );
     expect(screen.queryByRole("button", { name: /mark paid/i })).toBeNull();
+  });
+  it("organizes payment evidence without hiding earlier history", async () => {
+    const row = {
+      ...attempt,
+      order_id: order.id,
+      order_number: order.number,
+      checks: 6,
+      next_check_at: null,
+      review_reason: "RECONCILIATION_EXHAUSTED",
+      financial_hold: true,
+      receipts: [
+        {
+          amount_minor: "1662",
+          currency: "NGN",
+          channel: "card",
+          verified_at: "2026-10-15T12:00:00Z",
+          applied_at: null,
+          exception_code: "ORDER_NOT_ELIGIBLE",
+          verification_source: "manual",
+        },
+      ],
+      history: Array.from({ length: 6 }, (_, index) => ({
+        source: "manual_review",
+        outcome: "UNKNOWN",
+        status: "UNKNOWN",
+        created_at: `2026-10-15T${String(12 - index).padStart(2, "0")}:00:00Z`,
+      })),
+    };
+    mock.request
+      .mockResolvedValueOnce({ items: [row], next_cursor: null })
+      .mockResolvedValueOnce(row);
+    render(<AdminPayments />);
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    const dialog = screen.getByRole("dialog", { name: "Payment details" });
+    expect(within(dialog).getByText(attempt.reference)).toBeTruthy();
+    expect(
+      within(dialog).getByRole("heading", { name: "Review required" }),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText("Unapplied — review required"),
+    ).toBeTruthy();
+    expect(within(dialog).getByText("15 Oct 2026, 13:00 WAT")).toBeTruthy();
+    const earlier = within(dialog)
+      .getByText("Show 2 earlier events")
+      .closest("details");
+    expect(earlier?.open).toBe(false);
+    await userEvent.click(within(dialog).getByText("Show 2 earlier events"));
+    expect(earlier?.open).toBe(true);
+    expect(within(dialog).getAllByText(/manual review/)).toHaveLength(6);
   });
 });
 

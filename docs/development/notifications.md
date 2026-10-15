@@ -12,6 +12,8 @@ After projection commits, the relay dispatches ID-only `DeliverTransactionalEmai
 
 ## Local startup and safe mail
 
+For the 2026-10-14 local commerce UAT only, an explicit `LOCAL_SMTP_UAT_ENABLED=true` plus `MAIL_MAILER=smtp`, implicit TLS (`MAIL_SCHEME=smtps`), an approved sender and `MAIL_STAGING_RECIPIENT` may send real transactional mail to **only that owner-controlled sink**. Missing/invalid sink fails closed; testing still forces array mail. This opt-in does not change staging/production or identity recovery behavior. Set `TRANSACTIONAL_EMAIL_START_AT` before the intended UAT event to avoid historical backlog, restart the long-running queue worker after changing local environment, and check `notifications:status` plus the recipient inbox. Transport acceptance is not proof of inbox delivery. Disable the opt-in after the exercise. The ordinary local default remains a simulated array/Mailpit sink.
+
 Apply additive migrations normally from `backend`:
 
 ```sh
@@ -20,7 +22,7 @@ Apply additive migrations normally from `backend`:
 
 Do not run `migrate:fresh` on `iranti_local`. Tests guard the separate `iranti_test` database.
 
-The tracked defaults leave `TRANSACTIONAL_EMAIL_ENABLED=false`. Enable it in the **untracked local** environment to exercise automatic lifecycle delivery. Local and testing force the in-memory Laravel `array` mailer even if SMTP is configured. Delivery status is SIMULATED; it does not contact a provider or log email bodies. The ephemeral sink is not an inbox and worker exit discards its messages. Synthetic previews are the persistent development inspection tool.
+The tracked defaults leave `TRANSACTIONAL_EMAIL_ENABLED=false`. Enable it in the **untracked local** environment to exercise automatic lifecycle delivery. By default, local and testing force the in-memory Laravel `array` mailer even if SMTP is configured. Delivery status is SIMULATED; it does not contact a provider or log email bodies. The ephemeral sink is not an inbox and worker exit discards its messages. Synthetic previews are the persistent development inspection tool.
 
 ```sh
 # Repository root: starts the configured native services and app processes
@@ -69,7 +71,7 @@ Required configuration, provided through deployment secrets/configuration:
 - Staging requires `MAIL_STAGING_RECIPIENT`, and **all new commerce mail** is redirected there. Historical intended recipient metadata stays on the intent; the override is not logged. This override does not alter the preexisting Identity password-reset flow: staging Identity must use synthetic test accounts only.
 - Provider-approved sender domain, SPF/DKIM and DMARC setup; verified public frontend origin and logo asset; approved support channel and monitored Reply-to if used.
 
-Production/staging array/log/failover modes fail closed for commerce email. An unknown environment fails closed. Local mail cannot be made live through MAIL_MAILER alone. Do not toggle a local database into production to test real delivery.
+Production/staging array/log/failover modes fail closed for commerce email. An unknown environment fails closed. Local mail cannot be made live through MAIL_MAILER alone; the separate guarded UAT opt-in and owner sink are both required. Do not toggle a local database into production to test real delivery.
 
 Known synchronous recipient rejection is terminal. Asynchronous bounce/complaint callbacks, recipient suppression and inbox delivery tracking are **not implemented or verified** without a selected provider. `BOUNCED` is reserved schema vocabulary, not a claimed working callback path. Before production activation, configure provider suppression and monitored bounce handling; if using application callbacks later, require verified signatures/replay protection and an approved adapter. A bounce must never cancel or refund an order. Provider outages with an ambiguous acceptance outcome stop at UNKNOWN rather than risking duplicate customer messages.
 

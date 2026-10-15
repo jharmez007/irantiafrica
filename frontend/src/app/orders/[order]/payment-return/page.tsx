@@ -1,4 +1,4 @@
-import { OrderPage } from "@/components/orders/order-page";
+import { PaymentResult } from "@/components/payments/payment-result";
 export const metadata = {
   title: "Payment confirmation | IRANTI Africa",
   robots: { index: false, follow: false },
@@ -10,5 +10,5 @@ export default async function Page({
   params: Promise<{ order: string }>;
 }) {
   const { order } = await params;
-  return <OrderPage id={order} guest paymentReturn />;
+  return <PaymentResult id={order} />;
 }

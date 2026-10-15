@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Product } from "@/lib/catalog";
+import { generalProductImage } from "@/lib/catalog";
 import { Badge, Price } from "@/components/ui";
 import { ProductImage } from "./product-image";
 
@@ -18,7 +19,7 @@ export function ProductCard({
       <Link href={`/products/${product.slug}`} className="product-card-link">
         <div className="product-card-media">
           <ProductImage
-            image={product.media[0]}
+            image={generalProductImage(product)}
             priority={priority}
             sizes="(max-width: 600px) calc(50vw - 23px), (max-width: 800px) calc(50vw - 36px), (max-width: 1100px) calc(33.34vw - 32px), (max-width: 1400px) calc(25vw - 38px), 312px"
           />

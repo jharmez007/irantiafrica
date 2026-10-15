@@ -1,5 +1,11 @@
 # 02 — UI components
 
+## Phase 3N data-driven Colour swatches — 2026-10-13
+
+`ProductOptionSelector` renders a visible value name beside an optional decorative swatch for `Colour`/`Color`/`Colourway`/`Colorway`. It uses the validated `option_values.swatch_hex` first, a short allowlisted common-name fallback second, and otherwise a text-only chip. Unknown marketing names never become raw CSS values. The selected chip uses `aria-pressed` and a stronger outline; unavailable chips are disabled with an explicit “Unavailable” label. Every swatch, including white/ivory/cream/beige, has a neutral border against the cream background. Selection still drives price, availability and variant-image gallery behavior.
+
+The admin Colour editor shows compact, wrapping swatch-and-name chips with an accessible `Actions for {name}` overflow button. `+ Add colour` and `Edit colour` use the same focused Name-and-Swatch dialog, with a synchronized native picker/`#RRGGBB` field; neither expands the option row. Exact common names receive a suggested value; custom names begin blank, and duplicate names are rejected. Other existing option types also add a value in a compact dialog without a picker. `Remove colour` first loads a server-side history preview listing affected SKUs, then confirms either permanent unused-Draft removal (with explicit image reassignment) or removal from sale with SKU/history retained. Removed historical values appear only in a collapsed admin note and never in customer choices or new variant generation. The variant table uses contextual actions. Swatches have no independent customer-facing label; the visible colour name remains the accessible name.
+
 ## Phase 3N category and checkout UX addendum — 2026-10-03
 
 `CategoryCard` reads the two approved Baskets & Storage and Home Décor illustrations from `frontend/src/lib/category-imagery.ts` and the public category assets. Other categories continue to use their available product image. A category without either uses a small branded abstract mark, never a numeric sequence. Category names and navigation still come from the catalog API; this mapping is presentation-only and does not add a category media model.

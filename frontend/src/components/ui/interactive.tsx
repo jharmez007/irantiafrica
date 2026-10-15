@@ -36,6 +36,10 @@ type DialogProps = {
   title: string;
   children: ReactNode;
   className?: string;
+  returnFocusTo?: HTMLElement | null;
+  initialFocus?: string;
+  descriptionId?: string;
+  lockScroll?: boolean;
 };
 function Dialog({
   open,
@@ -43,6 +47,10 @@ function Dialog({
   title,
   children,
   className = "",
+  returnFocusTo,
+  initialFocus,
+  descriptionId,
+  lockScroll = false,
   drawer = false,
 }: DialogProps & { drawer?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -51,20 +59,26 @@ function Dialog({
     const dialog = ref.current;
     if (!dialog || !open) return;
     const trigger =
-      document.activeElement instanceof HTMLElement
+      returnFocusTo ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
     dialog.showModal();
+    const previousOverflow = document.body.style.overflow;
+    if (lockScroll) document.body.style.overflow = "hidden";
+    if (initialFocus) dialog.querySelector<HTMLElement>(initialFocus)?.focus();
     return () => {
       dialog.close();
+      if (lockScroll) document.body.style.overflow = previousOverflow;
       trigger?.focus();
     };
-  }, [open]);
+  }, [open, returnFocusTo, initialFocus, lockScroll]);
   return (
     <dialog
       ref={ref}
       className={`${drawer ? "dialog drawer" : "dialog modal"} ${className}`.trim()}
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

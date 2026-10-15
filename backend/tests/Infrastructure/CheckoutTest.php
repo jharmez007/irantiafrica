@@ -206,7 +206,7 @@ final class CheckoutTest extends TestCase
                 $c['payload']['delivery_tax']['rate'] = null;
             }
             if ($case === 'duplicate') {
-                $c['payload']['zones'][] = array_merge($c['payload']['zones'][0], ['code' => 'DUPLICATE']);
+                $c['payload']['zones'][] = $c['payload']['zones'][0];
             }
             try {
                 app(CheckoutConfiguration::class)->publish($c, $this->owner);
@@ -220,6 +220,44 @@ final class CheckoutTest extends TestCase
         app(CheckoutConfiguration::class)->publish($c, $this->owner);
         $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/validate', ['expected_version' => $s['version']])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
         $this->assertDatabaseCount('reservations', 0);
+    }
+
+    public function test_multiple_shipping_methods_selection_state_change_and_inactive_exclusion(): void
+    {
+        $config = $this->configuration();
+        $config['payload']['zones'][] = array_merge($config['payload']['zones'][0], ['code' => 'EXPRESS', 'service_label' => 'Express delivery', 'amount_minor' => '805']);
+        $config['payload']['zones'][] = array_merge($config['payload']['zones'][0], ['code' => 'INACTIVE', 'active' => false]);
+        app(CheckoutConfiguration::class)->publish($config, $this->owner);
+        $this->add($this->variant())->assertOk();
+        $s = $this->addressed($this->start());
+        $methods = $this->browser('GET', '/api/v1/checkout/shipping-methods?state_code=LAGOS')->assertOk()->json('data');
+        $this->assertEqualsCanonicalizing(['LAGOS', 'EXPRESS'], array_column($methods, 'code'));
+        $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/validate', ['expected_version' => $s['version']])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
+        $quoted = $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/shipping-method', ['expected_version' => $s['version'], 'code' => 'EXPRESS'])->assertOk()->json('data');
+        $this->assertSame('805', $quoted['delivery_minor']);
+        $this->assertSame('EXPRESS', $quoted['calculation']['delivery']['code']);
+        $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/shipping-method', ['expected_version' => $quoted['version'], 'code' => 'INACTIVE'])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
+        $changed = $this->addressData();
+        $changed['state_code'] = 'FCT';
+        $updated = $this->browser('PATCH', '/api/v1/checkout/'.$s['id'].'/address', ['expected_version' => $quoted['version'], 'email' => 'checkout@example.test', 'address' => $changed])->assertOk()->json('data');
+        $this->assertNull($updated['shipping_method_code']);
+        $this->assertNull($updated['total_minor']);
+        $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/shipping-method', ['expected_version' => $updated['version'], 'code' => 'EXPRESS'])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
+    }
+
+    public function test_published_product_tax_treatment_cannot_be_removed_by_configuration(): void
+    {
+        app(CheckoutConfiguration::class)->publish($this->configuration(), $this->owner);
+        $this->variant();
+        $next = $this->configuration();
+        $next['payload']['product_rules'][0]['category'] = 'OTHER';
+        try {
+            app(CheckoutConfiguration::class)->publish($next, $this->owner);
+            $this->fail('Published product tax treatment was removed.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('product_rules', $exception->errors());
+        }
+        $this->assertDatabaseCount('checkout_configurations', 1);
     }
 
     public function test_non_taxable_delivery_history_and_configuration_change_release_hold(): void
@@ -557,13 +595,16 @@ final class CheckoutTest extends TestCase
     {
         $u = $this->customer();
         $this->login($u);
+        $this->browser('GET', '/api/v1/admin/checkout-configurations/current')->assertForbidden();
         $this->browser('POST', '/api/v1/admin/checkout-configurations', $this->configuration())->assertForbidden();
         $this->login($this->owner);
+        $this->browser('GET', '/api/v1/admin/checkout-configurations/current')->assertForbidden();
         $this->browser('POST', '/api/v1/admin/checkout-configurations', $this->configuration())->assertForbidden();
         $enrollment = $this->browser('POST', '/api/v1/auth/mfa/enroll')->assertOk()->json('data');
         $totp = new Google2FA;
         $this->browser('POST', '/api/v1/auth/mfa/confirm', ['code' => $totp->oathTotp($enrollment['secret'], $totp->getTimestamp() - 1)])->assertOk();
         $this->browser('POST', '/api/v1/admin/checkout-configurations', $this->configuration())->assertCreated();
+        $this->browser('GET', '/api/v1/admin/checkout-configurations/current')->assertOk()->assertJsonPath('data.current.payload.zones.0.code', 'LAGOS');
         $this->assertDatabaseCount('checkout_configurations', 1);
         $this->assertSame(1, DB::table('audit_logs')->where('action', 'checkout.configuration_published')->count());
     }

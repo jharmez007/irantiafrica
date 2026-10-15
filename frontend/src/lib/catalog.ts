@@ -19,7 +19,10 @@ export type CatalogImage = {
 export type Variant = {
   id: string;
   available: boolean;
-  sku: string;
+  available_quantity?: number;
+  availability_status?: "in_stock" | "low_stock" | "out_of_stock";
+  sku?: string;
+  low_stock?: boolean;
   unit_price_minor: string;
   currency: "NGN";
   option_value_ids: string[];
@@ -27,6 +30,28 @@ export type Variant = {
   price_version?: number;
   inventory?: { on_hand: number; reserved: number; available: number } | null;
 };
+export function generalProductImage(
+  product: Product,
+): CatalogImage | undefined {
+  return (
+    product.media.find((image) => image.variant_id === null) ?? product.media[0]
+  );
+}
+export function variantImageGallery(
+  product: Product,
+  variantId?: string,
+): CatalogImage[] {
+  const general = product.media.filter((image) => image.variant_id === null);
+  if (!variantId) return general.length ? general : product.media;
+  const specific = product.media.filter(
+    (image) => image.variant_id === variantId,
+  );
+  return specific.length
+    ? [...specific, ...general]
+    : general.length
+      ? general
+      : [];
+}
 export type Product = {
   id?: string;
   available: boolean;
@@ -42,7 +67,12 @@ export type Product = {
   options: {
     id: string;
     name: string;
-    values: { id: string; value: string }[];
+    values: {
+      id: string;
+      value: string;
+      swatch_hex?: string | null;
+      removed?: boolean;
+    }[];
   }[];
   variants: Variant[];
   media: CatalogImage[];
@@ -86,21 +116,38 @@ export function resolveVariant(
 export function canManageCatalog(roles: string[] = []): boolean {
   return roles.includes("owner");
 }
-export function optionAvailable(
-  product: Product,
-  selection: Record<string, string>,
-  optionId: string,
-  valueId: string,
-): boolean {
-  const candidate = { ...selection, [optionId]: valueId };
+export function optionAvailable(product: Product, valueId: string): boolean {
   return product.variants.some(
     (variant) =>
       variant.status !== "archived" &&
       variant.available === true &&
-      Object.values(candidate)
-        .filter(Boolean)
-        .every((id) => variant.option_value_ids.includes(id)),
+      variant.option_value_ids.includes(valueId),
   );
+}
+export function chooseOptionValue(
+  product: Product,
+  selection: Record<string, string>,
+  optionId: string,
+  valueId: string,
+): Record<string, string> {
+  const next: Record<string, string> = { [optionId]: valueId };
+  for (const option of product.options) {
+    if (option.id === optionId || !selection[option.id]) continue;
+    const candidate = { ...next, [option.id]: selection[option.id] };
+    if (
+      product.variants.some(
+        (variant) =>
+          variant.status !== "archived" &&
+          variant.available &&
+          Object.values(candidate).every((id) =>
+            variant.option_value_ids.includes(id),
+          ),
+      )
+    ) {
+      next[option.id] = selection[option.id];
+    }
+  }
+  return next;
 }
 export function catalogParams(
   input: Record<string, string | string[] | undefined>,

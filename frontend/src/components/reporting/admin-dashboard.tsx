@@ -423,8 +423,8 @@ export function AdminDashboard({
                     counts={data.notifications.counts}
                   />
                   <p>
-                    Simulated means local testing. Sent means transport
-                    acceptance, not inbox delivery.
+                    Simulated messages were recorded without external delivery.
+                    Sent means transport acceptance, not inbox delivery.
                   </p>
                 </>
               ) : (
@@ -680,8 +680,8 @@ export function AdminDashboard({
                     counts={data.notifications.counts}
                   />
                   <p>
-                    SIMULATED means local testing; SENT means transport
-                    acceptance, not inbox delivery.
+                    Simulated messages were recorded without external delivery.
+                    Sent means transport acceptance, not inbox delivery.
                   </p>
                 </section>
               )}

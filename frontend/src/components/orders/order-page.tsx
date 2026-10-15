@@ -2,12 +2,9 @@
 import { AdminTable, StatusBadge } from "@/components/admin/primitives";
 import Link from "next/link";
 import { PageSkeleton } from "@/components/loading";
-import { ReturnsPanel } from "@/components/returns/returns-panel";
 import { FulfilmentPanel } from "./fulfilment-panel";
-import {
-  PaymentPanel,
-  paymentMessage,
-} from "@/components/payments/payment-panel";
+import { CustomerOrderDetail } from "./customer-order-detail";
+import { paymentMessage } from "@/components/payments/payment-panel";
 import {
   useCallback,
   useEffect,
@@ -19,6 +16,7 @@ import { useAuth } from "@/components/auth-provider";
 import { AdminShell } from "@/components/brand/layouts";
 import { toast } from "@/lib/toast";
 import { Button, Price } from "@/components/ui";
+import { ProductImage } from "@/components/catalog/product-image";
 import {
   orderRequest,
   type OrderRecord,
@@ -151,7 +149,7 @@ export function OrderPage({
   }
   const body = (
     <>
-      {!admin && (
+      {!admin && !id && (
         <nav aria-label="Order navigation" className="order-navigation">
           <Link href={admin ? "/admin" : "/account"}>
             {admin ? "Staff workspace" : "Your account"}
@@ -324,90 +322,133 @@ export function OrderPage({
           )}
         </>
       )}
-      {order && (
-        <article className="order-detail">
-          <header>
-            <p className="eyebrow">Order reference</p>
-            <h2 className="order-reference">{order.number}</h2>
-            <p>
-              {date(order.created_at)} WAT · {label(order.status)}
-            </p>
-            <p role="status" tabIndex={-1} ref={error ? undefined : focus}>
-              {order.status === "CANCELLED"
-                ? "This order is cancelled."
-                : paymentMessage(order.payment.state, order.status)}
-            </p>
-            <p>Payment: {label(order.payment.state)}</p>
-            <p>
-              Reservation: {label(order.reservation.status)} · deadline{" "}
-              {date(order.reservation.expires_at)} WAT.
-            </p>
+      {order && !admin && (
+        <CustomerOrderDetail
+          order={order}
+          scope={scope}
+          guest={guest}
+          paymentReturn={paymentReturn}
+          reload={reload}
+          changed={(data) => {
+            sequence.current++;
+            setResult({ scope, data });
+          }}
+        />
+      )}
+      {order && admin && (
+        <article className="order-detail admin-order-detail">
+          <header className="admin-order-header">
+            <div className="admin-order-header-main">
+              <div>
+                <p className="eyebrow">Order reference</p>
+                <h2 className="order-reference">{order.number}</h2>
+                <p>Placed {date(order.created_at)} WAT</p>
+              </div>
+              <StatusBadge value={order.status} />
+            </div>
+            <dl className="admin-order-status-grid">
+              <div>
+                <dt>Payment</dt>
+                <dd>
+                  <StatusBadge value={order.payment.state} />
+                </dd>
+              </div>
+              <div>
+                <dt>Stock reservation</dt>
+                <dd>
+                  <StatusBadge value={order.reservation.status} />
+                  {order.reservation.status === "ACTIVE" && (
+                    <small>
+                      Until {date(order.reservation.expires_at)} WAT
+                    </small>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Items</dt>
+                <dd>{order.item_count}</dd>
+              </div>
+            </dl>
+            {(order.status === "CANCELLED" ||
+              order.payment.state !== "SUCCESSFUL") && (
+              <div
+                className="admin-order-notice"
+                role="status"
+                tabIndex={-1}
+                ref={error ? undefined : focus}
+              >
+                {order.status === "CANCELLED"
+                  ? "This order is cancelled."
+                  : paymentMessage(order.payment.state, order.status)}
+              </div>
+            )}
             {!order.reservation.eligible &&
               order.status === "PENDING_PAYMENT" && (
-                <p>
+                <p className="admin-order-notice">
                   This order cannot proceed with its current reservation. Stock
-                  must be reviewed before a future payment attempt. Your order
-                  has been retained.
+                  must be reviewed before a future payment attempt.
                 </p>
               )}
-            {order.calculation?.development_only && (
-              <p className="order-notice">DEVELOPMENT CONFIGURATION ONLY</p>
-            )}
           </header>
-          {!admin &&
-            (order.payment.available ||
-              order.payment.state !== "NOT_STARTED" ||
-              paymentReturn) && (
-              <PaymentPanel
-                key={scope}
-                order={order}
-                returning={paymentReturn}
-                changed={reload}
-              />
-            )}
-          {admin &&
-            user?.authentication_state === "authenticated" &&
-            user.roles?.includes("owner") && (
-              <Link href="/admin/payments">
-                Payment attempts and reconciliation
-              </Link>
-            )}
-          <FulfilmentPanel
-            key={scope}
-            order={order}
-            admin={admin}
-            changed={(data) => {
-              sequence.current++;
-              setResult({ scope, data });
-            }}
-          />
-          {!admin && <ReturnsPanel key={scope + ":returns"} order={order} />}
-          {admin && <Link href="/admin/returns">Returns and refunds</Link>}
-          <div className="order-columns">
-            <section aria-labelledby="order-items-heading">
-              <h2 id="order-items-heading">{admin ? "Items" : "Your items"}</h2>
-              <ul className="order-list">
-                {order.lines?.map((line) => (
-                  <li className="order-line" key={line.id}>
-                    <h3>{line.snapshot.name}</h3>
-                    <p>SKU {line.snapshot.sku}</p>
-                    <p>{line.snapshot.options.join(" · ")}</p>
-                    <p>
-                      Quantity {line.quantity} · Each{" "}
-                      <Price value={line.unit_price_minor} />
-                    </p>
-                    <p>
-                      Items <Price value={line.line_subtotal_minor} /> · Tax{" "}
-                      <Price value={line.tax_minor} />
-                    </p>
-                    <p>
-                      Line total <Price value={line.line_total_minor} />
-                    </p>
-                  </li>
-                ))}
-              </ul>
+          <nav className="admin-order-links" aria-label="Related order records">
+            <Link href="/admin/orders">← All orders</Link>
+            {user?.authentication_state === "authenticated" &&
+              user.roles?.includes("owner") && (
+                <Link href="/admin/payments">Payment records</Link>
+              )}
+            <Link href="/admin/returns">Returns and refunds</Link>
+          </nav>
+          <div className="order-columns admin-order-overview">
+            <div className="admin-order-primary">
+              <section
+                className="admin-order-items-card"
+                aria-labelledby="order-items-heading"
+              >
+                <div className="admin-order-section-heading">
+                  <h2 id="order-items-heading">Items</h2>
+                  <span>
+                    {order.item_count}{" "}
+                    {order.item_count === 1 ? "item" : "items"}
+                  </span>
+                </div>
+                <ul className="admin-order-item-list">
+                  {order.lines?.map((line) => (
+                    <li className="admin-order-item" key={line.id}>
+                      <div className="admin-order-item-image">
+                        <ProductImage
+                          image={line.snapshot.image ?? undefined}
+                          sizes="80px"
+                        />
+                      </div>
+                      <div className="admin-order-item-info">
+                        <h3>{line.snapshot.name}</h3>
+                        {line.snapshot.options.length > 0 && (
+                          <p>{line.snapshot.options.join(" · ")}</p>
+                        )}
+                        {line.snapshot.sku && <p>SKU {line.snapshot.sku}</p>}
+                        <p>
+                          Qty {line.quantity} ×{" "}
+                          <Price value={line.unit_price_minor} />
+                        </p>
+                      </div>
+                      <div className="admin-order-item-amount">
+                        <span>Line total</span>
+                        <strong>
+                          <Price value={line.line_total_minor} />
+                        </strong>
+                        <small>
+                          Includes <Price value={line.tax_minor} /> tax
+                        </small>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
               {order.contact && (
-                <section aria-labelledby="order-delivery-heading">
+                <section
+                  className="admin-order-delivery-card"
+                  aria-labelledby="order-delivery-heading"
+                >
                   <h2 id="order-delivery-heading">Delivery details</h2>
                   <address className="order-address">
                     {order.contact.address.recipient_name}
@@ -431,9 +472,9 @@ export function OrderPage({
                   </address>
                 </section>
               )}
-            </section>
+            </div>
             <section
-              className="order-summary"
+              className="order-summary admin-order-summary"
               aria-labelledby="order-total-heading"
             >
               <h2 id="order-total-heading">Order total</h2>
@@ -454,22 +495,29 @@ export function OrderPage({
                   </div>
                 ))}
               </dl>
-              <p>These amounts are the historical order snapshot.</p>
+              <p>Historical order amounts</p>
             </section>
           </div>
+          <FulfilmentPanel
+            key={scope}
+            order={order}
+            admin={admin}
+            changed={(data) => {
+              sequence.current++;
+              setResult({ scope, data });
+            }}
+          />
           {order.can_cancel && (
             <form onSubmit={(e) => void cancel(e)} className="order-cancel">
-              {admin && (
-                <label>
-                  Cancellation reason
-                  <textarea
-                    required
-                    maxLength={500}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                </label>
-              )}
+              <label>
+                Cancellation reason
+                <textarea
+                  required
+                  maxLength={500}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </label>
               <p>
                 Cancel this unpaid order and release any remaining stock hold.
                 Order history is retained.
@@ -479,10 +527,8 @@ export function OrderPage({
               </Button>
             </form>
           )}
-          <section aria-labelledby="order-history-heading">
-            <h2 id="order-history-heading">
-              {admin ? "Timeline" : "Status history"}
-            </h2>
+          <details className="admin-order-history">
+            <summary>Status history</summary>
             <ol>
               {order.history?.map((h, i) => (
                 <li key={i}>
@@ -490,7 +536,7 @@ export function OrderPage({
                 </li>
               ))}
             </ol>
-          </section>
+          </details>
         </article>
       )}
     </>
@@ -503,9 +549,16 @@ export function OrderPage({
       {body}
     </AdminShell>
   ) : (
-    <main id="main-content" className="container order-page">
-      <p className="eyebrow">IRANTI Africa</p>
-      <h1>{id ? "Your order" : "Order history"}</h1>
+    <main
+      id="main-content"
+      className={`container order-page${id ? " order-page--detail" : ""}`}
+    >
+      {(!id || !order) && (
+        <>
+          <p className="eyebrow">IRANTI Africa</p>
+          <h1>{id ? "Order details" : "Order history"}</h1>
+        </>
+      )}
       {body}
     </main>
   );

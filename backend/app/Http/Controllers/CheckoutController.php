@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 final class CheckoutController
@@ -153,7 +154,51 @@ final class CheckoutController
             }
         });
 
-        return response()->json(['data' => ['states' => NigeriaAddress::states(), 'areas' => array_map(fn ($z) => ['state_code' => $z['state_code'], 'locality_code' => $z['locality_code']], $zones)]]);
+        $areas = collect($zones)->map(fn ($z) => ['state_code' => $z['state_code'], 'locality_code' => $z['locality_code']])->unique(fn ($area) => $area['state_code'].':'.($area['locality_code'] ?? ''))->values()->all();
+
+        return response()->json(['data' => ['states' => NigeriaAddress::states(), 'areas' => $areas]]);
+    }
+
+    public function shippingMethods(Request $r): JsonResponse
+    {
+        $data = $r->validate(['state_code' => ['required', Rule::in(array_keys(NigeriaAddress::states()))], 'locality_code' => ['nullable', 'string', 'regex:/^[A-Z0-9_-]{1,120}$/D']]);
+        $methods = DB::transaction(function () use ($data): array {
+            CheckoutConfiguration::lock();
+            $config = $this->configuration->current();
+
+            return array_map(fn ($z) => ['code' => $z['code'], 'name' => $z['service_label'], 'description' => $z['description'] ?? null, 'estimate' => $z['estimate'] ?? null, 'amount_minor' => $z['amount_minor']], $this->configuration->eligible($config, $data));
+        });
+
+        return response()->json(['data' => $methods]);
+    }
+
+    public function selectMethod(Request $r, string $id): JsonResponse
+    {
+        $this->only($r, ['expected_version', 'code']);
+        $data = $this->version($r) + $r->validate(['code' => ['required', 'string', 'regex:/^[A-Z0-9_-]{1,64}$/D']]);
+
+        return $this->response($this->checkout->command($id, $this->user($r), $this->token($r), 'method', $data));
+    }
+
+    public function adminConfiguration(Request $r): JsonResponse
+    {
+        $actor = $this->user($r) ?? abort(401);
+        abort_unless($actor->hasPermission('tax.configure') && $actor->hasPermission('shipping.configure'), 403);
+        $configuration = DB::transaction(function (): array {
+            CheckoutConfiguration::lock();
+            $baselineId = DB::table('checkout_configurations')->where('effective_from', '<=', CheckoutConfiguration::now()->format('Y-m-d H:i:s.uP'))->orderByDesc('effective_from')->value('id');
+            try {
+                return ['current' => $this->configuration->current(), 'baseline_id' => $baselineId];
+            } catch (CheckoutConflict $e) {
+                if ($e->checkoutCode !== 'TAX_CONFIGURATION_REQUIRED') {
+                    throw $e;
+                }
+
+                return ['current' => null, 'baseline_id' => $baselineId];
+            }
+        });
+
+        return response()->json(['data' => $configuration + ['states' => NigeriaAddress::states()]]);
     }
 
     public function publish(Request $r): JsonResponse

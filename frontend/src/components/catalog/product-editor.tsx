@@ -16,6 +16,13 @@ import {
 import { nairaToKobo, koboToNaira } from "@/lib/admin-money";
 import { toast } from "@/lib/toast";
 import { ProductImage } from "./product-image";
+import { isColourOption, resolveSwatch } from "@/lib/colour-swatches";
+import { displayTaxLabel } from "@/lib/business-copy";
+import {
+  AddOptionForm,
+  AddValueForm,
+  ColourValueDialog,
+} from "./admin-colour-swatch";
 import {
   allCategories,
   ArchiveDialog,
@@ -35,10 +42,32 @@ type PendingRemoval =
       kind: "variant";
       id: string;
       choice: string;
-      sku: string;
+      sku?: string;
       remove: boolean;
       priceVersion?: number;
     };
+type ValueRemovalPreview = {
+  allowed: boolean;
+  mode: "delete" | "archive" | "blocked";
+  variant_count: number;
+  media_count: number;
+  reason: string;
+  variants: { sku: string; status: string }[];
+};
+type PendingValueRemoval = {
+  optionId: string;
+  valueId: string;
+  name: string;
+  preview: ValueRemovalPreview | null;
+  error: string;
+};
+function variantUsesRemovedValue(product: Product, variant: Variant): boolean {
+  return product.options.some((option) =>
+    option.values.some(
+      (value) => value.removed && variant.option_value_ids.includes(value.id),
+    ),
+  );
+}
 export function AdminProductEditor({ id }: { id?: string }) {
   return (
     <CatalogAccess owner={!id}>
@@ -73,6 +102,16 @@ function Editor({ id }: { id?: string }) {
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(
     null,
   );
+  const [pendingValueRemoval, setPendingValueRemoval] =
+    useState<PendingValueRemoval | null>(null);
+  const [editingColour, setEditingColour] = useState<{
+    optionId: string;
+    valueId: string;
+    name: string;
+    swatch: string | null;
+  } | null>(null);
+  const [addingOptionId, setAddingOptionId] = useState<string | null>(null);
+  const addValueTrigger = useRef<HTMLElement | null>(null);
   const [pollError, setPollError] = useState("");
   const inFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -174,7 +213,11 @@ function Editor({ id }: { id?: string }) {
         (await catalogAdmin<{ data: Product }>(`/products/${id}`)).data,
       );
   }
-  async function run(action: () => Promise<void>, message = "Saved.") {
+  async function run(
+    action: () => Promise<void>,
+    message = "Saved.",
+    failureMessage?: string,
+  ) {
     if (inFlight.current) return false;
     inFlight.current = true;
     setBusy(true);
@@ -184,23 +227,80 @@ function Editor({ id }: { id?: string }) {
       toast.success(message);
       return true;
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Save failed. Please try again.",
-      );
+      const failure =
+        failureMessage ??
+        (e instanceof Error ? e.message : "Save failed. Please try again.");
+      setError(failure);
+      if (failureMessage) toast.error(failure);
       return false;
     } finally {
       inFlight.current = false;
       setBusy(false);
     }
   }
-  async function mutate(path: string, method: string, data: unknown) {
-    await run(async () => {
+  async function saveCatalog(path: string, method: string, data: unknown) {
+    return run(async () => {
       const r = await catalogAdmin<{ data: Product }>(path, method, data);
       setProduct(r.data);
       setGeneralRevision((x) => x + 1);
     });
   }
+  async function saveModalValue(path: string, method: string, data: unknown) {
+    if (inFlight.current) throw new Error("A save is already in progress.");
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const result = await catalogAdmin<{ data: Product }>(path, method, data);
+      setProduct(result.data);
+      setGeneralRevision((revision) => revision + 1);
+      toast.success("Saved.");
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+  async function mutate(path: string, method: string, data: unknown) {
+    await saveCatalog(path, method, data);
+  }
+  async function previewValueRemoval(
+    optionId: string,
+    valueId: string,
+    name: string,
+  ) {
+    setPendingValueRemoval({
+      optionId,
+      valueId,
+      name,
+      preview: null,
+      error: "",
+    });
+    try {
+      const result = await catalogAdmin<{ data: ValueRemovalPreview }>(
+        `/options/${optionId}/values/${valueId}/removal-preview`,
+      );
+      setPendingValueRemoval((current) =>
+        current?.valueId === valueId
+          ? { ...current, preview: result.data }
+          : current,
+      );
+    } catch (cause) {
+      setPendingValueRemoval((current) =>
+        current?.valueId === valueId
+          ? {
+              ...current,
+              error:
+                cause instanceof Error
+                  ? cause.message
+                  : "Removal details could not be loaded.",
+            }
+          : current,
+      );
+    }
+  }
   const editable = manage && product?.status !== "archived";
+  const addingOption = product?.options.find(
+    (option) => option.id === addingOptionId,
+  );
   return (
     <div className="admin-workspace product-editor">
       <nav aria-label="Breadcrumb">
@@ -328,7 +428,12 @@ function Editor({ id }: { id?: string }) {
                 <p>{product?.description}</p>
                 <p>
                   Tax treatment:{" "}
-                  {product?.tax_treatment_label ?? "Needs configuration"}
+                  {product?.tax_treatment_label
+                    ? displayTaxLabel(
+                        product.tax_treatment_label,
+                        product.tax_category_code ?? undefined,
+                      )
+                    : "Needs configuration"}
                 </p>
               </>
             )}
@@ -358,11 +463,12 @@ function Editor({ id }: { id?: string }) {
                 )}
                 {product.kind === "variant" && (
                   <>
-                    <p>
-                      Add the choices customers can select, such as Colour and
-                      Size. Then enter a SKU and naira price for each
-                      combination you sell.
-                    </p>
+                    {!product.options.length && (
+                      <p>
+                        Add an option and its values before creating variant
+                        SKUs.
+                      </p>
+                    )}
                     {product.options.map((o) => (
                       <section
                         className="variant-option"
@@ -393,60 +499,101 @@ function Editor({ id }: { id?: string }) {
                           className="variant-value-list"
                           aria-label={`${o.name} values`}
                         >
-                          {o.values.map((v) => (
-                            <span className="variant-value-chip" key={v.id}>
-                              {v.value}
-                              {editable &&
-                                !dirty &&
-                                product.status === "draft" &&
-                                product.variants.length === 0 && (
-                                  <button
-                                    type="button"
-                                    aria-label={`Remove ${o.name} ${v.value}`}
-                                    disabled={busy}
-                                    onClick={() =>
-                                      void mutate(
-                                        `/options/${o.id}/values/${v.id}`,
-                                        "DELETE",
-                                        {
-                                          content_version:
-                                            product.content_version,
-                                        },
-                                      )
-                                    }
-                                  >
-                                    <span aria-hidden="true">×</span>
-                                  </button>
-                                )}
-                            </span>
-                          ))}
-                          {!o.values.length && <span>No values yet.</span>}
+                          {o.values
+                            .filter((v) => !v.removed)
+                            .map((v) => {
+                              const swatch = isColourOption(o.name)
+                                ? resolveSwatch(v)
+                                : null;
+                              return (
+                                <span className="variant-value-chip" key={v.id}>
+                                  {swatch && (
+                                    <span
+                                      className="product-colour-swatch"
+                                      style={{ backgroundColor: swatch }}
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  {v.value}
+                                  {editable && !dirty && (
+                                    <ActionMenu
+                                      compact
+                                      label={`Actions for ${v.value}`}
+                                    >
+                                      {isColourOption(o.name) && (
+                                        <button
+                                          type="button"
+                                          disabled={busy}
+                                          onClick={() =>
+                                            setEditingColour({
+                                              optionId: o.id,
+                                              valueId: v.id,
+                                              name: v.value,
+                                              swatch: v.swatch_hex ?? null,
+                                            })
+                                          }
+                                        >
+                                          Edit colour
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="button--danger"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          void previewValueRemoval(
+                                            o.id,
+                                            v.id,
+                                            v.value,
+                                          )
+                                        }
+                                      >
+                                        Remove{" "}
+                                        {isColourOption(o.name)
+                                          ? "colour"
+                                          : "value"}
+                                      </button>
+                                    </ActionMenu>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          {!o.values.some((v) => !v.removed) && (
+                            <span>No active values.</span>
+                          )}
                         </div>
-                        {product.variants.length > 0 && (
-                          <p className="form-help">
-                            This option is linked to saved variants. Remove
-                            individual variants from sale below; their SKUs and
-                            history stay intact.
-                          </p>
+                        {o.values.some((v) => v.removed) && (
+                          <details className="variant-removed-values">
+                            <summary>
+                              Removed {o.name.toLowerCase()} values (
+                              {o.values.filter((v) => v.removed).length})
+                            </summary>
+                            <p>
+                              {o.values
+                                .filter((v) => v.removed)
+                                .map((v) => v.value)
+                                .join(", ")}{" "}
+                              · Historical SKUs and images are retained.
+                            </p>
+                          </details>
                         )}
                         {editable && !dirty && (
-                          <form
-                            method="post"
-                            className="admin-inline-form"
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              const f = new FormData(e.currentTarget);
-                              void mutate(`/options/${o.id}/values`, "POST", {
-                                values: [f.get("value")],
-                              });
-                            }}
-                          >
-                            <label>
-                              Add a value to {o.name}
-                              <Input name="value" required maxLength={120} />
-                            </label>
-                            <Button disabled={busy}>Add value</Button>
-                          </form>
+                          <>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={(event) => {
+                                addValueTrigger.current = event.currentTarget;
+                                setAddingOptionId(o.id);
+                              }}
+                            >
+                              + Add{" "}
+                              {isColourOption(o.name)
+                                ? "colour"
+                                : o.name.toLowerCase()}
+                            </Button>
+                          </>
                         )}
                       </section>
                     ))}
@@ -454,42 +601,20 @@ function Editor({ id }: { id?: string }) {
                       !dirty &&
                       product.status === "draft" &&
                       !product.variants.length && (
-                        <form
-                          method="post"
-                          className="admin-form-grid"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            const f = new FormData(e.currentTarget);
-                            void mutate(`/products/${id}/options`, "POST", {
-                              name: f.get("name"),
-                              values: String(f.get("values"))
-                                .split(",")
-                                .map((x) => x.trim())
-                                .filter(Boolean),
-                            });
-                          }}
-                        >
-                          <label>
-                            Option name
-                            <Input
-                              name="name"
-                              required
-                              placeholder="Colour"
-                              maxLength={100}
-                            />
-                          </label>
-                          <label>
-                            Values, separated by commas
-                            <Input
-                              name="values"
-                              required
-                              placeholder="Green, Orange, Cream"
-                            />
-                          </label>
-                          <Button disabled={busy}>Add option</Button>
-                        </form>
+                        <AddOptionForm
+                          busy={busy}
+                          save={(name, values) =>
+                            saveCatalog(`/products/${id}/options`, "POST", {
+                              name,
+                              values,
+                            })
+                          }
+                        />
                       )}
                   </>
+                )}
+                {product.kind === "variant" && product.variants.length > 0 && (
+                  <h3 className="variant-table-heading">Variants</h3>
                 )}
                 {product.kind === "variant" && product.variants.length > 0 && (
                   <div
@@ -536,39 +661,49 @@ function Editor({ id }: { id?: string }) {
                               {v.inventory?.available ?? 0}
                             </td>
                             <td>
-                              {editable && !dirty && (
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const remove = v.status === "active";
-                                    const choice = product.options
-                                      .map(
-                                        (o) =>
-                                          o.values.find((value) =>
-                                            v.option_value_ids.includes(
-                                              value.id,
-                                            ),
-                                          )?.value,
-                                      )
-                                      .filter(Boolean)
-                                      .join(" / ");
-                                    setPendingRemoval({
-                                      kind: "variant",
-                                      id: v.id,
-                                      choice,
-                                      sku: v.sku,
-                                      remove,
-                                      priceVersion: v.price_version,
-                                    });
-                                  }}
+                              {editable &&
+                              !dirty &&
+                              variantUsesRemovedValue(product, v) ? (
+                                <span className="form-help">
+                                  History retained
+                                </span>
+                              ) : editable && !dirty ? (
+                                <ActionMenu
+                                  compact
+                                  label={`Actions for variant ${v.sku}`}
                                 >
-                                  {v.status === "active"
-                                    ? "Remove from sale"
-                                    : "Restore to sale"}
-                                </Button>
-                              )}
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const remove = v.status === "active";
+                                      const choice = product.options
+                                        .map(
+                                          (o) =>
+                                            o.values.find((value) =>
+                                              v.option_value_ids.includes(
+                                                value.id,
+                                              ),
+                                            )?.value,
+                                        )
+                                        .filter(Boolean)
+                                        .join(" / ");
+                                      setPendingRemoval({
+                                        kind: "variant",
+                                        id: v.id,
+                                        choice,
+                                        sku: v.sku,
+                                        remove,
+                                        priceVersion: v.price_version,
+                                      });
+                                    }}
+                                  >
+                                    {v.status === "active"
+                                      ? "Remove from sale"
+                                      : "Restore to sale"}
+                                  </button>
+                                </ActionMenu>
+                              ) : null}
                             </td>
                           </tr>
                         ))}
@@ -655,8 +790,8 @@ function Editor({ id }: { id?: string }) {
               >
                 <h2>Product images</h2>
                 <p>
-                  Add clear images of this product. The first image is used as
-                  the main storefront image.
+                  Add clear images for all variations or a specific variation.
+                  The first general image is the main collection image.
                 </p>
                 {processing && (
                   <p role="status">
@@ -680,6 +815,7 @@ function Editor({ id }: { id?: string }) {
                 )}
                 <ImageGallery
                   media={product.media}
+                  product={product}
                   editable={!!editable && !dirty}
                   busy={busy}
                   update={async (image, data) =>
@@ -711,11 +847,16 @@ function Editor({ id }: { id?: string }) {
                 {editable && !dirty && (
                   <Upload
                     busy={busy}
-                    upload={async (file, alt) =>
-                      run(async () => {
-                        await uploadImage(product.id!, file, alt);
-                        await reload();
-                      }, "Image uploaded. Processing image…")
+                    product={product}
+                    upload={async (file, alt, variantId) =>
+                      run(
+                        async () => {
+                          await uploadImage(product.id!, file, alt, variantId);
+                          await reload();
+                        },
+                        "Image uploaded. Processing image…",
+                        "Image upload failed. Check the file and try again.",
+                      )
                     }
                   />
                 )}
@@ -815,6 +956,176 @@ function Editor({ id }: { id?: string }) {
                   );
                 }}
               />
+              {editingColour && (
+                <ColourValueDialog
+                  key={editingColour.valueId}
+                  mode="edit"
+                  initialName={editingColour.name}
+                  initialSwatch={editingColour.swatch}
+                  existingNames={product.options
+                    .flatMap((option) =>
+                      option.id === editingColour.optionId ? option.values : [],
+                    )
+                    .filter((value) => value.id !== editingColour.valueId)
+                    .map((value) => value.value)}
+                  busy={busy}
+                  onClose={() => setEditingColour(null)}
+                  save={(name, swatch_hex) =>
+                    saveModalValue(
+                      `/options/${editingColour.optionId}/values/${editingColour.valueId}`,
+                      "PATCH",
+                      {
+                        value: name,
+                        swatch_hex,
+                        content_version: product.content_version,
+                      },
+                    )
+                  }
+                />
+              )}
+              {addingOption &&
+                (isColourOption(addingOption.name) ? (
+                  <ColourValueDialog
+                    key={addingOption.id}
+                    mode="create"
+                    existingNames={addingOption.values.map(
+                      (value) => value.value,
+                    )}
+                    busy={busy}
+                    returnFocusTo={addValueTrigger.current}
+                    onClose={() => setAddingOptionId(null)}
+                    save={(name, swatch_hex) =>
+                      saveModalValue(
+                        `/options/${addingOption.id}/values`,
+                        "POST",
+                        {
+                          values: [{ value: name, swatch_hex }],
+                        },
+                      )
+                    }
+                  />
+                ) : (
+                  <Modal
+                    open
+                    title={`Add ${addingOption.name.toLowerCase()} value`}
+                    className="catalog-colour-modal"
+                    returnFocusTo={addValueTrigger.current}
+                    initialFocus="input"
+                    onClose={() => !busy && setAddingOptionId(null)}
+                  >
+                    <AddValueForm
+                      optionName={addingOption.name}
+                      busy={busy}
+                      cancel={() => setAddingOptionId(null)}
+                      save={(value) =>
+                        saveModalValue(
+                          `/options/${addingOption.id}/values`,
+                          "POST",
+                          {
+                            values: [value],
+                          },
+                        )
+                      }
+                    />
+                  </Modal>
+                ))}
+              <Modal
+                open={!!pendingValueRemoval}
+                onClose={() => {
+                  if (!busy) setPendingValueRemoval(null);
+                }}
+                title={`Remove ${pendingValueRemoval?.name ?? "value"}?`}
+                className="catalog-colour-modal"
+              >
+                {pendingValueRemoval && (
+                  <div className="admin-colour-remove-content">
+                    {!pendingValueRemoval.preview &&
+                      !pendingValueRemoval.error && (
+                        <p role="status">
+                          Checking linked variants and history…
+                        </p>
+                      )}
+                    {pendingValueRemoval.error && (
+                      <Alert tone="error">{pendingValueRemoval.error}</Alert>
+                    )}
+                    {pendingValueRemoval.preview && (
+                      <>
+                        <p>{pendingValueRemoval.preview.reason}</p>
+                        {pendingValueRemoval.preview.variant_count > 0 && (
+                          <>
+                            <p>
+                              Linked variants:{" "}
+                              {pendingValueRemoval.preview.variant_count}.
+                              Variant images:{" "}
+                              {pendingValueRemoval.preview.media_count}.
+                            </p>
+                            <div className="admin-colour-affected-variants">
+                              <strong>Affected SKUs</strong>
+                              <ul>
+                                {pendingValueRemoval.preview.variants.map(
+                                  (variant) => (
+                                    <li key={variant.sku}>
+                                      {variant.sku} ·{" "}
+                                      {variant.status === "active"
+                                        ? "Active"
+                                        : "Already removed from sale"}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                    <div className="admin-colour-form-actions">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => setPendingValueRemoval(null)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        disabled={busy || !pendingValueRemoval.preview?.allowed}
+                        onClick={async () => {
+                          const target = pendingValueRemoval;
+                          if (!target?.preview?.allowed) return;
+                          const saved = await saveCatalog(
+                            `/options/${target.optionId}/values/${target.valueId}`,
+                            "DELETE",
+                            {
+                              content_version: product.content_version,
+                              reassign_variant_media:
+                                target.preview.mode === "delete" &&
+                                target.preview.media_count > 0,
+                            },
+                          );
+                          if (saved) setPendingValueRemoval(null);
+                          else
+                            setPendingValueRemoval(
+                              (current) =>
+                                current && {
+                                  ...current,
+                                  error:
+                                    "Removal failed. Review the error and reload this product before retrying.",
+                                },
+                            );
+                        }}
+                      >
+                        {pendingValueRemoval.preview?.mode === "archive"
+                          ? "Remove from sale"
+                          : pendingValueRemoval.preview?.media_count
+                            ? "Remove and reassign images"
+                            : "Remove colour"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </Modal>
               <Modal
                 open={!!pendingRemoval}
                 onClose={() => {
@@ -952,8 +1263,22 @@ function PublicationReadiness({ product }: { product: Product }) {
   );
 }
 
+function imageVariantLabel(product: Product, variantId: string): string {
+  const variant = product.variants.find(
+    (candidate) => candidate.id === variantId,
+  );
+  if (!variant) return "Variation unavailable";
+  const values = product.options.flatMap((option) =>
+    option.values
+      .filter((value) => variant.option_value_ids.includes(value.id))
+      .map((value) => value.value),
+  );
+  return values.join(" / ") || "Standard version";
+}
+
 function ImageGallery({
   media,
+  product,
   editable,
   busy,
   update,
@@ -961,28 +1286,26 @@ function ImageGallery({
   remove,
 }: {
   media: CatalogImage[];
+  product: Product;
   editable: boolean;
   busy: boolean;
   update: (
     image: CatalogImage,
-    data: { alt_text?: string; position?: number },
+    data: { alt_text?: string; position?: number; variant_id?: string | null },
   ) => Promise<boolean>;
   reorder: (ordered: CatalogImage[]) => Promise<boolean>;
   remove: (image: CatalogImage) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
   const [removing, setRemoving] = useState<CatalogImage | null>(null);
   const shown = [...media]
     .filter((m) => !["retired", "rejected"].includes(m.status ?? ""))
     .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
-  function move(index: number, direction: -1 | 1) {
-    const next = [...shown];
-    [next[index], next[index + direction]] = [
-      next[index + direction],
-      next[index],
-    ];
-    void reorder(next);
-  }
+  const activeVariants = product.variants.filter(
+    (variant) => variant.status !== "archived",
+  );
+  const primary = shown.find((image) => image.variant_id === null) ?? shown[0];
   return (
     <>
       {!shown.length && (
@@ -991,27 +1314,61 @@ function ImageGallery({
       <div className="media-gallery" aria-label="Product image gallery">
         {shown.map((m, index) => (
           <article className="media-tile" key={m.id}>
-            <ProductImage image={m} />
+            <div className="media-tile-visual">
+              <ProductImage image={m} />
+              {primary?.id === m.id && (
+                <span className="media-primary-badge">Primary image</span>
+              )}
+            </div>
             <div className="media-tile-heading">
-              <span>{index === 0 ? "Main image" : `Image ${index + 1}`}</span>
+              <span
+                className="media-scope-badge"
+                title={
+                  m.variant_id
+                    ? imageVariantLabel(product, m.variant_id)
+                    : "All variants"
+                }
+              >
+                {m.variant_id
+                  ? imageVariantLabel(product, m.variant_id)
+                  : "All variants"}
+              </span>
               {editable && (
-                <ActionMenu label={`Image ${index + 1} actions`}>
-                  {index > 0 && (
+                <ActionMenu compact label={`Image ${index + 1} actions`}>
+                  {shown
+                    .slice(0, index)
+                    .some((image) => image.variant_id === m.variant_id) && (
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => move(index, -1)}
+                      onClick={() => {
+                        const next = shown.filter((image) => image.id !== m.id);
+                        const first = next.findIndex(
+                          (image) => image.variant_id === m.variant_id,
+                        );
+                        next.splice(first, 0, m);
+                        void reorder(next);
+                      }}
                     >
-                      {index === 1 ? "Make main image" : "Move left"}
+                      {m.variant_id ? "Show first for variant" : "Make primary"}
                     </button>
                   )}
-                  {index < shown.length - 1 && (
+                  {activeVariants.length > 0 && (
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => move(index, 1)}
+                      onClick={() => setAssigning(m.id)}
                     >
-                      Move right
+                      Assign to variant
+                    </button>
+                  )}
+                  {m.variant_id && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void update(m, { variant_id: null })}
+                    >
+                      Change to all variants
                     </button>
                   )}
                   <button
@@ -1034,6 +1391,47 @@ function ImageGallery({
             {m.status === "processing" || m.status === "quarantined" ? (
               <p role="status">Processing image…</p>
             ) : null}
+            {assigning === m.id && (
+              <form
+                method="post"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const variantId = String(
+                    new FormData(event.currentTarget).get("variant_id") ?? "",
+                  );
+                  if (!variantId) return;
+                  void update(m, { variant_id: variantId }).then((saved) => {
+                    if (saved) setAssigning(null);
+                  });
+                }}
+              >
+                <label>
+                  Applies to variation
+                  <Select
+                    name="variant_id"
+                    defaultValue={m.variant_id ?? ""}
+                    required
+                  >
+                    <option value="">Choose a variation</option>
+                    {activeVariants.map((variant) => (
+                      <option key={variant.id} value={variant.id}>
+                        {imageVariantLabel(product, variant.id)}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <div className="media-tile-actions">
+                  <Button disabled={busy}>Save assignment</Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setAssigning(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
             {editing === m.id && (
               <form
                 method="post"
@@ -1206,8 +1604,9 @@ function General({
         (!product?.tax_category_code ||
           product.tax_category_code === taxes.data[0].code) ? (
           <p className="form-help">
-            Tax treatment: {taxes.data[0].label}. Applied automatically when you
-            save.
+            Tax treatment:{" "}
+            {displayTaxLabel(taxes.data[0].label, taxes.data[0].code)}. Applied
+            automatically when you save.
           </p>
         ) : taxes.data.length > 0 ? (
           <label>
@@ -1233,7 +1632,7 @@ function General({
                 )}
               {taxes.data.map((t) => (
                 <option key={t.code} value={t.code}>
-                  {t.label}
+                  {displayTaxLabel(t.label, t.code)}
                 </option>
               ))}
             </Select>
@@ -1242,12 +1641,6 @@ function General({
           <p className="form-help">
             Tax setup is not available yet. You can save a draft; publishing
             requires a configured treatment.
-          </p>
-        )}
-        {taxes.development_only && (
-          <p className="form-help">
-            Development / test configuration only — not approved production tax
-            policy.
           </p>
         )}
         {taxError && (
@@ -1300,6 +1693,9 @@ function VariantEditor({
     : product.kind === "simple"
       ? "SKU and price"
       : "New variant";
+  const removedSelection = variant
+    ? variantUsesRemovedValue(product, variant)
+    : false;
   return (
     <form
       method="post"
@@ -1364,11 +1760,13 @@ function VariantEditor({
             {o.name}
             <Select name={o.id} required>
               <option value="">Choose {o.name}</option>
-              {o.values.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.value}
-                </option>
-              ))}
+              {o.values
+                .filter((v) => !v.removed)
+                .map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.value}
+                  </option>
+                ))}
             </Select>
           </label>
         ))}
@@ -1381,7 +1779,7 @@ function VariantEditor({
               defaultValue={variant.status}
               disabled={!editable}
             >
-              <option value="active">Active</option>
+              {!removedSelection && <option value="active">Active</option>}
               <option value="archived">Removed from sale</option>
             </Select>
           </label>
@@ -1423,13 +1821,15 @@ function VariantGenerator({
   const all = product.options.reduce<{ ids: string[]; label: string }[]>(
     (combinations, option) =>
       combinations.flatMap((combination) =>
-        option.values.map((value) => ({
-          ids: [...combination.ids, value.id],
-          label: [
-            ...(combination.label ? [combination.label] : []),
-            value.value,
-          ].join(" / "),
-        })),
+        option.values
+          .filter((value) => !value.removed)
+          .map((value) => ({
+            ids: [...combination.ids, value.id],
+            label: [
+              ...(combination.label ? [combination.label] : []),
+              value.value,
+            ].join(" / "),
+          })),
       ),
     [{ ids: [], label: "" }],
   );
@@ -1441,7 +1841,11 @@ function VariantGenerator({
           combination.ids.every((id) => variant.option_value_ids.includes(id)),
       ),
   );
-  if (product.options.some((option) => !option.values.length))
+  if (
+    product.options.some(
+      (option) => !option.values.some((value) => !value.removed),
+    )
+  )
     return (
       <p role="status">
         Add a value to each option before generating variants.
@@ -1551,74 +1955,222 @@ function VariantGenerator({
 }
 function Upload({
   busy,
+  product,
   upload,
 }: {
   busy: boolean;
-  upload: (file: File, alt: string) => Promise<boolean>;
+  product: Product;
+  upload: (file: File, alt: string, variantId?: string) => Promise<boolean>;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [scope, setScope] = useState<"all" | "specific">("all");
+  const [variantId, setVariantId] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    file?: string;
+    variant?: string;
+    description?: string;
+  }>({});
+  const fileInput = useRef<HTMLInputElement>(null);
+  const activeVariants = product.variants.filter(
+    (variant) => variant.status !== "archived",
+  );
+  const specific = activeVariants.length > 0 && scope === "specific";
   function selectFile(selected: File | null) {
+    if (
+      selected &&
+      !["image/jpeg", "image/png", "image/webp"].includes(selected.type)
+    ) {
+      setFieldErrors((errors) => ({
+        ...errors,
+        file: "Choose a JPEG, PNG or WebP image.",
+      }));
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
+    if (selected && (selected.size === 0 || selected.size > 10 * 1024 * 1024)) {
+      setFieldErrors((errors) => ({
+        ...errors,
+        file: "Choose an image larger than zero and no more than 10 MB.",
+      }));
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
+    setFieldErrors((errors) => ({ ...errors, file: undefined }));
     setFile(selected);
   }
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (file) {
-      const form = e.currentTarget;
-      void upload(file, String(new FormData(form).get("alt_text"))).then(
-        (saved) => {
-          if (saved) {
-            selectFile(null);
-            form.reset();
-            const fileInput = form.elements.namedItem("image_file");
-            if (fileInput instanceof HTMLInputElement) fileInput.value = "";
-          }
-        },
-      );
-    }
+    if (busy) return;
+    const form = e.currentTarget;
+    const description = String(new FormData(form).get("alt_text") ?? "").trim();
+    const errors = {
+      file: file
+        ? undefined
+        : (fieldErrors.file ?? "Choose an image to upload."),
+      variant: specific && !variantId ? "Choose a variant." : undefined,
+      description: description ? undefined : "Describe the image.",
+    };
+    setFieldErrors(errors);
+    if (!file || errors.variant || errors.description) return;
+    void upload(file, description, specific ? variantId : undefined).then(
+      (saved) => {
+        if (!saved) return;
+        setFile(null);
+        setScope("all");
+        setVariantId("");
+        setFieldErrors({});
+        form.reset();
+        if (fileInput.current) fileInput.current.value = "";
+      },
+    );
   }
   return (
     <form
       id="image-upload"
       method="post"
       className="admin-form-grid image-upload"
+      noValidate
       onSubmit={submit}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        selectFile(event.dataTransfer.files[0] ?? null);
-      }}
     >
-      <label>
-        Drag an image here or choose an image
+      <h3>Add product image</h3>
+      <div
+        className={`image-dropzone${dragging ? " image-dropzone--active" : ""}`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          if (!event.currentTarget.contains(event.relatedTarget as Node))
+            setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          selectFile(event.dataTransfer.files[0] ?? null);
+        }}
+      >
         <Input
+          ref={fileInput}
+          id="image-file"
           type="file"
           name="image_file"
+          className="image-file-input"
           accept="image/jpeg,image/png,image/webp"
-          required={!file}
+          aria-label="Choose image"
+          aria-invalid={!!fieldErrors.file}
+          aria-describedby="image-file-help image-file-error"
           onChange={(e) => {
             selectFile(e.target.files?.[0] ?? null);
           }}
         />
-      </label>
-      <p>JPEG, PNG or WebP. Maximum 10 MB; images are checked before use.</p>
-      {file && (
-        <p className="selected-image-file" role="status">
-          Selected file: {file.name}
-        </p>
-      )}
-      <label>
-        Image description
-        <Input
-          name="alt_text"
-          required
-          maxLength={500}
-          aria-describedby="upload-description-help"
-        />
-      </label>
-      <span id="upload-description-help" className="form-help">
-        Briefly describe the image for accessibility.
+        <span className="image-dropzone-title">
+          Drag image here or choose image
+        </span>
+        <label htmlFor="image-file" className="image-choose-button">
+          Choose image
+        </label>
+        <span id="image-file-help" className="form-help">
+          JPEG, PNG or WebP · Maximum 10 MB
+        </span>
+        {file && (
+          <span className="selected-image-file" role="status">
+            Selected file: {file.name}
+          </span>
+        )}
+      </div>
+      <span
+        id="image-file-error"
+        className="field-error"
+        role={fieldErrors.file ? "alert" : undefined}
+      >
+        {fieldErrors.file}
       </span>
-      <Button disabled={!file} loading={busy}>
+      {activeVariants.length > 0 && (
+        <fieldset className="image-upload-scope">
+          <legend>Applies to</legend>
+          <label>
+            <input
+              type="radio"
+              name="scope"
+              value="all"
+              checked={scope === "all"}
+              onChange={() => {
+                setScope("all");
+                setFieldErrors((errors) => ({ ...errors, variant: undefined }));
+              }}
+            />{" "}
+            All variants
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="scope"
+              value="specific"
+              checked={scope === "specific"}
+              onChange={() => setScope("specific")}
+            />{" "}
+            Specific variant
+          </label>
+        </fieldset>
+      )}
+      {specific && (
+        <div className="image-upload-variant">
+          <label htmlFor="image-variant">Variant</label>
+          <Select
+            id="image-variant"
+            value={variantId}
+            aria-invalid={!!fieldErrors.variant}
+            aria-describedby="image-variant-error"
+            onChange={(event) => {
+              setVariantId(event.target.value);
+              setFieldErrors((errors) => ({ ...errors, variant: undefined }));
+            }}
+          >
+            <option value="">Choose a variant</option>
+            {activeVariants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {imageVariantLabel(product, variant.id)}
+              </option>
+            ))}
+          </Select>
+          <span
+            id="image-variant-error"
+            className="field-error"
+            role={fieldErrors.variant ? "alert" : undefined}
+          >
+            {fieldErrors.variant}
+          </span>
+        </div>
+      )}
+      <div className="image-upload-description">
+        <label htmlFor="image-description">Image description</label>
+        <Input
+          id="image-description"
+          name="alt_text"
+          maxLength={500}
+          aria-invalid={!!fieldErrors.description}
+          aria-describedby="upload-description-help upload-description-error"
+          onChange={() =>
+            setFieldErrors((errors) => ({ ...errors, description: undefined }))
+          }
+        />
+        <span id="upload-description-help" className="form-help">
+          Briefly describe the image for accessibility.
+        </span>
+        <span
+          id="upload-description-error"
+          className="field-error"
+          role={fieldErrors.description ? "alert" : undefined}
+        >
+          {fieldErrors.description}
+        </span>
+      </div>
+      <Button disabled={busy} loading={busy}>
         {busy ? "Uploading / saving…" : "Upload image"}
       </Button>
     </form>

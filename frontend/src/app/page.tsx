@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Logo } from "@/components/brand/logo";
+import { HomeHero } from "@/components/brand/home-hero";
 import { Container, SectionHeader, EmptyState } from "@/components/ui";
 import { ProductCard } from "@/components/catalog/product-card";
 import { CategoryCard } from "@/components/catalog/category-card";
@@ -36,36 +37,7 @@ async function HomeContent() {
   return (
     <main id="main-content">
       <HomeSectionScroll />
-      <section className="home-hero">
-        <Container className="hero-grid">
-          <div className="hero-copy">
-            <p className="eyebrow">IRANTI AFRICA</p>
-            <h1>
-              Memories
-              <br />
-              of <em>Nigeria.</em>
-            </h1>
-            <p className="hero-intro">A little closer to home.</p>
-            <Link className="button button--primary" href="/products">
-              Explore the collection <span aria-hidden="true">↗</span>
-            </Link>
-            <div className="hero-footnote">
-              <span aria-hidden="true">01 /</span>
-              <p>
-                A place for the things
-                <br />
-                that stay with us.
-              </p>
-            </div>
-          </div>
-          <div className="hero-art">
-            <Logo variant="primary" linked={false} />
-            <span className="hero-art-caption">
-              IRANTI AFRICA — MEMORIES OF NIGERIA
-            </span>
-          </div>
-        </Container>
-      </section>
+      <HomeHero />
       <section id="collections" className="home-section">
         <Container>
           <SectionHeader
@@ -164,8 +136,8 @@ async function HomeContent() {
               <br />
               Memories of Nigeria.
             </p>
-            <Link className="text-link" href="/products">
-              Discover IRANTI <span aria-hidden="true">↗</span>
+            <Link className="text-link" href="/our-story">
+              Read our story <span aria-hidden="true">↗</span>
             </Link>
           </div>
         </Container>

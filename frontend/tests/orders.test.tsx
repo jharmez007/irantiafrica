@@ -4,12 +4,17 @@ vi.mock("@/components/returns/returns-panel", () => ({
 // @vitest-environment jsdom
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { OrderPage } from "../src/components/orders/order-page";
-import { PlaceOrder } from "../src/components/orders/place-order";
 import type { OrderRecord } from "../src/lib/order-api";
-import type { Checkout } from "../src/lib/checkout-api";
 const mock = vi.hoisted(() => ({
   request: vi.fn(),
   auth: { user: { id: "customer" } as { id: string } | null, loading: false },
@@ -66,88 +71,33 @@ const order: OrderRecord = {
         name: "Historical woven basket",
         sku: "ORIGINAL-SKU",
         options: ["Natural"],
+        image: {
+          id: "order-image",
+          variant_id: "variant-one",
+          alt_text: "Natural woven basket",
+          position: 0,
+          width: 640,
+          height: 480,
+          sources: [{ url: "/order-image.webp", width: 640, height: 480 }],
+        },
       },
     },
   ],
   history: [{ status: "PENDING_PAYMENT", at: "2026-09-23T12:00:00Z" }],
 };
-const checkout = {
-  id: "checkout-one",
-  ownership: "account",
-  status: "RESERVED",
-  version: 4,
-  fingerprint: "reviewed-fingerprint",
-} as Checkout;
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
   mock.request.mockReset();
   mock.auth.user = { id: "customer" };
   sessionStorage.clear();
 });
 afterEach(cleanup);
 describe("orders", () => {
-  it("creates only from the reviewed checkout and keeps the same retry key", async () => {
-    mock.request
-      .mockRejectedValueOnce(new Error("Temporary network failure"))
-      .mockResolvedValueOnce(order);
-    const created = vi.fn();
-    render(<PlaceOrder checkout={checkout} onCreated={created} />);
-    const user = userEvent.setup();
-    await user.click(
-      screen.getByRole("button", { name: "Create order — payment pending" }),
-    );
-    await screen.findByText("Temporary network failure");
-    await user.click(
-      screen.getByRole("button", { name: "Create order — payment pending" }),
-    );
-    await screen.findByRole("link", { name: "View your order" });
-    const [first, second] = mock.request.mock.calls;
-    expect(first.slice(0, 3)).toEqual([
-      "/orders",
-      "POST",
-      {
-        checkout_id: "checkout-one",
-        expected_version: 4,
-        fingerprint: "reviewed-fingerprint",
-      },
-    ]);
-    expect(second[3]).toBe(first[3]);
-    expect(created).toHaveBeenCalledWith("order-one");
-    expect(screen.getByText(/payment is still required/)).toBeTruthy();
-  });
-  it("restores placement retry identity after remount without storing contact or capability", async () => {
-    mock.request.mockRejectedValue(new Error("Connection lost"));
-    const user = userEvent.setup();
-    const r = render(<PlaceOrder checkout={checkout} />);
-    await user.click(screen.getByRole("button"));
-    await screen.findByText("Connection lost");
-    const key = mock.request.mock.calls[0][3];
-    r.unmount();
-    render(<PlaceOrder checkout={checkout} />);
-    await user.click(screen.getByRole("button"));
-    await waitFor(() => expect(mock.request).toHaveBeenCalledTimes(2));
-    expect(mock.request.mock.calls[1][3]).toBe(key);
-    expect(sessionStorage.getItem("iranti-order-create-checkout-one")).toBe(
-      key,
-    );
-  });
-  it("shows existing promoted order without another create action", () => {
-    render(<PlaceOrder checkout={{ ...checkout, order_id: "existing" }} />);
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.getByRole("link").getAttribute("href")).toBe(
-      "/account/orders/existing",
-    );
-  });
-  it("uses the scoped guest detail path and explains limited recovery", async () => {
-    mock.request.mockResolvedValue({ ...order, ownership: "guest" });
-    render(<PlaceOrder checkout={{ ...checkout, ownership: "guest" }} />);
-    await userEvent.click(screen.getByRole("button"));
-    expect((await screen.findByRole("link")).getAttribute("href")).toBe(
-      "/orders/order-one",
-    );
-    expect(
-      screen.getByText(/Email recovery is not available yet/),
-    ).toBeTruthy();
-  });
   it("renders order list and cursor navigation", async () => {
     mock.request
       .mockResolvedValueOnce({ items: [order], next_cursor: "next" })
@@ -163,10 +113,43 @@ describe("orders", () => {
     mock.request.mockResolvedValue(order);
     render(<OrderPage id="order-one" />);
     await screen.findByText("Historical woven basket");
-    expect(screen.getByText("SKU ORIGINAL-SKU")).toBeTruthy();
+    expect(screen.queryByText("SKU ORIGINAL-SKU")).toBeNull();
+    expect(
+      screen.getByAltText("Natural woven basket").getAttribute("src"),
+    ).toBe("/order-image.webp");
     expect(screen.getByText("₦16.62")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your items" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Delivery details" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Order activity" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Line total (incl. tax)")).toBeTruthy();
+    expect(
+      screen.queryByText("These amounts are the historical order snapshot."),
+    ).toBeNull();
     expect(screen.getByText(/Payment not started/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /pay now/i })).toBeNull();
+  });
+  it("keeps long historical product names and large stored amounts intact", async () => {
+    const longName =
+      "Hand-finished heritage woven travel basket with a removable leather shoulder strap and embroidered lining";
+    const largeTotal = "123456789";
+    mock.request.mockResolvedValue({
+      ...order,
+      total_minor: largeTotal,
+      lines: [
+        {
+          ...order.lines![0],
+          line_total_minor: largeTotal,
+          snapshot: { ...order.lines![0].snapshot, name: longName },
+        },
+      ],
+    });
+    render(<OrderPage id="order-one" />);
+    expect(await screen.findByRole("heading", { name: longName })).toBeTruthy();
+    expect(screen.getAllByText("₦1,234,567.89")).toHaveLength(2);
   });
   it("cancels with current version and preserves cancelled history", async () => {
     mock.request.mockResolvedValueOnce(order).mockResolvedValueOnce({
@@ -181,7 +164,15 @@ describe("orders", () => {
     });
     render(<OrderPage id="order-one" />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Cancel unpaid order" }),
+      await screen.findByRole("button", { name: "Cancel order" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Cancel this order?" }),
+    ).toBeTruthy();
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Cancel order",
+      }),
     );
     await screen.findByText("This order is cancelled.");
     expect(mock.request.mock.calls[1]).toEqual([
@@ -189,9 +180,36 @@ describe("orders", () => {
       "POST",
       { expected_version: 1, reason: "Customer cancelled before payment" },
     ]);
-    expect(
-      screen.queryByRole("button", { name: "Cancel unpaid order" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel order" })).toBeNull();
+  });
+  it("dismisses cancellation with Escape and restores focus without submitting", async () => {
+    mock.request.mockResolvedValue(order);
+    render(<OrderPage id="order-one" />);
+    const trigger = await screen.findByRole("button", { name: "Cancel order" });
+    await userEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Cancel this order?" });
+    fireEvent(dialog, new Event("cancel", { cancelable: true, bubbles: true }));
+    await waitFor(() => expect(dialog.hasAttribute("open")).toBe(false));
+    expect(document.activeElement).toBe(trigger);
+    expect(mock.request).toHaveBeenCalledTimes(1);
+  });
+  it("keeps a failed cancellation visible in its dialog", async () => {
+    mock.request
+      .mockResolvedValueOnce(order)
+      .mockRejectedValueOnce(new Error("Order changed"));
+    render(<OrderPage id="order-one" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Cancel order" }),
+    );
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Cancel order",
+      }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Order changed",
+    );
+    expect(screen.getByRole("dialog").hasAttribute("open")).toBe(true);
   });
   it("requires a reason for owner admin cancellation and hides it when forbidden", async () => {
     mock.request.mockResolvedValueOnce({ ...order, can_cancel: false });
@@ -221,6 +239,39 @@ describe("orders", () => {
       { expected_version: 1, reason: "Customer request" },
     ]);
   });
+  it("shows saved order images and totals in the admin item overview", async () => {
+    mock.request.mockResolvedValueOnce(order);
+    render(<OrderPage admin id="order-one" />);
+    expect(
+      await screen.findByRole("heading", { name: "Historical woven basket" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByAltText("Natural woven basket").getAttribute("src"),
+    ).toBe("/order-image.webp");
+    expect(screen.getByText("SKU ORIGINAL-SKU")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Order total" })).toBeTruthy();
+    expect(screen.getByText("₦16.62")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Delivery details" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Fulfilment" })).toBeTruthy();
+  });
+  it("shows an accessible fallback when an order image was not saved", async () => {
+    mock.request.mockResolvedValueOnce({
+      ...order,
+      lines: [
+        {
+          ...order.lines![0],
+          snapshot: { ...order.lines![0].snapshot, image: null },
+        },
+      ],
+    });
+    render(<OrderPage admin id="order-one" />);
+    await screen.findByRole("heading", { name: "Historical woven basket" });
+    expect(
+      screen.getByRole("img", { name: "No product image available" }),
+    ).toBeTruthy();
+  });
   it("filters admin order list explicitly by status and UTC dates", async () => {
     mock.request.mockResolvedValue({ items: [], next_cursor: null });
     render(<OrderPage admin />);
@@ -239,8 +290,51 @@ describe("orders", () => {
       reservation: { ...order.reservation, status: "EXPIRED", eligible: false },
     });
     render(<OrderPage id="order-one" />);
-    await screen.findByText(/Stock must be reviewed/);
-    expect(screen.getByText(/Your order has been retained/)).toBeTruthy();
+    await screen.findByText(/stock reservation has ended/);
+    expect(
+      screen.queryByRole("button", { name: "Continue to Paystack" }),
+    ).toBeNull();
+  });
+  it("keeps an opened tax breakdown while checking the existing payment", async () => {
+    const pending = {
+      ...order,
+      can_cancel: false,
+      payment: { state: "PENDING", available: false },
+    };
+    const paymentSummary = {
+      order: pending,
+      attempts: [
+        {
+          id: "attempt-one",
+          reference: "IRA-P-REFERENCE",
+          method: "card",
+          amount_minor: pending.total_minor,
+          currency: "NGN",
+          status: "UNKNOWN",
+          created_at: pending.created_at,
+          last_checked_at: null,
+        },
+      ],
+    };
+    mock.request.mockImplementation((path: string) =>
+      Promise.resolve(path === "/orders/order-one" ? pending : paymentSummary),
+    );
+    render(<OrderPage id="order-one" />);
+    const tax = await screen.findByText("Tax breakdown");
+    await userEvent.click(tax);
+    expect(tax.closest("details")?.open).toBe(true);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Check payment status" }),
+    );
+    await waitFor(() =>
+      expect(
+        mock.request.mock.calls.some((call) =>
+          String(call[0]).includes("/payment-attempts/attempt-one/verify"),
+        ),
+      ).toBe(true),
+    );
+    await screen.findByText(/No new payment confirmation was available/);
+    expect(tax.closest("details")?.open).toBe(true);
   });
   it("shows loading and retryable errors without old private data after identity change", async () => {
     mock.request.mockResolvedValueOnce(order);

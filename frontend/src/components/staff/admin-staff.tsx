@@ -175,21 +175,13 @@ function StaffScreen() {
               </p>
               {result.mail_setup === "unavailable" ? (
                 <Alert tone="error">
-                  Email delivery is not configured. Configure a local email
-                  transport and start the queue worker before inviting staff.
+                  Email delivery is not configured. Staff invitations cannot be
+                  sent until it is available.
                 </Alert>
               ) : result.mail_setup === "local_capture" ? (
                 <p>
-                  Local development: setup instructions are captured in{" "}
-                  <a
-                    href="http://127.0.0.1:8025"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Mailpit
-                  </a>{" "}
-                  when Mailpit and the queue worker are running, not sent to a
-                  real inbox.
+                  Invitation emails are captured rather than delivered to
+                  recipients.
                 </p>
               ) : (
                 <p>

@@ -6,8 +6,10 @@ use App\Catalog\CatalogActions;
 use App\Catalog\CatalogDeletion;
 use App\Catalog\CatalogTax;
 use App\Models\Category;
+use App\Models\OptionValue;
 use App\Models\Product;
 use App\Models\ProductMedia;
+use App\Models\ProductOption;
 use App\Models\ProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -29,6 +31,7 @@ class AdminProductResource extends JsonResource
             'delete_eligibility' => Gate::allows('catalog.products.delete') ? app(CatalogDeletion::class)->productEligibility($this->resource) : null,
             'id' => $this->id, 'status' => $this->status, 'tax_category_code' => $this->tax_category_code, 'content_version' => $this->content_version,
             'category_ids' => $this->categories->map(fn (Category $c): string => $c->id)->values(),
+            'options' => $this->options->map(fn (ProductOption $o): array => ['id' => $o->id, 'name' => $o->name, 'values' => $o->values->map(fn (OptionValue $v): array => ['id' => $v->id, 'value' => $v->value, 'swatch_hex' => $v->swatch_hex, 'removed' => $v->archived_at !== null])->values()])->values(),
             'variants' => $this->variants->map(fn (ProductVariant $v): array => ['id' => $v->id, 'sku' => $v->sku, 'unit_price_minor' => $v->unit_price_minor, 'currency' => $v->currency, 'status' => $v->status, 'price_version' => $v->price_version, 'inventory' => $v->inventory ? ['on_hand' => $v->inventory->on_hand, 'reserved' => $v->inventory->reserved, 'available' => $v->inventory->available()] : null, 'option_value_ids' => $v->selections->pluck('option_value_id')->values()])->values(),
             'media' => $this->media->map(fn (ProductMedia $m): array => array_merge(PublicProductResource::image($m, false), ['status' => $m->status]))->values(),
         ]);

@@ -9,9 +9,12 @@ export type CartLine = {
   options: string[];
   image: CatalogImage | null;
   quantity: number;
+  available_quantity: number;
+  low_stock?: boolean;
   unit_price_minor: string | null;
   line_subtotal_minor: string | null;
   suggested_quantity: number;
+  held_by_order_quantity?: number;
   state:
     | "AVAILABLE"
     | "QUANTITY_REVIEW"
@@ -29,6 +32,26 @@ export type CartData = {
   amount_limit: boolean;
   limits: { quantity: number; lines: number };
   merge: { status: string; message: string } | null;
+  linked_order?: {
+    id: string;
+    number: string;
+    ownership: "account" | "guest";
+    status: string;
+    payment_state: string;
+    total_minor: string;
+    currency: "NGN";
+    version: number;
+    cart_changed: boolean;
+    reservation_status: string;
+    reservation_expires_at: string;
+    reservation_active: boolean;
+    attempt_status: string | null;
+    release_confirmed: boolean;
+    payment_unresolved: boolean;
+    can_continue: boolean;
+    can_cancel: boolean;
+    can_start_new: boolean;
+  } | null;
 };
 export class CartApiError extends Error {
   constructor(

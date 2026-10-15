@@ -1,4 +1,5 @@
 import type { Address } from "./checkout-api";
+import type { CatalogImage } from "./catalog";
 export { checkoutRequest as orderRequest } from "./checkout-api";
 export type OrderRecord = {
   id: string;
@@ -45,7 +46,15 @@ export type OrderRecord = {
     };
   };
   contact?: { email: string; address: Address };
-  calculation?: { development_only: boolean };
+  calculation?: {
+    development_only: boolean;
+    delivery?: {
+      code: string;
+      service_label: string;
+      description?: string | null;
+      estimate?: string | null;
+    };
+  };
   lines?: {
     id: string;
     quantity: number;
@@ -53,7 +62,12 @@ export type OrderRecord = {
     line_subtotal_minor: string;
     tax_minor: string;
     line_total_minor: string;
-    snapshot: { name: string; sku: string; options: string[] };
+    snapshot: {
+      name: string;
+      sku?: string;
+      options: string[];
+      image?: CatalogImage | null;
+    };
   }[];
   history?: { status: string; at: string }[];
 };

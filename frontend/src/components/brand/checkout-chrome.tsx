@@ -27,11 +27,16 @@ export function CheckoutChrome({ children }: { children: ReactNode }) {
       {children}
       <footer className="checkout-site-footer">
         <Container>
-          <p>© {new Date().getFullYear()} IRANTI Africa</p>
-          <p>
-            <Link href="/contact">Contact</Link> · Shipping &amp; delivery ·
-            Returns &amp; exchanges · Privacy policy · Terms &amp; conditions
+          <p className="checkout-footer-copyright">
+            © {new Date().getFullYear()} IRANTI Africa
           </p>
+          <div className="checkout-footer-links">
+            <p>
+              <Link href="/contact">Contact</Link> · Shipping &amp; delivery ·
+              Returns &amp; exchanges
+            </p>
+            <p>Privacy policy · Terms &amp; conditions</p>
+          </div>
         </Container>
       </footer>
     </>

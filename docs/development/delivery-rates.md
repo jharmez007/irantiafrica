@@ -1,5 +1,9 @@
 # Delivery rates and destination configuration
 
+## 2026-10-14 multiple-method refinement
+
+The one-rate-per-destination rule below is superseded for **method choice**: a State/FCT or existing locality may now offer multiple active methods with distinct stable codes. Method codes remain unique within a bundle. The existing exact-locality-before-statewide precedence, unknown-locality rejection and immutable bundle/version/owner-audit model remain. An inactive method cannot be selected or quoted; checkout stores the chosen code and snapshots its configured label, charge and tax at the accepted version. The owner UI manages methods without introducing carrier API calls or unapproved production prices. Missing coverage still fails closed.
+
 2026-09-23. **Implemented for Phase 3F with immutable checkout configuration bundles.** Nationwide Nigerian coverage and location-based charges are confirmed. The logistics provider, actual rate sheet, coverage details and rate-maintenance responsibility remain outstanding. No carrier API is assumed.
 
 ## Destination and matching contract

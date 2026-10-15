@@ -50,7 +50,7 @@ function BagIcon() {
 const links = [
   { href: "/products", label: "Shop" },
   { href: "/#collections", label: "Collections" },
-  { href: "/#our-story", label: "Our story" },
+  { href: "/our-story", label: "Our story" },
 ];
 const announcement =
   "Discover Nigeria · Support local artisans · Take a piece of Nigeria with you";

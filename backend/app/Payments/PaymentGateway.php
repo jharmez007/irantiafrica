@@ -8,7 +8,7 @@ interface PaymentGateway
 
     public function ready(): bool;
 
-    public function initializePayment(string $reference, string $amount, string $currency, string $email, string $callback, string $method): ?string;
+    public function initializePayment(string $reference, string $amount, string $currency, string $email, string $callback, string $method): Initialization;
 
     public function verifyPayment(string $reference): Verification;
 

@@ -169,7 +169,7 @@ final class OrderService
     }
 
     /** @return array<string,mixed> */
-    public function projection(Order $o, bool $detail = true, bool $canCancel = false): array
+    public function projection(Order $o, bool $detail = true, bool $canCancel = false, bool $internal = false): array
     {
         $r = Reservation::findOrFail($o->current_reservation_id);
         $active = $r->status === 'ACTIVE' && $r->expires_at->gt(CheckoutConfiguration::now());
@@ -185,7 +185,8 @@ final class OrderService
             $data['shipment'] = app(FulfilmentService::class)->projection($o);
             $data['contact'] = ['email' => $o->contact_email, 'address' => json_decode($a->address, true)];
             $data['calculation'] = $o->calculation;
-            $data['lines'] = DB::table('order_items')->where('order_id', $o->id)->orderBy('id')->get()->map(fn ($l) => ['id' => $l->id, 'quantity' => $l->quantity, 'unit_price_minor' => (string) $l->unit_price_minor, 'line_subtotal_minor' => (string) $l->line_subtotal_minor, 'tax_minor' => (string) $l->tax_minor, 'line_total_minor' => (string) $l->line_total_minor, 'snapshot' => array_intersect_key(json_decode($l->snapshot, true), array_flip(['name', 'sku', 'options', 'image'])), 'tax' => json_decode($l->tax_snapshot, true)])->all();
+            $snapshotFields = $internal ? ['name', 'sku', 'options', 'image'] : ['name', 'options', 'image'];
+            $data['lines'] = DB::table('order_items')->where('order_id', $o->id)->orderBy('id')->get()->map(fn ($l) => ['id' => $l->id, 'quantity' => $l->quantity, 'unit_price_minor' => (string) $l->unit_price_minor, 'line_subtotal_minor' => (string) $l->line_subtotal_minor, 'tax_minor' => (string) $l->tax_minor, 'line_total_minor' => (string) $l->line_total_minor, 'snapshot' => array_intersect_key(json_decode($l->snapshot, true), array_flip($snapshotFields)), 'tax' => json_decode($l->tax_snapshot, true)])->all();
             $data['history'] = DB::table('order_status_history')->where('order_id', $o->id)->orderBy('created_at')->orderBy('id')->get()->map(fn ($h) => ['status' => $h->to_status, 'at' => CarbonImmutable::parse($h->created_at)->toIso8601String()])->all();
         }
 

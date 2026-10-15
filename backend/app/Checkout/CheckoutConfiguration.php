@@ -30,19 +30,21 @@ final class CheckoutConfiguration
     {
         $data = Validator::make($input, [
             'version_code' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,80}$/D'],
+            'expected_current_id' => ['sometimes', 'nullable', 'uuid'],
             'effective_from' => ['nullable', 'date_format:Y-m-d\TH:i:sP'],
             'development_only' => ['required', function ($a, $v, $f) {
                 if (! is_bool($v)) {
                     $f('Use a JSON boolean.');
                 }
             }],
-            'payload' => ['required', 'array:rounding,product_rules,delivery_tax,zones'],
+            'payload' => ['required', 'array:rounding,product_rules,default_tax_category,delivery_tax,zones'],
             'payload.rounding' => ['required', Rule::in(['HALF_UP'])],
             'payload.product_rules' => ['required', 'array', 'list', 'min:1', 'max:100'],
             'payload.product_rules.*' => ['array:category,rate,label'],
             'payload.product_rules.*.category' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,64}$/D', 'distinct:strict'],
             'payload.product_rules.*.rate' => ['required', 'string'],
             'payload.product_rules.*.label' => ['required', 'string', 'max:120'],
+            'payload.default_tax_category' => ['sometimes', 'nullable', 'string', 'regex:/^[A-Za-z0-9_-]{1,64}$/D'],
             'payload.delivery_tax' => ['required', 'array:taxable,rate,label'],
             'payload.delivery_tax.taxable' => ['required', function ($a, $v, $f) {
                 if (! is_bool($v)) {
@@ -52,7 +54,7 @@ final class CheckoutConfiguration
             'payload.delivery_tax.rate' => ['present', 'nullable', 'string'],
             'payload.delivery_tax.label' => ['required', 'string', 'max:120'],
             'payload.zones' => ['present', 'array', 'list', 'max:1000'],
-            'payload.zones.*' => ['array:code,state_code,locality_code,active,amount_minor,provider_label,service_label,source_reference'],
+            'payload.zones.*' => ['array:code,state_code,locality_code,active,amount_minor,provider_label,service_label,source_reference,description,estimate'],
             'payload.zones.*.code' => ['required', 'string', 'regex:/^[A-Z0-9_-]{1,64}$/D', 'distinct:strict'],
             'payload.zones.*.state_code' => ['required', Rule::in(array_keys(NigeriaAddress::states()))],
             'payload.zones.*.locality_code' => ['present', 'nullable', 'string', 'regex:/^[A-Z0-9_-]{1,120}$/D'],
@@ -65,13 +67,18 @@ final class CheckoutConfiguration
             'payload.zones.*.provider_label' => ['required', 'string', 'max:160'],
             'payload.zones.*.service_label' => ['required', 'string', 'max:160'],
             'payload.zones.*.source_reference' => ['required', 'string', 'max:500'],
+            'payload.zones.*.description' => ['sometimes', 'nullable', 'string', 'max:240'],
+            'payload.zones.*.estimate' => ['sometimes', 'nullable', 'string', 'max:120'],
         ])->validate();
-        if (array_diff(array_keys($input), ['version_code', 'effective_from', 'development_only', 'payload'])) {
+        if (array_diff(array_keys($input), ['version_code', 'expected_current_id', 'effective_from', 'development_only', 'payload'])) {
             throw ValidationException::withMessages(['configuration' => 'Unknown configuration field.']);
         }
         try {
             foreach ($data['payload']['product_rules'] as $r) {
                 TaxMath::numerator($r['rate']);
+            }
+            if (($data['payload']['default_tax_category'] ?? null) !== null && ! in_array($data['payload']['default_tax_category'], array_column($data['payload']['product_rules'], 'category'), true)) {
+                throw new \InvalidArgumentException('Default tax treatment must match a configured product rule.');
             }
             $delivery = $data['payload']['delivery_tax'];
             if ($delivery['taxable']) {
@@ -79,14 +86,8 @@ final class CheckoutConfiguration
             } elseif ($delivery['rate'] !== null) {
                 throw new \InvalidArgumentException('Non-taxable delivery must have a null rate.');
             }
-            $destinations = [];
             foreach ($data['payload']['zones'] as $z) {
                 CartMoney::line($z['amount_minor'], 1);
-                $key = $z['state_code'].':'.($z['locality_code'] ?? '');
-                if (isset($destinations[$key])) {
-                    throw new \InvalidArgumentException('Ambiguous delivery destination.');
-                }
-                $destinations[$key] = true;
             }
         } catch (\InvalidArgumentException $e) {
             throw ValidationException::withMessages(['configuration' => $e->getMessage()]);
@@ -99,9 +100,19 @@ final class CheckoutConfiguration
             $actor = User::lockForUpdate()->findOrFail($actor->id);
             abort_unless($actor->hasPermission('tax.configure') && $actor->hasPermission('shipping.configure'), 403);
             self::lock(true);
+            $configuredCategories = array_column($data['payload']['product_rules'], 'category');
+            if (DB::table('products')->where('status', 'published')->whereNotNull('tax_category_code')->whereNotIn('tax_category_code', $configuredCategories)->exists()) {
+                throw ValidationException::withMessages(['product_rules' => 'Retain tax treatments used by published products or update those products first.']);
+            }
             $now = self::now();
             $start = isset($data['effective_from']) ? new CarbonImmutable($data['effective_from']) : $now;
             $latest = DB::table('checkout_configurations')->orderByDesc('effective_from')->first();
+            if (array_key_exists('expected_current_id', $data)) {
+                $currentId = DB::table('checkout_configurations')->where('effective_from', '<=', $now->format('Y-m-d H:i:s.uP'))->orderByDesc('effective_from')->value('id');
+                if ($currentId !== $data['expected_current_id']) {
+                    throw new CheckoutConflict('CONFIGURATION_VERSION_CONFLICT', 'Configuration changed. Refresh settings before publishing.');
+                }
+            }
             if ($start->lt($now) || ($latest && $start->lte(new CarbonImmutable($latest->effective_from)))) {
                 throw new CheckoutConflict('CONFIGURATION_DATE_CONFLICT', 'Publish at a future time after the latest configuration; historical periods cannot be rewritten.');
             }
@@ -110,7 +121,7 @@ final class CheckoutConfiguration
             }
             $id = (string) Str::uuid();
             DB::table('checkout_configurations')->insert(['id' => $id, 'version_code' => $data['version_code'], 'effective_from' => $start->format('Y-m-d H:i:s.uP'), 'payload' => json_encode($data['payload'], JSON_THROW_ON_ERROR), 'development_only' => $data['development_only'], 'approved_by' => $actor->id]);
-            DB::table('audit_logs')->insert(['id' => (string) Str::uuid(), 'actor_user_id' => $actor->id, 'actor_type' => 'user', 'action' => 'checkout.configuration_published', 'subject_type' => 'checkout_configuration', 'subject_id' => $id, 'outcome' => 'success', 'changes' => json_encode(['version_code' => $data['version_code'], 'development_only' => $data['development_only']]), 'request_id' => request()->attributes->get('request_id') ?? (string) Str::uuid(), 'occurred_at' => $now, 'created_at' => $now]);
+            DB::table('audit_logs')->insert(['id' => (string) Str::uuid(), 'actor_user_id' => $actor->id, 'actor_type' => 'user', 'action' => 'checkout.configuration_published', 'subject_type' => 'checkout_configuration', 'subject_id' => $id, 'outcome' => 'success', 'changes' => json_encode(['previous_configuration_id' => $latest?->id, 'previous_version_code' => $latest?->version_code, 'version_code' => $data['version_code'], 'development_only' => $data['development_only'], 'payload' => $data['payload']], JSON_THROW_ON_ERROR), 'request_id' => request()->attributes->get('request_id') ?? (string) Str::uuid(), 'occurred_at' => $now, 'created_at' => $now]);
 
             return ['id' => $id, 'version_code' => $data['version_code'], 'effective_from' => $start->toIso8601String(), 'development_only' => $data['development_only']];
         }, 3);
@@ -131,23 +142,39 @@ final class CheckoutConfiguration
     /**
      * @param array<string,mixed> $config
      * @param array<string,mixed> $address
-     * @return array<string,mixed> */
-    public function delivery(array $config, array $address): array
+     * @return list<array<string,mixed>> */
+    public function eligible(array $config, array $address): array
     {
         $zones = array_values(array_filter($config['payload']['zones'], fn ($z) => $z['state_code'] === $address['state_code']));
         $locality = $address['locality_code'] ?? null;
         $matches = array_values(array_filter($zones, fn ($z) => $z['locality_code'] === $locality));
-        // An unrecognized supplied locality never silently selects a statewide rate.
         if ($locality !== null && $matches === []) {
-            throw new CheckoutConflict('DELIVERY_UNAVAILABLE', 'Select a configured delivery area.');
+            return [];
         }
         if ($matches === []) {
             $matches = array_values(array_filter($zones, fn ($z) => $z['locality_code'] === null));
         }
-        if (count($matches) !== 1 || ! $matches[0]['active']) {
-            throw new CheckoutConflict('DELIVERY_UNAVAILABLE', 'Delivery is not configured for this destination.');
+
+        return array_values(array_filter($matches, fn ($z) => $z['active']));
+    }
+
+    /**
+     * @param  array<string,mixed>  $config
+     * @param  array<string,mixed>  $address
+     * @return array<string,mixed>
+     */
+    public function delivery(array $config, array $address, ?string $code): array
+    {
+        $eligible = $this->eligible($config, $address);
+        if ($code === null && count($eligible) === 1) {
+            return $eligible[0];
+        }
+        foreach ($eligible as $zone) {
+            if ($zone['code'] === $code) {
+                return $zone;
+            }
         }
 
-        return $matches[0];
+        throw new CheckoutConflict('DELIVERY_UNAVAILABLE', 'Delivery is not currently available for this state.');
     }
 }

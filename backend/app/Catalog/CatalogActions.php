@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\ProductOption;
 use App\Models\ProductVariant;
 use App\Models\VariantOptionValue;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -56,12 +57,13 @@ final class CatalogActions
                 }
             }
             $before = $id ? $this->productSnapshot($product) : [];
-            $choices = app(CatalogTax::class)->choices()['data'];
+            $taxChoices = app(CatalogTax::class)->choices();
+            $choices = $taxChoices['data'];
             if (isset($data['tax_category_code']) && ! in_array($data['tax_category_code'], array_column($choices, 'code'), true)) {
                 $this->invalid('tax_category_code', 'Choose an available tax treatment or leave it unresolved for this draft.');
             }
-            if (! array_key_exists('tax_category_code', $data) && ! $product->tax_category_code && count($choices) === 1) {
-                $data['tax_category_code'] = $choices[0]['code'];
+            if (! array_key_exists('tax_category_code', $data) && ! $product->tax_category_code && $taxChoices['default_code']) {
+                $data['tax_category_code'] = $taxChoices['default_code'];
             }
             if (! $id) {
                 $data['kind'] ??= 'simple';
@@ -158,8 +160,12 @@ final class CatalogActions
                 $this->invalid('name', 'Option already exists.');
             }
             $option = $product->options()->create(['name' => $data['name'], 'position' => $data['position'] ?? 0]);
-            foreach ($data['values'] as $position => $value) {
-                $option->values()->create(['product_id' => $id, 'value' => $value, 'position' => $position]);
+            foreach ($data['values'] as $position => $input) {
+                [$value, $swatch] = $this->valueInput($input, $option->name);
+                if ($this->optionValueExists($option, $value)) {
+                    $this->invalid('values', $value.' has already been added.');
+                }
+                $option->values()->create(['product_id' => $id, 'value' => $value, 'swatch_hex' => $swatch, 'position' => $position]);
             }
             $product->increment('content_version');
             CatalogAudit::record('option_created', 'product', $id, ['option_id' => $option->id]);
@@ -168,7 +174,7 @@ final class CatalogActions
         });
     }
 
-    /** @param list<string> $values */
+    /** @param list<string|array{value:string,swatch_hex?:string|null}> $values */
     public function addValues(string $id, array $values): ProductOption
     {
         return DB::transaction(function () use ($id, $values): ProductOption {
@@ -179,11 +185,12 @@ final class CatalogActions
             if ($option->values()->count() + count($values) > 50) {
                 $this->invalid('values', 'At most fifty values per option.');
             }
-            foreach ($values as $value) {
-                if ($option->values()->whereRaw('lower(value) = ?', [mb_strtolower($value)])->exists()) {
-                    $this->invalid('values', 'This value already exists.');
+            foreach ($values as $input) {
+                [$value, $swatch] = $this->valueInput($input, $option->name);
+                if ($this->optionValueExists($option, $value)) {
+                    $this->invalid('values', $value.' has already been added.');
                 }
-                $option->values()->create(['product_id' => $product->id, 'value' => $value, 'position' => $option->values()->count()]);
+                $option->values()->create(['product_id' => $product->id, 'value' => $value, 'swatch_hex' => $swatch, 'position' => $option->values()->count()]);
             }
             $product->increment('content_version');
             CatalogAudit::record('option_values_added', 'product', $product->id, ['option_id' => $id, 'count' => count($values)]);
@@ -209,21 +216,180 @@ final class CatalogActions
         });
     }
 
-    public function removeValue(string $optionId, string $valueId, int $version): string
+    /** @return array{allowed:bool,mode:string,variant_count:int,media_count:int,reason:string,variants:list<array{sku:string,status:string}>} */
+    public function valueRemovalPreview(string $optionId, string $valueId): array
     {
-        return DB::transaction(function () use ($optionId, $valueId, $version): string {
+        $option = ProductOption::findOrFail($optionId);
+        $value = $option->values()->whereKey($valueId)->firstOrFail();
+
+        return $this->valueRemovalPlan(Product::findOrFail($option->product_id), $value);
+    }
+
+    /** @return array{allowed:bool,mode:string,variant_count:int,media_count:int,reason:string,variants:list<array{sku:string,status:string}>} */
+    private function valueRemovalPlan(Product $product, OptionValue $value): array
+    {
+        if ($product->status === 'archived' || $value->archived_at !== null) {
+            return ['allowed' => false, 'mode' => 'blocked', 'variant_count' => 0, 'media_count' => 0, 'reason' => 'This colour is already removed or the product is archived.', 'variants' => []];
+        }
+        $ids = DB::table('variant_option_values')->where('option_value_id', $value->id)->pluck('variant_id')->all();
+        $linked = ProductVariant::whereIn('id', $ids)->orderBy('sku')->get(['sku', 'status']);
+        $variants = array_values($linked->map(fn (ProductVariant $variant): array => ['sku' => $variant->sku, 'status' => $variant->status])->all());
+        $media = $ids === [] ? 0 : DB::table('product_media')->whereIn('variant_id', $ids)->count();
+        $history = false;
+        foreach (['inventory', 'inventory_movements', 'reservation_items', 'cart_items', 'checkout_lines', 'order_items'] as $table) {
+            if ($ids !== [] && DB::table($table)->whereIn('variant_id', $ids)->exists()) {
+                $history = true;
+                break;
+            }
+        }
+        if ($ids === [] || ($product->status === 'draft' && ! $history)) {
+            return ['allowed' => true, 'mode' => 'delete', 'variant_count' => count($ids), 'media_count' => $media, 'reason' => $media > 0 ? 'Unused draft variants will be deleted and their images reassigned to All variants. No image files will be deleted.' : 'This unused colour and its unused draft variants can be permanently removed.', 'variants' => $variants];
+        }
+        $activeTotal = ProductVariant::where('product_id', $product->id)->where('status', 'active')->count();
+        $activeLinked = $linked->where('status', 'active')->count();
+        if ($product->status === 'published' && $activeTotal <= $activeLinked) {
+            return ['allowed' => false, 'mode' => 'blocked', 'variant_count' => count($ids), 'media_count' => $media, 'reason' => 'This is the last active colour. Keep at least one active variant before removing it from sale.', 'variants' => $variants];
+        }
+
+        return ['allowed' => true, 'mode' => 'archive', 'variant_count' => count($ids), 'media_count' => $media, 'reason' => $history ? 'This colour has historical activity. Its variants will be removed from sale rather than permanently deleted. SKU, stock, images and history will be retained.' : 'This published colour will be removed from sale. Its variants, SKU and images will be retained.', 'variants' => $variants];
+    }
+
+    public function removeValue(string $optionId, string $valueId, int $version, bool $reassignMedia = false): string
+    {
+        try {
+            return DB::transaction(function () use ($optionId, $valueId, $version, $reassignMedia): string {
+                $this->lock();
+                $option = ProductOption::findOrFail($optionId);
+                $product = Product::lockForUpdate()->findOrFail($option->product_id);
+                abort_if($product->content_version !== $version, 409);
+                $value = $option->values()->whereKey($valueId)->firstOrFail();
+                $plan = $this->valueRemovalPlan($product, $value);
+                if (! $plan['allowed']) {
+                    $this->invalid('value', $plan['reason']);
+                }
+                $ids = DB::table('variant_option_values')->where('option_value_id', $valueId)->pluck('variant_id')->all();
+                ProductVariant::whereIn('id', $ids)->lockForUpdate()->get();
+                if ($plan['mode'] === 'delete') {
+                    if ($plan['media_count'] > 0 && ! $reassignMedia) {
+                        $this->invalid('reassign_variant_media', 'Confirm that variant images should become All variants before removing this colour.');
+                    }
+                    if ($ids !== []) {
+                        DB::table('product_media')->whereIn('variant_id', $ids)->update(['variant_id' => null, 'updated_at' => now()]);
+                        DB::table('variant_option_values')->whereIn('variant_id', $ids)->delete();
+                        DB::table('product_variants')->whereIn('id', $ids)->delete();
+                    }
+                    $value->delete();
+                } else {
+                    ProductVariant::whereIn('id', $ids)->where('status', 'active')->update(['status' => 'archived', 'archived_at' => now(), 'updated_at' => now(), 'price_version' => DB::raw('price_version + 1')]);
+                    $value->update(['archived_at' => now()]);
+                }
+                $product->increment('content_version');
+                CatalogAudit::record('option_value_removed', 'product', $product->id, ['option_id' => $optionId, 'value_id' => $valueId, 'mode' => $plan['mode'], 'variant_count' => count($ids), 'media_reassigned' => $plan['mode'] === 'delete' ? $plan['media_count'] : 0]);
+
+                return $product->id;
+            });
+        } catch (QueryException $e) {
+            if ($e->getCode() !== '23503') {
+                throw $e;
+            }
+            $this->invalid('value', 'This colour gained a reference. Reload and review it before removing.');
+        }
+    }
+
+    public function updateValue(string $optionId, string $valueId, string $name, ?string $hex, int $version): string
+    {
+        return DB::transaction(function () use ($optionId, $valueId, $name, $hex, $version): string {
             $this->lock();
             $option = ProductOption::findOrFail($optionId);
             $product = Product::lockForUpdate()->findOrFail($option->product_id);
-            abort_if($product->content_version !== $version, 409);
-            abort_if($product->status !== 'draft' || $product->variants()->exists(), 409);
+            abort_if($product->status === 'archived' || $product->content_version !== $version, 409);
+            if (! ColourSwatches::isColourOption($option->name)) {
+                $this->invalid('value', 'Edit colour is available only for Colour options.');
+            }
             $value = $option->values()->whereKey($valueId)->firstOrFail();
-            $value->delete();
+            abort_if($value->archived_at !== null, 409);
+            $name = $this->normaliseOptionValue($name);
+            if ($name === '') {
+                $this->invalid('value', 'Enter a colour name.');
+            }
+            if ($this->optionValueExists($option, $name, $valueId)) {
+                $this->invalid('value', $name.' has already been added.');
+            }
+            $swatch = ColourSwatches::normalize($hex);
+            if ($hex !== null && $swatch === null) {
+                $this->invalid('swatch_hex', 'Enter a six-digit hex colour such as #335438.');
+            }
+            if ($value->value === $name && $value->swatch_hex === $swatch) {
+                return $product->id;
+            }
+            $before = ['value' => $value->value, 'swatch_hex' => $value->swatch_hex];
+            $value->update(['value' => $name, 'swatch_hex' => $swatch]);
             $product->increment('content_version');
-            CatalogAudit::record('option_value_removed', 'product', $product->id, ['option_id' => $optionId, 'value_id' => $valueId]);
+            CatalogAudit::record('option_value_updated', 'product', $product->id, ['option_id' => $optionId, 'value_id' => $valueId, 'before' => $before, 'after' => ['value' => $name, 'swatch_hex' => $swatch]]);
 
             return $product->id;
         });
+    }
+
+    public function updateSwatch(string $optionId, string $valueId, ?string $hex, int $version): string
+    {
+        return DB::transaction(function () use ($optionId, $valueId, $hex, $version): string {
+            $this->lock();
+            $option = ProductOption::findOrFail($optionId);
+            $product = Product::lockForUpdate()->findOrFail($option->product_id);
+            abort_if($product->status === 'archived' || $product->content_version !== $version, 409);
+            if (! ColourSwatches::isColourOption($option->name)) {
+                $this->invalid('swatch_hex', 'Swatches are available only for Colour options.');
+            }
+            $swatch = ColourSwatches::normalize($hex);
+            if ($hex !== null && $swatch === null) {
+                $this->invalid('swatch_hex', 'Enter a six-digit hex colour such as #335438.');
+            }
+            $value = $option->values()->whereKey($valueId)->firstOrFail();
+            abort_if($value->archived_at !== null, 409);
+            if ($value->swatch_hex === $swatch) {
+                return $product->id;
+            }
+            $before = $value->swatch_hex;
+            $value->update(['swatch_hex' => $swatch]);
+            $product->increment('content_version');
+            CatalogAudit::record('option_value_swatch_updated', 'product', $product->id, ['option_id' => $optionId, 'value_id' => $valueId, 'before' => $before, 'after' => $swatch]);
+
+            return $product->id;
+        });
+    }
+
+    /** @return array{string, string|null} */
+    private function valueInput(mixed $input, string $optionName): array
+    {
+        $value = is_array($input) ? ($input['value'] ?? null) : $input;
+        $hex = is_array($input) ? ($input['swatch_hex'] ?? null) : null;
+        if (! is_string($value) || trim($value) === '') {
+            $this->invalid('values', 'Enter a choice name.');
+        }
+        $swatch = ColourSwatches::normalize($hex);
+        if ($hex !== null && $swatch === null) {
+            $this->invalid('values', 'Swatches must be six-digit hex colours.');
+        }
+        if ($swatch !== null && ! ColourSwatches::isColourOption($optionName)) {
+            $this->invalid('values', 'Swatches are available only for Colour options.');
+        }
+
+        return [$this->normaliseOptionValue($value), $swatch];
+    }
+
+    private function normaliseOptionValue(string $value): string
+    {
+        return preg_replace('/\s+/u', ' ', trim($value)) ?? trim($value);
+    }
+
+    private function optionValueExists(ProductOption $option, string $name, ?string $exceptId = null): bool
+    {
+        $normalised = mb_strtolower($this->normaliseOptionValue($name));
+
+        return $option->values()->get(['id', 'value'])->contains(
+            fn (OptionValue $value): bool => $value->id !== $exceptId && mb_strtolower($this->normaliseOptionValue($value->value)) === $normalised
+        );
     }
 
     /** @param array<string, mixed> $data */
@@ -236,6 +402,9 @@ final class CatalogActions
             if ($id) {
                 $variant = ProductVariant::where('product_id', $productId)->lockForUpdate()->findOrFail($id);
                 abort_if($variant->price_version !== (int) $data['price_version'], 409);
+                if (($data['status'] ?? null) === 'active' && $variant->status === 'archived' && DB::table('variant_option_values')->join('option_values', 'variant_option_values.option_value_id', '=', 'option_values.id')->where('variant_option_values.variant_id', $variant->id)->whereNotNull('option_values.archived_at')->exists()) {
+                    $this->invalid('status', 'This colour was removed; its historical variant cannot be restored to sale.');
+                }
                 $before = ['unit_price_minor' => $variant->unit_price_minor, 'status' => $variant->status];
                 if (isset($data['unit_price_minor'])) {
                     $variant->unit_price_minor = $data['unit_price_minor'];
@@ -249,7 +418,7 @@ final class CatalogActions
             } else {
                 $values = OptionValue::where('product_id', $productId)->whereIn('id', $data['option_value_ids'])->orderBy('option_id')->get();
                 $options = $product->options()->count();
-                if ($values->count() !== count($data['option_value_ids']) || $values->pluck('option_id')->unique()->count() !== $values->count() || ($product->kind === 'simple' && $values->isNotEmpty()) || ($product->kind === 'variant' && ($options === 0 || $values->count() !== $options))) {
+                if ($values->count() !== count($data['option_value_ids']) || $values->contains(fn (OptionValue $value): bool => $value->archived_at !== null) || $values->pluck('option_id')->unique()->count() !== $values->count() || ($product->kind === 'simple' && $values->isNotEmpty()) || ($product->kind === 'variant' && ($options === 0 || $values->count() !== $options))) {
                     $this->invalid('option_value_ids', 'Choose exactly one value for every option of this product.');
                 }
                 $signature = $values->map(fn (OptionValue $v): string => $v->option_id.':'.$v->id)->implode('|');

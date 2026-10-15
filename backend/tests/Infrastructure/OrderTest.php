@@ -2,6 +2,7 @@
 
 namespace Tests\Infrastructure;
 
+use App\Catalog\CatalogActions;
 use App\Checkout\CheckoutConfiguration;
 use App\Checkout\CheckoutConflict;
 use App\Checkout\CheckoutService;
@@ -187,6 +188,8 @@ final class OrderTest extends TestCase
         $this->assertSame('1662', $o['total_minor']);
         $this->assertSame('152', $o['tax_minor']);
         $this->assertSame('101', $o['lines'][0]['tax_minor']);
+        $this->assertArrayNotHasKey('sku', $o['lines'][0]['snapshot']);
+        $this->assertArrayHasKey('sku', json_decode(DB::table('order_items')->firstOrFail()->snapshot, true));
         $this->assertSame($o['id'], $this->place($s)->assertCreated()->json('data.id'));
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('reservations', 1);
@@ -198,6 +201,7 @@ final class OrderTest extends TestCase
         $this->assertSame($cart->version, $cart->fresh()->version);
         $this->assertSame('active', $cart->fresh()->status);
         $this->assertDatabaseCount('cart_items', 1);
+        $this->assertNull($this->cartView()['linked_order']); // Guest order access remains capability-scoped.
         $cookieName = 'iranti_order_'.str_replace('-', '', $o['id']);
         $cookie = collect($response->headers->getCookies())->first(fn ($c) => $c->getName() === $cookieName);
         $this->assertTrue($cookie->isHttpOnly());
@@ -215,10 +219,16 @@ final class OrderTest extends TestCase
         $u = $this->customer();
         $s = $this->prepared($u);
         $o = $this->place($s)->assertCreated()->json('data');
+        $linked = $this->cartView()['linked_order'];
+        $this->assertSame($o['id'], $linked['id']);
+        $this->assertSame($o['number'], $linked['number']);
+        $this->assertTrue($linked['can_continue']);
+        $historicalDelivery = Order::findOrFail($o['id'])->calculation['delivery'];
         $v = ProductVariant::firstOrFail();
         $v->forceFill(['unit_price_minor' => '9000', 'price_version' => 2, 'status' => 'archived'])->save();
         DB::table('products')->where('id', $v->product_id)->update(['name' => 'Changed title', 'content_version' => 2]);
         app(CheckoutConfiguration::class)->publish($this->configuration(false), $this->owner);
+        $this->assertSame($historicalDelivery, Order::findOrFail($o['id'])->calculation['delivery']);
         DB::table('checkout_addresses')->where('checkout_id', $s['id'])->update(['email' => 'changed@example.test']);
         $this->browser('GET', '/api/v1/orders/'.$o['id'])->assertOk()->assertJsonPath('data.total_minor', '1662')->assertJsonPath('data.contact.email', 'checkout@example.test')->assertJsonPath('data.lines.0.snapshot.name', $o['lines'][0]['snapshot']['name']);
         $this->browser('GET', '/api/v1/checkout/'.$s['id'])->assertOk()->assertJsonPath('data.order_id', $o['id']);
@@ -229,6 +239,59 @@ final class OrderTest extends TestCase
         $this->browser('GET', '/api/v1/orders/'.$o['id'])->assertNotFound();
         $this->browser('POST', '/api/v1/orders/'.$o['id'].'/cancel', ['expected_version' => 1, 'reason' => 'Not my order'])->assertNotFound();
         $this->place($s)->assertNotFound();
+    }
+
+    public function test_selected_shipping_method_survives_rate_republication(): void
+    {
+        $configuration = $this->configuration();
+        $configuration['payload']['zones'][] = array_merge($configuration['payload']['zones'][0], ['code' => 'EXPRESS', 'service_label' => 'Express delivery', 'amount_minor' => '805']);
+        app(CheckoutConfiguration::class)->publish($configuration, $this->owner);
+        $this->add($this->variant(10, '335'))->assertOk();
+        $draft = $this->addressed($this->start());
+        $quoted = $this->browser('POST', '/api/v1/checkout/'.$draft['id'].'/shipping-method', ['expected_version' => $draft['version'], 'code' => 'EXPRESS'])->assertOk()->json('data');
+        $reserved = $this->reserve($quoted)->assertOk()->json('data');
+        $order = $this->place($reserved)->assertCreated()->json('data');
+        $snapshot = Order::findOrFail($order['id'])->calculation['delivery'];
+        $this->assertSame('EXPRESS', $snapshot['code']);
+        $this->assertSame('805', $snapshot['amount_minor']);
+        $next = $this->configuration();
+        app(CheckoutConfiguration::class)->publish($next, $this->owner);
+        $stored = Order::findOrFail($order['id']);
+        $this->assertSame($snapshot, $stored->calculation['delivery']);
+        $this->assertSame('805', $stored->delivery_minor);
+    }
+
+    public function test_removing_sold_colour_preserves_order_snapshot_and_stock_history(): void
+    {
+        app(CheckoutConfiguration::class)->publish($this->configuration(), $this->owner);
+        $product = Product::factory()->create(['kind' => 'variant']);
+        $category = Category::create(['name' => 'Bags', 'slug' => 'bags-'.Str::uuid(), 'status' => 'active']);
+        $product->categories()->attach($category->id, ['id' => (string) Str::uuid()]);
+        ProductMedia::create(['product_id' => $product->id, 'object_key' => 'test/'.Str::uuid(), 'status' => 'ready']);
+        $catalog = app(CatalogActions::class);
+        $option = $catalog->option($product->id, ['name' => 'Colour', 'values' => ['Forest Green', 'Cognac']]);
+        $forest = $catalog->variant($product->id, ['sku' => 'ORDER-FOREST', 'unit_price_minor' => '125050', 'option_value_ids' => [$option->values[0]->id]]);
+        $cognac = $catalog->variant($product->id, ['sku' => 'ORDER-COGNAC', 'unit_price_minor' => '125050', 'option_value_ids' => [$option->values[1]->id]]);
+        app(InventoryService::class)->initializeStock($forest->id, 10, 'Order colour fixture', (string) Str::uuid(), $this->owner);
+        app(InventoryService::class)->initializeStock($cognac->id, 10, 'Order colour fixture', (string) Str::uuid(), $this->owner);
+        $catalog->transition($product->id, $product->fresh()->content_version, false);
+
+        $this->add($forest)->assertOk();
+        $checkout = $this->reserve($this->quoted($this->addressed($this->start())))->assertOk()->json('data');
+        $order = $this->place($checkout)->assertCreated()->json('data');
+        $snapshot = DB::table('order_items')->where('order_id', $order['id'])->firstOrFail()->snapshot;
+
+        $plan = $catalog->valueRemovalPreview($option->id, $option->values[0]->id);
+        $this->assertSame('archive', $plan['mode']);
+        $catalog->removeValue($option->id, $option->values[0]->id, $product->fresh()->content_version);
+
+        $this->assertSame('archived', $forest->fresh()->status);
+        $this->assertSame('active', $cognac->fresh()->status);
+        $this->assertDatabaseHas('inventory', ['variant_id' => $forest->id, 'on_hand' => 10, 'reserved' => 1]);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $forest->id]);
+        $this->assertSame($snapshot, DB::table('order_items')->where('order_id', $order['id'])->firstOrFail()->snapshot);
+        $this->browser('GET', '/api/v1/orders/'.$order['id'])->assertOk()->assertJsonPath('data.lines.0.snapshot.name', $order['lines'][0]['snapshot']['name']);
+        $this->assertNotNull($option->values[0]->fresh()->archived_at);
     }
 
     public function test_guest_capability_not_number_email_or_login_authorizes_and_has_absolute_expiry(): void
@@ -362,7 +425,8 @@ final class OrderTest extends TestCase
         $this->login($this->staff('order_processing'));
         $this->browser('GET', $path)->assertForbidden();
         $this->mfa();
-        $this->browser('GET', $path)->assertOk()->assertJsonPath('data.can_cancel', false);
+        $staffOrder = $this->browser('GET', $path)->assertOk()->assertJsonPath('data.can_cancel', false)->json('data');
+        $this->assertArrayHasKey('sku', $staffOrder['lines'][0]['snapshot']);
         $this->browser('GET', '/api/v1/admin/orders')->assertOk()->assertJsonCount(1, 'data.items');
         $this->browser('POST', $path.'/transitions', ['expected_version' => 1, 'reason' => 'Cancel'])->assertForbidden();
         $this->login($this->owner);
@@ -543,6 +607,10 @@ final class OrderTest extends TestCase
         } catch (QueryException) {
             $this->addToAssertionCount(1);
         }
+        // A second checkout is eligible only after the first unpaid order is cancelled.
+        $this->browser('POST', '/api/v1/orders/'.$o['id'].'/cancel', [
+            'expected_version' => $o['version'], 'reason' => 'Test a new checkout after cancellation',
+        ])->assertOk();
         $this->operationKey = null;
         $s2 = $this->reserve($this->quoted($this->addressed($this->start())))->assertOk()->json('data');
         $this->operationKey = $originalKey;

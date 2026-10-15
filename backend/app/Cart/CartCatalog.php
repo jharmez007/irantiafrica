@@ -16,7 +16,7 @@ final class CartCatalog
      */
     public function read(array $ids): array
     {
-        $variants = ProductVariant::whereIn('id', $ids)->get();
+        $variants = ProductVariant::with('inventory')->whereIn('id', $ids)->get();
         $productIds = $variants->pluck('product_id')->unique()->all();
         $products = Product::with(['options.values', 'variants.selections', 'media'])->whereIn('id', $productIds)->get()->keyBy('id');
         $eligible = CatalogRead::query(false, false)->whereIn('id', $productIds)->pluck('id')->all();
@@ -45,6 +45,9 @@ final class CartCatalog
                 'unit_price_minor' => $sellable ? $variant->unit_price_minor : null,
                 'sellable' => $sellable,
                 'available' => $sellable ? ($availability[$variant->id] ?? 0) : 0,
+                'low_stock' => $sellable && ($availability[$variant->id] ?? 0) > 0
+                    && $variant->inventory !== null
+                    && $availability[$variant->id] <= $variant->inventory->low_stock_threshold,
             ];
         }
 

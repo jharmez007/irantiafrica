@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 
 final class PaymentService
 {
-    public function __construct(private PaymentGateway $gateway, private OrderService $orders, private InventoryService $stock) {}
+    public function __construct(private PaymentGateway $gateway, private OrderService $orders, private InventoryService $stock, private PaidCartReconciliation $paidCart) {}
 
     public function initialize(string $orderId, ?User $user, ?string $token, string $key, string $method): \stdClass
     {
@@ -61,14 +61,35 @@ final class PaymentService
         }
         $o = Order::findOrFail($orderId);
         $callback = rtrim((string) config('payments.return_origin'), '/').'/orders/'.$o->id.'/payment-return';
-        $url = $this->gateway->initializePayment($attempt->reference, (string) $attempt->expected_amount_minor, $attempt->currency, $o->contact_email, $callback, $method);
+        $initialization = $this->gateway->initializePayment($attempt->reference, (string) $attempt->expected_amount_minor, $attempt->currency, $o->contact_email, $callback, $method);
 
-        return DB::transaction(function () use ($orderId, $attempt, $url): \stdClass {
-            Order::where('id', $orderId)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($orderId, $attempt, $initialization): \stdClass {
+            $order = Order::where('id', $orderId)->lockForUpdate()->firstOrFail();
             $a = DB::table('payment_attempts')->where('id', $attempt->id)->lockForUpdate()->firstOrFail();
             if ($a->status === 'INITIALIZING') {
-                DB::table('payment_attempts')->where('id', $a->id)->update(['status' => $url ? 'PENDING' : 'UNKNOWN', 'authorization_url' => $url ? Crypt::encryptString($url) : null, 'failure_code' => $url ? null : 'INITIALIZATION_UNCERTAIN', 'updated_at' => now()]);
-                $this->record($this->attempt($a->id), 'initialization', $url ? 'INITIALIZED' : 'INITIALIZATION_UNCERTAIN', 'INITIALIZING', [], null);
+                $status = match ($initialization->state) {
+                    'INITIALIZED' => 'PENDING',
+                    'REJECTED' => 'FAILED',
+                    default => 'UNKNOWN',
+                };
+                $code = match ($status) {
+                    'PENDING' => 'INITIALIZED',
+                    'FAILED' => 'INITIALIZATION_REJECTED',
+                    default => 'INITIALIZATION_UNCERTAIN',
+                };
+                DB::table('payment_attempts')->where('id', $a->id)->update([
+                    'status' => $status,
+                    'authorization_url' => $status === 'PENDING' ? Crypt::encryptString((string) $initialization->authorizationUrl) : null,
+                    'failure_code' => $status === 'PENDING' ? null : $code,
+                    'next_check_at' => $status === 'FAILED' ? null : $a->next_check_at,
+                    'updated_at' => now(),
+                ]);
+                if ($status === 'FAILED' && $order->status === 'PENDING_PAYMENT' && ! $order->financial_hold) {
+                    $this->orders->paymentUpdate($order, 'FAILED');
+                }
+                $this->record($this->attempt($a->id), 'initialization', $code, 'INITIALIZING', [
+                    'http_status' => $initialization->httpStatus,
+                ], null);
             }
 
             return $this->attempt($a->id);
@@ -163,6 +184,7 @@ final class PaymentService
                     if ($exception === null) {
                         $this->orders->paymentUpdate($o, 'SUCCESSFUL', 'PAID');
                         DB::table('payment_events')->insert(['id' => (string) Str::uuid7(), 'order_id' => $o->id, 'attempt_id' => $a->id, 'event' => 'PaymentSucceeded', 'event_key' => 'payment-success:'.$o->id]);
+                        $this->paidCart->reconcile($o);
                         $paymentState = 'SUCCESSFUL';
                     }
                 }
@@ -195,6 +217,15 @@ final class PaymentService
         }, 3);
     }
 
+    /** Reconcile a previously paid order once, including payments predating this fix. */
+    public function reconcilePaidOrder(string $orderId): void
+    {
+        DB::transaction(function () use ($orderId): void {
+            $order = Order::where('id', $orderId)->lockForUpdate()->firstOrFail();
+            $this->paidCart->reconcile($order);
+        }, 3);
+    }
+
     /** @param array<string,mixed> $evidence */
     private function record(\stdClass $a, string $source, string $outcome, string $old, array $evidence, ?string $actor): void
     {
@@ -208,7 +239,7 @@ final class PaymentService
     public function projection(\stdClass $a, bool $redirect = false): array
     {
         $o = Order::where('id', $a->order_id)->firstOrFail();
-        $data = ['id' => $a->id, 'reference' => $a->reference, 'method' => $a->method, 'amount_minor' => (string) $a->expected_amount_minor, 'currency' => $a->currency, 'status' => $a->status, 'created_at' => $a->created_at, 'last_checked_at' => $a->last_checked_at];
+        $data = ['id' => $a->id, 'reference' => $a->reference, 'method' => $a->method, 'amount_minor' => (string) $a->expected_amount_minor, 'currency' => $a->currency, 'status' => $a->status, 'failure_code' => $a->failure_code, 'created_at' => $a->created_at, 'last_checked_at' => $a->last_checked_at];
         if ($redirect) {
             $data['authorization_url'] = $a->authorization_url && $a->status === 'PENDING' && $o->status === 'PENDING_PAYMENT' && ! $o->financial_hold && $this->orders->projection($o, false)['reservation']['eligible'] ? Crypt::decryptString($a->authorization_url) : null;
         }

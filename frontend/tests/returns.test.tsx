@@ -104,6 +104,23 @@ describe("returns", () => {
     await screen.findByText("Window closed");
     expect(screen.queryByRole("spinbutton")).toBeNull();
   });
+  it("uses assistance copy instead of exposing missing policy configuration", async () => {
+    mock.request.mockResolvedValue({
+      ...list,
+      eligibility: {
+        eligible: false,
+        reason:
+          "Return policy is awaiting configuration. Contact the store for assistance.",
+        cutoff: null,
+      },
+    });
+    render(<ReturnsPanel order={order} />);
+    const link = await screen.findByRole("link", { name: "contact us" });
+    expect(link.getAttribute("href")).toBe("/contact");
+    expect(
+      screen.queryByText(/Return policy is awaiting configuration/),
+    ).toBeNull();
+  });
   it("focuses and associates selection errors", async () => {
     mock.request.mockResolvedValue(list);
     const user = userEvent.setup();

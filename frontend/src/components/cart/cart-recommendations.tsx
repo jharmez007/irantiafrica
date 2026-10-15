@@ -71,7 +71,7 @@ export function CartRecommendations({ lines }: { lines: CartLine[] }) {
     >
       <div className="commerce-discovery-heading">
         <p className="eyebrow">A little more to explore</p>
-        <h2 id="cart-discovery-heading">Pairs well with your selection</h2>
+        <h2 id="cart-discovery-heading">You may also like</h2>
       </div>
       <div className="catalog-grid">
         {visible.map((product) => (

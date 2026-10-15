@@ -45,8 +45,10 @@ it("invites with only name/email/approved role and explains local capture", asyn
     "inventory_store",
   );
   expect(
-    screen.getByRole("link", { name: "Mailpit" }).getAttribute("href"),
-  ).toBe("http://127.0.0.1:8025");
+    screen.getByText(
+      "Invitation emails are captured rather than delivered to recipients.",
+    ),
+  ).toBeTruthy();
   await userEvent.click(
     screen.getByRole("button", { name: "Send Invitation" }),
   );

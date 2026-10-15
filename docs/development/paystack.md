@@ -1,5 +1,9 @@
 # Paystack adapter and operational setup
 
+## Local TEST observation — 2026-10-14
+
+The current untracked local environment has a private TEST secret and payments enabled; both LIVE approval flags remain false. The first synthetic `.test` email was rejected during provider initialization, leaving an UNKNOWN local attempt with no provider reference found on verification. A subsequent `.com` test address reached the real hosted Paystack **TEST** checkout at the server-stored order total. Completion, callback, webhook and financial effects require separate observation before claiming success. The historical “no test key present” note below records the earlier Phase 3H baseline, not today's local UAT state. Provider webhooks still cannot reach plain localhost without an approved HTTPS tunnel; verification/reconciliation remains the available provider-backed path. No LIVE money or production activation occurred.
+
 Reviewed 2026-09-23 against the official [Transaction API](https://paystack.com/docs/api/transaction/), [verification guide](https://paystack.com/docs/payments/verify-payments/), [webhook guide](https://paystack.com/docs/payments/webhooks/) and [payment channels](https://paystack.com/docs/payments/payment-channels/).
 
 `PaymentGateway` exposes provider identity, readiness, initialization, verification and authenticated webhook normalization. `PaystackGateway` implements it using Laravel HTTP. Orders depend only on neutral domain outcomes. Future providers can implement the contract and routing/binding; no Paystack client enters OrderService. Refund execution is deliberately absent.

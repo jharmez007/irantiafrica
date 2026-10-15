@@ -7,6 +7,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (previewNoindex()) return [];
   const result: MetadataRoute.Sitemap = [
     { url: new URL("/products", siteOrigin).href },
+    { url: new URL("/our-story", siteOrigin).href },
   ];
   for (const kind of ["products", "categories"] as const) {
     let page = 1,

@@ -71,15 +71,15 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("manual fulfilment", () => {
-  it("shows only recorded customer milestones and no premature tracking", () => {
+  it("shows the current customer stage without premature tracking", () => {
     render(<FulfilmentPanel order={order()} changed={vi.fn()} />);
-    expect(screen.getByText("Order received")).toBeTruthy();
     expect(screen.getByText("Payment confirmed")).toBeTruthy();
+    expect(screen.queryByText("Order received")).toBeNull();
     expect(screen.queryByText("Delivered")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
     expect(
-      screen.getByText("Tracking details will appear after dispatch."),
-    ).toBeTruthy();
+      screen.queryByText("Tracking details will appear after dispatch."),
+    ).toBeNull();
   });
   it("uses the same safe guest tracking and wraps long values via the shared panel", () => {
     render(

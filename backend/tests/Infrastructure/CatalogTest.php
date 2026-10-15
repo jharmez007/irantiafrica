@@ -111,7 +111,7 @@ final class CatalogTest extends TestCase
         return $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/variants', ['sku' => $sku, 'unit_price_minor' => $price, 'option_value_ids' => $values])->assertOk()->json('data');
     }
 
-    private function image(array $p, string $content = '', string $mime = 'image/png'): string
+    private function image(array $p, string $content = '', string $mime = 'image/png', ?string $variantId = null): string
     {
         if ($content === '') {
             $im = imagecreatetruecolor(40, 30);
@@ -119,7 +119,7 @@ final class CatalogTest extends TestCase
             imagepng($im);
             $content = ob_get_clean();
         }
-        $intent = $this->browser('POST', '/api/v1/admin/media/uploads', ['product_id' => $p['id'], 'mime_type' => $mime, 'byte_size' => strlen($content), 'checksum' => hash('sha256', $content), 'alt_text' => 'Test woven basket'])->assertCreated()->json('data');
+        $intent = $this->browser('POST', '/api/v1/admin/media/uploads', ['product_id' => $p['id'], 'variant_id' => $variantId, 'mime_type' => $mime, 'byte_size' => strlen($content), 'checksum' => hash('sha256', $content), 'alt_text' => 'Test woven basket'])->assertCreated()->json('data');
         $m = ProductMedia::findOrFail($intent['id']);
         Storage::disk('local')->put($m->object_key, $content);
         $this->browser('POST', '/api/v1/admin/media/'.$m->id.'/complete')->assertStatus(202);
@@ -270,6 +270,7 @@ final class CatalogTest extends TestCase
         $this->assertArrayNotHasKey('status', $public);
         $this->assertArrayNotHasKey('id', $public);
         $this->assertArrayNotHasKey('object_key', $public['media'][0]);
+        $this->assertArrayNotHasKey('sku', $public['variants'][0]);
         $this->browser('GET', $public['media'][0]['sources'][0]['url'])->assertOk()->assertHeader('Content-Type', 'image/webp');
         $updated = $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['name' => 'Changed name', 'content_version' => $p['content_version']])->assertOk()->json('data');
         $this->assertSame($p['slug'], $updated['slug']);
@@ -280,6 +281,84 @@ final class CatalogTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_published', 'subject_type' => 'product', 'subject_id' => $p['id']]);
         $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => Product::findOrFail($p['id'])->content_version])->assertUnprocessable();
         $this->assertDatabaseHas('products', ['id' => $p['id'], 'status' => 'archived']);
+    }
+
+    public function test_public_variant_availability_uses_configured_threshold_without_internal_balances(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $product = $this->variant($this->create(), 'PUBLIC-STOCK-1');
+        $variantId = $product['variants'][0]['id'];
+        $this->image($product);
+        $inventory = app(InventoryService::class);
+        $inventory->initializeStock($variantId, 8, 'Public availability test', (string) Str::uuid(), $owner);
+        $inventory->setLowStockThreshold($variantId, 5, $owner);
+        $this->publish($product);
+
+        $public = $this->browser('GET', '/api/v1/products/'.$product['slug'])->assertOk()->json('data');
+        $this->assertSame(8, $public['variants'][0]['available_quantity']);
+        $this->assertSame('in_stock', $public['variants'][0]['availability_status']);
+        $this->assertFalse($public['variants'][0]['low_stock']);
+        foreach (['inventory', 'reserved', 'on_hand', 'movements'] as $privateField) {
+            $this->assertArrayNotHasKey($privateField, $public['variants'][0]);
+        }
+
+        $inventory->reserveMany((string) Str::uuid(), [['variant_id' => $variantId, 'quantity' => 4]]);
+        $public = $this->browser('GET', '/api/v1/products/'.$product['slug'])->assertOk()->json('data');
+        $this->assertSame(4, $public['variants'][0]['available_quantity']);
+        $this->assertSame('low_stock', $public['variants'][0]['availability_status']);
+        $this->assertTrue($public['variants'][0]['low_stock']);
+
+        $inventory->reserveMany((string) Str::uuid(), [['variant_id' => $variantId, 'quantity' => 4]]);
+        $this->browser('GET', '/api/v1/products/'.$product['slug'])->assertOk()
+            ->assertJsonPath('data.variants.0.available_quantity', 0)
+            ->assertJsonPath('data.variants.0.availability_status', 'out_of_stock')
+            ->assertJsonPath('data.variants.0.available', false);
+        $this->browser('GET', '/api/v1/products')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_variant_media_assignment_reassignment_fallback_and_bounded_public_read(): void
+    {
+        $this->owner();
+        $p = $this->create('variant', 'Colour textile');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Colour', 'values' => ['Forest Green', 'Terracotta']])->assertOk()->json('data');
+        $green = $p['options'][0]['values'][0]['id'];
+        $clay = $p['options'][0]['values'][1]['id'];
+        $p = $this->variant($p, 'TEXTILE-GREEN', [$green]);
+        $p = $this->variant($p, 'TEXTILE-CLAY', [$clay]);
+        $greenId = collect($p['variants'])->first(fn (array $variant): bool => in_array($green, $variant['option_value_ids'], true))['id'];
+        $clayId = collect($p['variants'])->first(fn (array $variant): bool => in_array($clay, $variant['option_value_ids'], true))['id'];
+        $general = $this->image($p);
+        $greenFront = $this->image($p, '', 'image/png', $greenId);
+        $greenDetail = $this->image($p, '', 'image/png', $greenId);
+        $this->assertDatabaseHas('product_media', ['id' => $general, 'variant_id' => null]);
+        $this->assertDatabaseHas('product_media', ['id' => $greenFront, 'variant_id' => $greenId]);
+        $this->assertDatabaseHas('product_media', ['id' => $greenDetail, 'variant_id' => $greenId]);
+        $other = $this->variant($this->create(), 'OTHER-MEDIA');
+        $this->browser('PATCH', '/api/v1/admin/media/'.$greenFront, ['variant_id' => $other['variants'][0]['id']])->assertUnprocessable();
+        $this->assertDatabaseHas('product_media', ['id' => $greenFront, 'variant_id' => $greenId]);
+        $this->browser('PATCH', '/api/v1/admin/media/'.$greenFront, ['variant_id' => $clayId])->assertOk();
+        $this->assertDatabaseHas('product_media', ['id' => $greenFront, 'variant_id' => $clayId]);
+        $this->browser('PATCH', '/api/v1/admin/media/'.$greenFront, ['variant_id' => null])->assertOk();
+        $this->assertDatabaseHas('product_media', ['id' => $greenFront, 'variant_id' => null]);
+        $this->stockFixture($p);
+        $this->publish($p);
+        DB::enableQueryLog();
+        $public = $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk()->json('data');
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+        $this->assertCount(3, $public['media']);
+        $this->assertSame($greenId, collect($public['media'])->firstWhere('id', $greenDetail)['variant_id']);
+        $this->assertArrayNotHasKey('sku', $public['variants'][0]);
+        $this->assertLessThanOrEqual(2, count(array_filter($queries, fn (array $query): bool => str_contains($query['query'], 'from "product_media"'))));
+        $admin = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data');
+        $this->assertNotEmpty($admin['variants'][0]['sku']);
+        $this->browser('DELETE', '/api/v1/admin/media/'.$greenDetail)->assertNoContent();
+        $this->assertDatabaseHas('product_media', ['id' => $general, 'status' => 'ready', 'variant_id' => null]);
+        $this->assertDatabaseHas('product_media', ['id' => $greenDetail, 'status' => 'retired', 'variant_id' => $greenId]);
+        $this->enroll($this->staff('inventory_store'));
+        $this->browser('PATCH', '/api/v1/admin/media/'.$greenFront, ['variant_id' => $clayId])->assertForbidden();
+        $this->browser('DELETE', '/api/v1/admin/media/'.$greenFront)->assertForbidden();
     }
 
     public function test_generic_variants_duplicate_combinations_skus_and_foreign_values(): void
@@ -303,6 +382,67 @@ final class CatalogTest extends TestCase
         $this->browser('POST', '/api/v1/admin/products/'.$other['id'].'/variants', ['sku' => 'FOREIGN', 'unit_price_minor' => '100', 'option_value_ids' => $values])->assertUnprocessable();
     }
 
+    public function test_colour_swatches_are_validated_editable_and_do_not_change_variant_identity(): void
+    {
+        $this->owner();
+        $p = $this->create('variant', 'Swatch bag');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Colour', 'values' => [
+            ['value' => 'Forest Green', 'swatch_hex' => '  #335438  '],
+            ['value' => 'Ivory', 'swatch_hex' => null],
+        ]])->assertOk()->json('data');
+        $option = $p['options'][0];
+        $green = $option['values'][0];
+        $this->assertSame('#335438', $green['swatch_hex']);
+        $this->assertNull($option['values'][1]['swatch_hex']);
+        $this->browser('POST', '/api/v1/admin/options/'.$option['id'].'/values', ['values' => [['value' => 'Unsafe', 'swatch_hex' => 'url(javascript:alert(1))']]])->assertUnprocessable();
+        $p = $this->variant($p, 'SWATCH-GREEN', [$green['id']], '3900000');
+        $variant = $p['variants'][0];
+        $this->stockFixture($p);
+        $mediaId = $this->image($p, '', 'image/png', $variant['id']);
+        $p = $this->publish($p);
+        $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green['id'].'/swatch', ['swatch_hex' => 'rgb(0,0,0)', 'content_version' => $p['content_version']])->assertUnprocessable();
+        $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green['id'].'/swatch', ['swatch_hex' => '#111111', 'content_version' => $p['content_version'] - 1])->assertStatus(409);
+        $p = $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green['id'].'/swatch', ['swatch_hex' => ' #a65a32 ', 'content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertSame('#A65A32', $p['options'][0]['values'][0]['swatch_hex']);
+        $this->assertSame($variant['id'], $p['variants'][0]['id']);
+        $this->assertSame('SWATCH-GREEN', $p['variants'][0]['sku']);
+        $this->assertSame('3900000', $p['variants'][0]['unit_price_minor']);
+        $this->assertSame($mediaId, $p['media'][0]['id']);
+        $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk()->assertJsonPath('data.options.0.values.0.swatch_hex', '#A65A32');
+        $this->assertDatabaseHas('inventory', ['variant_id' => $variant['id'], 'on_hand' => 1, 'reserved' => 0]);
+        $this->assertSame(0, DB::table('inventory_movements')->where('variant_id', $variant['id'])->count());
+        $p = $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green['id'].'/swatch', ['swatch_hex' => null, 'content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertNull($p['options'][0]['values'][0]['swatch_hex']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.option_value_swatch_updated', 'subject_id' => $p['id']]);
+
+        $size = $this->create('variant', 'Size only');
+        $size = $this->browser('POST', '/api/v1/admin/products/'.$size['id'].'/options', ['name' => 'Paper Size', 'values' => ['A4']])->assertOk()->json('data');
+        $sizeOption = $size['options'][0];
+        $this->browser('PATCH', '/api/v1/admin/options/'.$sizeOption['id'].'/values/'.$sizeOption['values'][0]['id'].'/swatch', ['swatch_hex' => '#FFFFFF', 'content_version' => $size['content_version']])->assertUnprocessable();
+        $this->browser('POST', '/api/v1/admin/products/'.$size['id'].'/options', ['name' => 'Size', 'values' => [['value' => 'Large', 'swatch_hex' => '#111111']]])->assertUnprocessable();
+        $this->enroll($this->staff('inventory_store'));
+        $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green['id'].'/swatch', ['swatch_hex' => '#000000', 'content_version' => $p['content_version']])->assertForbidden();
+    }
+
+    public function test_colour_value_names_cannot_duplicate_after_case_or_whitespace_normalisation(): void
+    {
+        $this->owner();
+        $product = $this->create('variant', 'Unique colours');
+        $path = '/api/v1/admin/products/'.$product['id'].'/options';
+        $this->browser('POST', $path, ['name' => 'Colour', 'values' => ['Cognac', '  cOgNaC  ']])->assertUnprocessable();
+        $this->assertDatabaseMissing('product_options', ['product_id' => $product['id']]);
+
+        $product = $this->browser('POST', $path, ['name' => 'Colour', 'values' => ['Forest Green', 'Cognac']])->assertOk()->json('data');
+        $option = $product['options'][0];
+        $this->browser('POST', '/api/v1/admin/options/'.$option['id'].'/values', ['values' => [' forest   GREEN ']])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.fields.values.0', 'forest GREEN has already been added.');
+        $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$option['values'][1]['id'], [
+            'value' => ' FOREST   GREEN ', 'swatch_hex' => null, 'content_version' => $product['content_version'],
+        ])->assertUnprocessable()->assertJsonPath('error.fields.value.0', 'FOREST GREEN has already been added.');
+        $this->assertDatabaseCount('option_values', 2);
+    }
+
     public function test_draft_option_removal_is_versioned_and_saved_variants_are_only_removed_from_sale(): void
     {
         $owner = $this->staff();
@@ -324,11 +464,13 @@ final class CatalogTest extends TestCase
         $p = $this->variant($p, 'SIZE-SMALL', [$p['options'][0]['values'][0]['id']], '450000');
         $variant = $p['variants'][0];
         app(InventoryService::class)->initializeStock($variant['id'], 2, 'Catalog removal history test', (string) Str::uuid(), $owner);
-        $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'].'/values/'.$size['values'][0]['id'], ['content_version' => $p['content_version']])->assertStatus(409);
+        $this->browser('GET', '/api/v1/admin/options/'.$size['id'].'/values/'.$size['values'][0]['id'].'/removal-preview')->assertOk()->assertJsonPath('data.mode', 'archive');
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'].'/values/'.$size['values'][0]['id'], ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertTrue($p['options'][0]['values'][0]['removed']);
+        $this->assertSame('archived', $p['variants'][0]['status']);
         $this->browser('DELETE', '/api/v1/admin/options/'.$size['id'], ['content_version' => $p['content_version']])->assertStatus(409);
         $this->browser('DELETE', '/api/v1/admin/variants/'.$variant['id'])->assertStatus(405);
-        $p = $this->browser('PATCH', '/api/v1/admin/variants/'.$variant['id'], ['status' => 'archived', 'price_version' => $variant['price_version']])->assertOk()->json('data');
-        $this->assertSame('archived', $p['variants'][0]['status']);
+        $this->browser('PATCH', '/api/v1/admin/variants/'.$variant['id'], ['status' => 'active', 'price_version' => $p['variants'][0]['price_version']])->assertUnprocessable();
         $this->assertDatabaseHas('product_variants', ['id' => $variant['id'], 'sku' => 'SIZE-SMALL', 'status' => 'archived']);
         $this->assertDatabaseHas('option_values', ['id' => $size['values'][0]['id']]);
         $this->assertDatabaseHas('inventory_movements', ['variant_id' => $variant['id']]);
@@ -336,6 +478,82 @@ final class CatalogTest extends TestCase
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/variants', ['sku' => 'SIZE-SMALL-2', 'unit_price_minor' => '450000', 'option_value_ids' => [$size['values'][0]['id']]])->assertUnprocessable();
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.option_value_removed', 'subject_id' => $p['id']]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.option_removed', 'subject_id' => $p['id']]);
+    }
+
+    public function test_unused_draft_colour_removal_reassigns_media_and_cart_references_force_archival(): void
+    {
+        $this->owner();
+        $p = $this->create('variant', 'Removable colours');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Colour', 'values' => ['Forest Green', 'Cognac']])->assertOk()->json('data');
+        $option = $p['options'][0];
+        $green = $option['values'][0]['id'];
+        $cognac = $option['values'][1]['id'];
+        $p = $this->variant($p, 'REMOVE-GREEN', [$green]);
+        $p = $this->variant($p, 'KEEP-COGNAC', [$cognac]);
+        $greenId = collect($p['variants'])->firstWhere('sku', 'REMOVE-GREEN')['id'];
+        $cognacId = collect($p['variants'])->firstWhere('sku', 'KEEP-COGNAC')['id'];
+        $mediaId = $this->image($p, '', 'image/png', $greenId);
+        $p = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data');
+        $preview = $this->browser('GET', '/api/v1/admin/options/'.$option['id'].'/values/'.$green.'/removal-preview')->assertOk()->json('data');
+        $this->assertSame('delete', $preview['mode']);
+        $this->assertSame(1, $preview['media_count']);
+        $this->assertSame(['REMOVE-GREEN'], array_column($preview['variants'], 'sku'));
+        $this->browser('DELETE', '/api/v1/admin/options/'.$option['id'].'/values/'.$green, ['content_version' => $p['content_version']])->assertUnprocessable();
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$option['id'].'/values/'.$green, ['content_version' => $p['content_version'], 'reassign_variant_media' => true])->assertOk()->json('data');
+        $this->assertDatabaseMissing('option_values', ['id' => $green]);
+        $this->assertDatabaseMissing('product_variants', ['id' => $greenId]);
+        $this->assertDatabaseMissing('variant_option_values', ['variant_id' => $greenId]);
+        $this->assertDatabaseHas('product_media', ['id' => $mediaId, 'variant_id' => null, 'status' => 'ready']);
+        $this->assertDatabaseHas('product_variants', ['id' => $cognacId, 'status' => 'active']);
+
+        $cartId = (string) Str::uuid();
+        $cartItemId = (string) Str::uuid();
+        DB::table('carts')->insert(['id' => $cartId, 'guest_token_hash' => hash('sha256', 'colour-removal-cart'), 'expires_at' => now()->addDays(30)]);
+        DB::table('cart_items')->insert(['id' => $cartItemId, 'cart_id' => $cartId, 'variant_id' => $cognacId, 'quantity' => 1]);
+        $this->browser('GET', '/api/v1/admin/options/'.$option['id'].'/values/'.$cognac.'/removal-preview')->assertOk()->assertJsonPath('data.mode', 'archive');
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$option['id'].'/values/'.$cognac, ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertTrue($p['options'][0]['values'][0]['removed']);
+        $this->assertDatabaseHas('cart_items', ['id' => $cartItemId, 'variant_id' => $cognacId]);
+        $this->assertDatabaseHas('product_variants', ['id' => $cognacId, 'sku' => 'KEEP-COGNAC', 'status' => 'archived']);
+    }
+
+    public function test_published_colour_edit_and_removal_preserve_stock_media_and_other_skus(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->create('variant', 'Published colours');
+        $p = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/options', ['name' => 'Colour', 'values' => ['Forest Green', 'Cognac']])->assertOk()->json('data');
+        $option = $p['options'][0];
+        $green = $option['values'][0]['id'];
+        $cognac = $option['values'][1]['id'];
+        $p = $this->variant($p, 'PUB-GREEN', [$green], '3900000');
+        $p = $this->variant($p, 'PUB-COGNAC', [$cognac], '3900000');
+        $greenId = collect($p['variants'])->firstWhere('sku', 'PUB-GREEN')['id'];
+        $cognacId = collect($p['variants'])->firstWhere('sku', 'PUB-COGNAC')['id'];
+        app(InventoryService::class)->initializeStock($greenId, 8, 'Colour history test', (string) Str::uuid(), $owner);
+        app(InventoryService::class)->initializeStock($cognacId, 6, 'Colour history test', (string) Str::uuid(), $owner);
+        $this->image($p);
+        $specific = $this->image($p, '', 'image/png', $greenId);
+        $p = $this->publish($p);
+        $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green, ['value' => 'Cognac', 'swatch_hex' => '#335438', 'content_version' => $p['content_version']])->assertUnprocessable();
+        $p = $this->browser('PATCH', '/api/v1/admin/options/'.$option['id'].'/values/'.$green, ['value' => 'Deep Forest', 'swatch_hex' => ' #335438 ', 'content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertSame($greenId, collect($p['variants'])->firstWhere('sku', 'PUB-GREEN')['id']);
+        $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk()->assertJsonPath('data.options.0.values.0.value', 'Deep Forest')->assertJsonPath('data.options.0.values.0.swatch_hex', '#335438');
+        $this->browser('GET', '/api/v1/admin/options/'.$option['id'].'/values/'.$green.'/removal-preview')->assertOk()->assertJsonPath('data.mode', 'archive')->assertJsonPath('data.variants.0.sku', 'PUB-GREEN');
+        $p = $this->browser('DELETE', '/api/v1/admin/options/'.$option['id'].'/values/'.$green, ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->assertTrue($p['options'][0]['values'][0]['removed']);
+        $this->assertSame('archived', collect($p['variants'])->firstWhere('sku', 'PUB-GREEN')['status']);
+        $this->assertSame('active', collect($p['variants'])->firstWhere('sku', 'PUB-COGNAC')['status']);
+        $this->assertDatabaseHas('inventory', ['variant_id' => $greenId, 'on_hand' => 8, 'reserved' => 0]);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $greenId]);
+        $this->assertDatabaseHas('product_media', ['id' => $specific, 'variant_id' => $greenId, 'status' => 'ready']);
+        $public = $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk()->json('data');
+        $this->assertSame(['Cognac'], array_column($public['options'][0]['values'], 'value'));
+        $this->assertSame([$cognacId], array_column($public['variants'], 'id'));
+        $this->assertNotContains($specific, array_column($public['media'], 'id'));
+        $this->browser('GET', '/api/v1/admin/options/'.$option['id'].'/values/'.$cognac.'/removal-preview')->assertOk()->assertJsonPath('data.allowed', false);
+        $this->browser('DELETE', '/api/v1/admin/options/'.$option['id'].'/values/'.$cognac, ['content_version' => $p['content_version']])->assertUnprocessable();
+        $this->browser('PATCH', '/api/v1/admin/variants/'.$greenId, ['status' => 'active', 'price_version' => collect($p['variants'])->firstWhere('sku', 'PUB-GREEN')['price_version']])->assertUnprocessable();
     }
 
     public function test_category_hierarchy_memberships_and_cycle_prevention(): void

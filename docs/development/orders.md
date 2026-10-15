@@ -16,7 +16,7 @@ One order per checkout, one bound inventory reference/generation per order, call
 
 `promoted_at` excludes checkout from active-attempt uniqueness/cleanup. Its historical state remains RESERVED, with order_id identifying the durable destination. Checkout read does not release on later catalog/config changes; mutation returns CHECKOUT_PROMOTED. This marker and order binding commit atomically. If expiry wins while waiting on inventory locks or before promotion completes, all partial order writes roll back and release/expiry commits correctly.
 
-Orders own subsequent cancellation; inventory's existing minute scheduler still expires holds. Owned/admin detail reconciles expiry; lists calculate effective status using the clock even if the worker is late. Expiry leaves PENDING_PAYMENT and payment-ineligible, not cancelled. The 900-second default/actual original deadline is unchanged. The active cart and every item remain unchanged after placement/cancellation. Phase 3H must handle any successful-payment cart retirement with source/version checks, never blindly clear later edits.
+Orders own subsequent cancellation; inventory's existing minute scheduler still expires holds. Owned/admin detail reconciles expiry; lists calculate effective status using the clock even if the worker is late. Expiry leaves PENDING_PAYMENT and payment-ineligible, not cancelled. The 900-second default/actual original deadline is unchanged. The active cart and every item remain unchanged after placement/cancellation. Verified payment retires only safely matched source-cart lines, with source/version checks and a one-time record; it never blindly clears later edits.
 
 ## Ownership and approved cancellation
 

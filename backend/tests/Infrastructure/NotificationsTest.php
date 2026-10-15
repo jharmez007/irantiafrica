@@ -736,4 +736,26 @@ final class NotificationsTest extends TestCase
         $this->assertSame('TRANSPORT_CANCELLED', $transport->send($o->contact_email, $payload, (string) Str::uuid())['code']);
         $this->app->instance('env', 'testing');
     }
+
+    public function test_local_smtp_uat_requires_explicit_opt_in_and_redirects_to_owner_sink(): void
+    {
+        $o = $this->paid();
+        $payload = app(NotificationContent::class)->snapshot('OrderCreated', $o->id, null, now()->toIso8601String());
+        $this->app->instance('env', 'local');
+        config(['mail.default' => 'smtp', 'mail.from.address' => 'sender@irantiafrica.com',
+            'mail.from.name' => 'IRANTI Africa', 'mail.mailers.smtp.host' => 'smtp.gmail.com',
+            'mail.mailers.smtp.scheme' => 'smtps', 'mail.mailers.smtp.url' => null,
+            'communications.local_smtp_uat_enabled' => true, 'communications.staging_recipient' => null]);
+        $transport = app(MailTransport::class);
+        $this->assertSame('STAGING_RECIPIENT_REQUIRED', $transport->send($o->contact_email, $payload, (string) Str::uuid())['code']);
+
+        config(['communications.staging_recipient' => 'owner@example.com']);
+        $message = \Mockery::mock(SentMessage::class);
+        $message->shouldReceive('getMessageId')->once()->andReturn('uat-smtp-fixture');
+        Mail::shouldReceive('mailer')->once()->with('smtp')->andReturnSelf();
+        Mail::shouldReceive('to')->once()->with('owner@example.com')->andReturnSelf();
+        Mail::shouldReceive('send')->once()->andReturn($message);
+        $this->assertSame('SENT', $transport->send($o->contact_email, $payload, (string) Str::uuid())['status']);
+        $this->app->instance('env', 'testing');
+    }
 }

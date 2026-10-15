@@ -122,6 +122,9 @@ final class CartTest extends TestCase
         $this->assertArrayNotHasKey('id', $empty);
         $this->assertArrayNotHasKey('user_id', $empty);
         $added = $this->add($v, 2)->assertOk()->assertJsonPath('data.subtotal_minor', '250100')->json('data');
+        $this->assertFalse($added['items'][0]['low_stock']);
+        app(InventoryService::class)->setLowStockThreshold($v->id, 10, $this->owner);
+        $this->assertTrue($this->cartView()['items'][0]['low_stock']);
         $again = $this->add($v, 1)->assertOk()->assertJsonCount(1, 'data.items')->assertJsonPath('data.items.0.quantity', 3)->json('data');
         $this->browser('PATCH', '/api/v1/cart/items/'.$again['items'][0]['id'], ['quantity' => 4, 'expected_version' => $again['version']])->assertOk()->assertJsonPath('data.subtotal_minor', '500200');
         $current = $this->cartView();
@@ -135,6 +138,27 @@ final class CartTest extends TestCase
         $this->assertSame(0, DB::table('reservations')->count());
         $this->assertSame(1, DB::table('inventory_movements')->count());
         $this->assertSame(0, DB::table('audit_logs')->where('action', 'like', 'cart.%')->count());
+    }
+
+    public function test_cart_uses_selected_variant_image_and_falls_back_to_general_media(): void
+    {
+        $variant = $this->variant();
+        $general = ProductMedia::where('product_id', $variant->product_id)->firstOrFail();
+        $this->add($variant)->assertOk();
+        $this->assertSame($general->id, $this->cartView()['items'][0]['image']['id']);
+
+        $specific = ProductMedia::create([
+            'product_id' => $variant->product_id,
+            'variant_id' => $variant->id,
+            'object_key' => 'test/'.Str::uuid(),
+            'status' => 'ready',
+            'position' => 1,
+        ]);
+        $this->assertSame($specific->id, $this->cartView()['items'][0]['image']['id']);
+        $this->assertArrayNotHasKey('sku', $this->cartView()['items'][0]);
+
+        $specific->update(['status' => 'retired']);
+        $this->assertSame($general->id, $this->cartView()['items'][0]['image']['id']);
     }
 
     public function test_guest_capability_cookie_idor_and_token_guessing(): void
@@ -267,11 +291,15 @@ final class CartTest extends TestCase
         $data = $this->cartView();
         $this->assertSame('QUANTITY_REVIEW', $data['items'][0]['state']);
         $this->assertSame(4, $data['items'][0]['quantity']);
+        $this->assertSame(2, $data['items'][0]['available_quantity']);
+        $this->assertSame(2, $data['items'][0]['suggested_quantity']);
+        $this->assertArrayNotHasKey('reserved', $data['items'][0]);
         $this->assertSame('222222', $data['items'][0]['unit_price_minor']);
         $this->assertSame('888888', $data['items'][0]['line_subtotal_minor']);
         $stock->refresh();
         app(InventoryService::class)->adjustStock($v->id, -2, 'No units left', (string) Str::uuid(), $this->owner, $stock->version);
         $this->assertSame('OUT_OF_STOCK', $this->cartView()['items'][0]['state']);
+        $this->assertSame(0, $this->cartView()['items'][0]['available_quantity']);
         Product::whereKey($v->product_id)->update(['status' => 'archived']);
         $this->assertSame('UNAVAILABLE', $this->cartView()['items'][0]['state']);
         $this->assertSame(1, CartItem::count());

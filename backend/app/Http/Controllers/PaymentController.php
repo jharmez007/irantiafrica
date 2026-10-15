@@ -42,7 +42,7 @@ final class PaymentController
     public function initialize(Request $r, string $id): JsonResponse
     {
         $this->only($r, ['method']);
-        $v = $r->validate(['method' => ['required', 'in:card,bank_transfer']]);
+        $v = $r->validate(['method' => ['required', 'in:card,bank_transfer,hosted']]);
         $key = $r->header('Idempotency-Key');
         if (! is_string($key) || ! Str::isUuid($key)) {
             throw ValidationException::withMessages(['idempotency_key' => 'Supply a UUID Idempotency-Key.']);
@@ -71,8 +71,20 @@ final class PaymentController
         return $this->summary($o->refresh());
     }
 
+    public function resume(Request $r, string $id, string $attempt): JsonResponse
+    {
+        $this->only($r, []);
+        $o = $this->orders->owned($id, $this->user($r), $this->token($r, $id));
+        $a = $this->payments->attempt($attempt);
+        abort_unless($a->order_id === $o->id, 404);
+
+        return response()->json(['data' => $this->payments->projection($a, true)], 200, ['Cache-Control' => 'no-store']);
+    }
+
     private function summary(Order $o): JsonResponse
     {
+        $this->payments->reconcilePaidOrder($o->id);
+
         return response()->json(['data' => ['order' => $this->orders->projection($this->orders->read($o), false), 'attempts' => DB::table('payment_attempts')->where('order_id', $o->id)->orderByDesc('created_at')->limit(50)->get()->map(fn ($a) => $this->payments->projection($a))->all()]], 200, ['Cache-Control' => 'no-store']);
     }
 

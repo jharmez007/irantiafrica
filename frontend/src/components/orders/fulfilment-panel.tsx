@@ -182,18 +182,25 @@ export function FulfilmentPanel({
       <h2 id="fulfilment-heading">
         {admin ? "Fulfilment" : "Delivery progress"}
       </h2>
-      <ol
-        className="fulfilment-timeline"
-        aria-label="Recorded order milestones"
-      >
-        {order.history?.map((item, i) => (
-          <li key={i}>
-            <strong>{milestones[item.status] ?? item.status}</strong>
-            <span>{time(item.at)} WAT</span>
-          </li>
-        ))}
-      </ol>
-      <Tracking shipment={shipment} />
+      {admin ? (
+        <ol
+          className="fulfilment-timeline"
+          aria-label="Recorded order milestones"
+        >
+          {order.history?.map((item, i) => (
+            <li key={i}>
+              <strong>{milestones[item.status] ?? item.status}</strong>
+              <span>{time(item.at)} WAT</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="customer-order-current-stage">
+          Current stage:{" "}
+          <strong>{milestones[order.status] ?? order.status}</strong>
+        </p>
+      )}
+      {(admin || shipment) && <Tracking shipment={shipment} />}
       {operational && (
         <>
           <p>

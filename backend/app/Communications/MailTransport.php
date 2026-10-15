@@ -14,7 +14,8 @@ final class MailTransport
     public function send(string $recipient, array $payload, string $id): array
     {
         $mode = app()->environment();
-        $mailer = $mode === 'testing' ? 'array' : ($mode === 'local' ? (config('mail.default') === 'mailpit' ? 'mailpit' : 'array') : config('mail.default'));
+        $localSmtpUat = $mode === 'local' && config('communications.local_smtp_uat_enabled') === true && config('mail.default') === 'smtp';
+        $mailer = $mode === 'testing' ? 'array' : ($mode === 'local' ? (config('mail.default') === 'mailpit' ? 'mailpit' : ($localSmtpUat ? 'smtp' : 'array')) : config('mail.default'));
         $capture = $mode === 'local' && $mailer === 'mailpit';
         $simulated = $mailer === 'array' || $capture;
         try {
@@ -38,7 +39,7 @@ final class MailTransport
                 if ($mailer === 'smtp' && (config('mail.mailers.smtp.url') || ! config('mail.mailers.smtp.host') || in_array(config('mail.mailers.smtp.host'), ['localhost', '127.0.0.1'], true) || config('mail.mailers.smtp.scheme') !== 'smtps')) {
                     return $this->result('FAILED', 'SMTP_NOT_CONFIGURED');
                 }
-                if ($mode === 'staging') {
+                if ($mode === 'staging' || $localSmtpUat) {
                     $sink = config('communications.staging_recipient');
                     if (! is_string($sink) || ! filter_var($sink, FILTER_VALIDATE_EMAIL)) {
                         return $this->result('FAILED', 'STAGING_RECIPIENT_REQUIRED');
