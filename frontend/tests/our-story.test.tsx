@@ -57,7 +57,12 @@ describe("Our Story page", () => {
     expect(
       within(main).getAllByRole("link", { name: /Explore the collection/ }),
     ).toHaveLength(2);
-    expect(within(main).getAllByRole("img")).toHaveLength(2);
+    expect(
+      within(main)
+        .getByRole("link", { name: /Discover our story/ })
+        .getAttribute("href"),
+    ).toBe("#the-meaning");
+    expect(within(main).getAllByRole("img")).toHaveLength(3);
     expect(
       within(main)
         .getAllByRole("img")
