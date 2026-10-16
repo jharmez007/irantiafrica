@@ -13,9 +13,9 @@ FROM php:8.5-fpm-bookworm AS runtime
 # PHP 8.5 official images already enable OPcache; reinstalling it fails.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates gettext-base nginx supervisor unzip \
-    libpq-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev \
+    libpq-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libwebp-dev \
     libicu-dev libzip-dev libonig-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j2 pdo_pgsql gd intl mbstring bcmath exif pcntl zip \
     && printf '\nclear_env = no\n' >> /usr/local/etc/php-fpm.d/www.conf \
     && (getent group 1000 >/dev/null || groupadd -g 1000 rendersecrets) \
