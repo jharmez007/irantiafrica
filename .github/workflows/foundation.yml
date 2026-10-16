@@ -233,6 +233,7 @@ jobs:
           for extension in pdo_pgsql gd intl mbstring bcmath exif pcntl zip 'Zend OPcache'; do
             docker exec "$container_id" php -m | grep -iq "^$extension$"
           done
+          docker exec "$container_id" php -r 'exit(function_exists("imagewebp") && (gd_info()["WebP Support"] ?? false) ? 0 : 1);'
           test "$(docker exec "$container_id" id -u)" = 33
           docker exec "$container_id" test -f /app/frontend/server.js
           docker exec "$container_id" test -w /app/backend/storage
