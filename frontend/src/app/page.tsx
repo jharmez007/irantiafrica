@@ -22,7 +22,7 @@ async function HomeContent() {
   const [catalogResults] = await Promise.all([
     Promise.allSettled([
       catalogFetch<Page<Product>>("/products?page_size=4"),
-      catalogFetch<Page<Category>>("/categories?page_size=4"),
+      catalogFetch<Page<Category>>("/categories?page_size=100"),
     ]),
     // Temporary visual-test hold. Production never waits for this timer.
     process.env.NODE_ENV === "development"
@@ -37,7 +37,9 @@ async function HomeContent() {
   return (
     <main id="main-content">
       <HomeSectionScroll />
-      <HomeHero />
+      <HomeHero
+        availableCategorySlugs={categories.map((category) => category.slug)}
+      />
       <section id="collections" className="home-section">
         <Container>
           <SectionHeader
@@ -51,7 +53,7 @@ async function HomeContent() {
           </SectionHeader>
           {categories.length > 0 ? (
             <div className="category-grid">
-              {categories.map((category) => (
+              {categories.slice(0, 4).map((category) => (
                 <CategoryCard
                   key={category.slug}
                   category={category}

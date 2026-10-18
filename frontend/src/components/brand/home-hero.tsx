@@ -57,7 +57,11 @@ function imagePosition(slide: (typeof heroSlides)[number]): CSSProperties {
   } as CSSProperties;
 }
 
-export function HomeHero() {
+export function HomeHero({
+  availableCategorySlugs = [],
+}: {
+  availableCategorySlugs?: string[];
+}) {
   const [active, setActive] = useState(0);
   const [incoming, setIncoming] = useState<number | null>(null);
   const [fading, setFading] = useState(false);
@@ -134,6 +138,11 @@ export function HomeHero() {
   }
 
   const slide = heroSlides[active];
+  const destination = slide.href.startsWith("/categories/")
+    ? availableCategorySlugs.includes(slide.href.slice("/categories/".length))
+      ? slide.href
+      : "/products"
+    : slide.href;
 
   return (
     <section
@@ -194,7 +203,7 @@ export function HomeHero() {
           {slide.title}
         </h1>
         <p className="campaign-intro">{slide.body}</p>
-        <Link className="button campaign-cta" href={slide.href}>
+        <Link className="button campaign-cta" href={destination}>
           {slide.ctaLabel} <span aria-hidden="true">↗</span>
         </Link>
       </div>

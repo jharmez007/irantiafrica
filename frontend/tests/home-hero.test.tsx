@@ -161,13 +161,41 @@ describe("homepage campaign hero", () => {
     completeFade();
     expect(
       screen.getByRole("link", { name: "Find a gift" }).getAttribute("href"),
-    ).toBe("/categories/stationery-gifts");
+    ).toBe("/products");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
       screen
         .getByRole("button", { name: `Show story 4: ${heroSlides[3].title}` })
         .getAttribute("aria-current"),
     ).toBe("true");
+  });
+
+  it("links to a category only when it is in the active catalogue", () => {
+    render(<HomeHero availableCategorySlugs={["stationery-gifts"]} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Show story 4: ${heroSlides[3].title}`,
+      }),
+    );
+    completeFade();
+    expect(
+      screen.getByRole("link", { name: "Find a gift" }).getAttribute("href"),
+    ).toBe("/categories/stationery-gifts");
+  });
+
+  it("sends an unpublished home category to the full collection", () => {
+    render(<HomeHero availableCategorySlugs={["stationery-gifts"]} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Show story 3: ${heroSlides[2].title}`,
+      }),
+    );
+    completeFade();
+    expect(
+      screen
+        .getByRole("link", { name: "Shop home & living" })
+        .getAttribute("href"),
+    ).toBe("/products");
   });
 
   it("ignores a repeated selection and lets the current dot cancel a pending change", () => {
