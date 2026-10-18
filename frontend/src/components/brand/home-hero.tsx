@@ -43,7 +43,7 @@ export const heroSlides = [
     title: "Gifts that carry a story.",
     body: "Thoughtful pieces for visitors, loved ones and anyone who wants to keep a little of Nigeria close.",
     ctaLabel: "Find a gift",
-    href: "/categories/stationery-gifts",
+    href: "/categories/gift-sets",
     image: "/assets/hero/leather-heritage-journal.webp",
     desktopPosition: "center 56%",
     mobilePosition: "50% center",
@@ -138,11 +138,12 @@ export function HomeHero({
   }
 
   const slide = heroSlides[active];
-  const destination = slide.href.startsWith("/categories/")
-    ? availableCategorySlugs.includes(slide.href.slice("/categories/".length))
-      ? slide.href
-      : "/products"
-    : slide.href;
+  const destination =
+    slide.href.startsWith("/categories/") &&
+    slide.href !== "/categories/gift-sets" &&
+    !availableCategorySlugs.includes(slide.href.slice("/categories/".length))
+      ? "/products"
+      : slide.href;
 
   return (
     <section

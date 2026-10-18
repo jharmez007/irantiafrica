@@ -103,7 +103,7 @@ describe("homepage campaign hero", () => {
       "/products",
       "/our-story",
       "/categories/home-decor",
-      "/categories/stationery-gifts",
+      "/categories/gift-sets",
     ]);
     expect(heroSlides.map((slide) => slide.title)).toEqual([
       "A little closer to home.",
@@ -161,7 +161,7 @@ describe("homepage campaign hero", () => {
     completeFade();
     expect(
       screen.getByRole("link", { name: "Find a gift" }).getAttribute("href"),
-    ).toBe("/products");
+    ).toBe("/categories/gift-sets");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
       screen
@@ -170,8 +170,8 @@ describe("homepage campaign hero", () => {
     ).toBe("true");
   });
 
-  it("links to a category only when it is in the active catalogue", () => {
-    render(<HomeHero availableCategorySlugs={["stationery-gifts"]} />);
+  it("keeps the gift CTA on the requested Gift sets category", () => {
+    render(<HomeHero availableCategorySlugs={["gift-sets"]} />);
     fireEvent.click(
       screen.getByRole("button", {
         name: `Show story 4: ${heroSlides[3].title}`,
@@ -180,11 +180,11 @@ describe("homepage campaign hero", () => {
     completeFade();
     expect(
       screen.getByRole("link", { name: "Find a gift" }).getAttribute("href"),
-    ).toBe("/categories/stationery-gifts");
+    ).toBe("/categories/gift-sets");
   });
 
   it("sends an unpublished home category to the full collection", () => {
-    render(<HomeHero availableCategorySlugs={["stationery-gifts"]} />);
+    render(<HomeHero availableCategorySlugs={["gift-sets"]} />);
     fireEvent.click(
       screen.getByRole("button", {
         name: `Show story 3: ${heroSlides[2].title}`,
