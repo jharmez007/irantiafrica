@@ -1,5 +1,9 @@
 # Inventory implementation and service contract
 
+## Client correction — 2026-10-18
+
+The primary admin action is now **Set stock level**. Staff enter the desired final physical on-hand quantity (including zero for an initialized, unreserved SKU), then review the computed change before confirming. `InventoryService::setStockLevel` locks the existing variant and balance, checks the expected version and idempotency key, computes `new_on_hand - current_on_hand`, and records the same immutable `ADJUSTMENT` movement and audit used by the existing delta service. It rejects a target below reserved stock. The older signed-delta endpoint remains for existing integrations but is no longer the main UI. Opening stock still uses the guarded opening workflow and requires a positive quantity.
+
 Phase 3D implementation baseline v1.0 · 2026-09-23 · ready for approval. [ADR-013 revision 2](../architecture/adr/013-inventory-before-orders.md) is accepted and implemented under the client's latest authorization. Phase 3C.5 remains approved and closed; Phase 3E has not begun.
 
 ## Source of truth and schema

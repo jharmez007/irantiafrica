@@ -20,6 +20,7 @@ export type Destinations = {
 export type ShippingMethod = {
   code: string;
   name: string;
+  locality_code?: string | null;
   description: string | null;
   estimate: string | null;
   amount_minor: string;
@@ -46,6 +47,7 @@ export type Checkout = {
   total_minor: string | null;
   contact: { email: string; address: Address } | null;
   calculation: {
+    tax_enabled?: boolean;
     development_only: boolean;
     product_tax_minor: string;
     delivery_tax_minor: string;

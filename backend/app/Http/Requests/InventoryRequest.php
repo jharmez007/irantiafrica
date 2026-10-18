@@ -21,6 +21,7 @@ class InventoryRequest extends FormRequest
         return match ($this->route()?->getActionMethod()) {
             'opening' => ['quantity' => ['required', new InventoryInteger], 'reason' => ['required', 'string', 'max:500']],
             'adjust' => ['delta' => ['required', new InventoryInteger(-StockMath::MAX, true)], 'reason' => ['required', 'string', 'max:500'], 'expected_version' => ['required', 'string', 'regex:/^[1-9][0-9]{0,18}$/']],
+            'setLevel' => ['new_on_hand' => ['required', new InventoryInteger(0)], 'reason' => ['required', 'string', 'max:500'], 'expected_version' => ['required', 'string', 'regex:/^[1-9][0-9]{0,18}$/']],
             default => ['q' => ['sometimes', 'nullable', 'string', 'max:100'], 'page' => ['sometimes', 'integer', 'min:1', 'max:10000'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100']],
         };
     }

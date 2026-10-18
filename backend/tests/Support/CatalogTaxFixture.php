@@ -17,7 +17,7 @@ trait CatalogTaxFixture
         $actor->roles()->attach(Role::where('code', 'owner')->firstOrFail()->id, ['id' => (string) Str::uuid()]);
         app(CheckoutConfiguration::class)->publish([
             'version_code' => 'catalog-test-'.Str::uuid(), 'development_only' => true,
-            'payload' => ['rounding' => 'HALF_UP', 'product_rules' => array_map(fn ($code) => ['category' => $code, 'rate' => '0.1', 'label' => 'Test taxable treatment'], $codes), 'delivery_tax' => ['taxable' => false, 'rate' => null, 'label' => 'Test delivery'], 'zones' => []],
+            'payload' => ['rounding' => 'HALF_UP', 'product_rules' => array_map(fn ($code) => ['category' => $code, 'rate' => '0.1', 'label' => 'Test taxable treatment'], $codes), 'default_tax_category' => $codes[0] ?? null, 'delivery_tax' => ['taxable' => false, 'rate' => null, 'label' => 'Test delivery'], 'zones' => []],
         ], $actor);
     }
 }

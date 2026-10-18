@@ -28,6 +28,15 @@ final class CheckoutConfiguration
      * @return array<string,mixed> */
     public function publish(array $input, User $actor): array
     {
+        foreach (is_array($input['payload']['zones'] ?? null) ? $input['payload']['zones'] : [] as $index => $zone) {
+            if (is_array($zone) && is_string($zone['locality_code'] ?? null)) {
+                $normalized = preg_replace('/\s+/', '_', trim($zone['locality_code']));
+                if ($normalized === null) {
+                    throw ValidationException::withMessages(['payload.zones.'.$index.'.locality_code' => 'Enter a valid delivery area.']);
+                }
+                $input['payload']['zones'][$index]['locality_code'] = strtoupper($normalized);
+            }
+        }
         $data = Validator::make($input, [
             'version_code' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,80}$/D'],
             'expected_current_id' => ['sometimes', 'nullable', 'uuid'],
@@ -37,9 +46,14 @@ final class CheckoutConfiguration
                     $f('Use a JSON boolean.');
                 }
             }],
-            'payload' => ['required', 'array:rounding,product_rules,default_tax_category,delivery_tax,zones'],
+            'payload' => ['required', 'array:rounding,tax_enabled,product_rules,default_tax_category,delivery_tax,zones'],
             'payload.rounding' => ['required', Rule::in(['HALF_UP'])],
-            'payload.product_rules' => ['required', 'array', 'list', 'min:1', 'max:100'],
+            'payload.tax_enabled' => ['sometimes', function ($a, $v, $f) {
+                if (! is_bool($v)) {
+                    $f('Use a JSON boolean.');
+                }
+            }],
+            'payload.product_rules' => ['present', 'array', 'list', 'max:100'],
             'payload.product_rules.*' => ['array:category,rate,label'],
             'payload.product_rules.*.category' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,64}$/D', 'distinct:strict'],
             'payload.product_rules.*.rate' => ['required', 'string'],
@@ -77,8 +91,15 @@ final class CheckoutConfiguration
             foreach ($data['payload']['product_rules'] as $r) {
                 TaxMath::numerator($r['rate']);
             }
+            $taxEnabled = $data['payload']['tax_enabled'] ?? true; // Existing immutable configurations retain their original tax behavior.
+            if ($taxEnabled && $data['payload']['product_rules'] === []) {
+                throw new \InvalidArgumentException('Add a default tax rate before enabling tax.');
+            }
             if (($data['payload']['default_tax_category'] ?? null) !== null && ! in_array($data['payload']['default_tax_category'], array_column($data['payload']['product_rules'], 'category'), true)) {
                 throw new \InvalidArgumentException('Default tax treatment must match a configured product rule.');
+            }
+            if ($taxEnabled && count($data['payload']['product_rules']) > 1 && ! ($data['payload']['default_tax_category'] ?? null)) {
+                throw new \InvalidArgumentException('Choose a store-wide default tax treatment.');
             }
             $delivery = $data['payload']['delivery_tax'];
             if ($delivery['taxable']) {
@@ -88,6 +109,17 @@ final class CheckoutConfiguration
             }
             foreach ($data['payload']['zones'] as $z) {
                 CartMoney::line($z['amount_minor'], 1);
+            }
+            $activeAreas = [];
+            foreach ($data['payload']['zones'] as $z) {
+                if (! $z['active'] || $z['locality_code'] === null) {
+                    continue;
+                }
+                $key = $z['state_code'].':'.$z['locality_code'];
+                if (isset($activeAreas[$key])) {
+                    throw new \InvalidArgumentException('Only one active delivery rate can be configured for each State and delivery area.');
+                }
+                $activeAreas[$key] = true;
             }
         } catch (\InvalidArgumentException $e) {
             throw ValidationException::withMessages(['configuration' => $e->getMessage()]);
@@ -101,12 +133,13 @@ final class CheckoutConfiguration
             abort_unless($actor->hasPermission('tax.configure') && $actor->hasPermission('shipping.configure'), 403);
             self::lock(true);
             $configuredCategories = array_column($data['payload']['product_rules'], 'category');
-            if (DB::table('products')->where('status', 'published')->whereNotNull('tax_category_code')->whereNotIn('tax_category_code', $configuredCategories)->exists()) {
+            if (($data['payload']['tax_enabled'] ?? true) && DB::table('products')->where('status', 'published')->whereNotNull('tax_category_code')->whereNotIn('tax_category_code', $configuredCategories)->exists()) {
                 throw ValidationException::withMessages(['product_rules' => 'Retain tax treatments used by published products or update those products first.']);
             }
             $now = self::now();
             $start = isset($data['effective_from']) ? new CarbonImmutable($data['effective_from']) : $now;
             $latest = DB::table('checkout_configurations')->orderByDesc('effective_from')->first();
+            $previousPayload = $latest ? json_decode($latest->payload, true, 512, JSON_THROW_ON_ERROR) : null;
             if (array_key_exists('expected_current_id', $data)) {
                 $currentId = DB::table('checkout_configurations')->where('effective_from', '<=', $now->format('Y-m-d H:i:s.uP'))->orderByDesc('effective_from')->value('id');
                 if ($currentId !== $data['expected_current_id']) {
@@ -121,7 +154,7 @@ final class CheckoutConfiguration
             }
             $id = (string) Str::uuid();
             DB::table('checkout_configurations')->insert(['id' => $id, 'version_code' => $data['version_code'], 'effective_from' => $start->format('Y-m-d H:i:s.uP'), 'payload' => json_encode($data['payload'], JSON_THROW_ON_ERROR), 'development_only' => $data['development_only'], 'approved_by' => $actor->id]);
-            DB::table('audit_logs')->insert(['id' => (string) Str::uuid(), 'actor_user_id' => $actor->id, 'actor_type' => 'user', 'action' => 'checkout.configuration_published', 'subject_type' => 'checkout_configuration', 'subject_id' => $id, 'outcome' => 'success', 'changes' => json_encode(['previous_configuration_id' => $latest?->id, 'previous_version_code' => $latest?->version_code, 'version_code' => $data['version_code'], 'development_only' => $data['development_only'], 'payload' => $data['payload']], JSON_THROW_ON_ERROR), 'request_id' => request()->attributes->get('request_id') ?? (string) Str::uuid(), 'occurred_at' => $now, 'created_at' => $now]);
+            DB::table('audit_logs')->insert(['id' => (string) Str::uuid(), 'actor_user_id' => $actor->id, 'actor_type' => 'user', 'action' => 'checkout.configuration_published', 'subject_type' => 'checkout_configuration', 'subject_id' => $id, 'outcome' => 'success', 'changes' => json_encode(['previous_configuration_id' => $latest?->id, 'previous_version_code' => $latest?->version_code, 'version_code' => $data['version_code'], 'development_only' => $data['development_only'], 'tax_enabled_before' => $previousPayload === null ? null : ($previousPayload['tax_enabled'] ?? true), 'tax_enabled_after' => $data['payload']['tax_enabled'] ?? true, 'payload' => $data['payload']], JSON_THROW_ON_ERROR), 'request_id' => request()->attributes->get('request_id') ?? (string) Str::uuid(), 'occurred_at' => $now, 'created_at' => $now]);
 
             return ['id' => $id, 'version_code' => $data['version_code'], 'effective_from' => $start->toIso8601String(), 'development_only' => $data['development_only']];
         }, 3);

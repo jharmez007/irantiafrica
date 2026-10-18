@@ -399,27 +399,29 @@ final class CheckoutService
         $delivery = $this->configuration->delivery($config, json_decode($row->address, true), $s->shipping_method_code);
         $s->shipping_method_code = $delivery['code'];
         $rules = array_column($config['payload']['product_rules'], null, 'category');
+        $taxEnabled = $config['payload']['tax_enabled'] ?? true;
+        $defaultCategory = $config['payload']['default_tax_category'] ?? (count($rules) === 1 ? array_key_first($rules) : null);
         $productTax = 0;
         $taxes = [];
         foreach (DB::table('checkout_lines')->where('checkout_id', $s->id)->get() as $line) {
             $snapshot = json_decode($line->snapshot, true);
-            $rule = $rules[$snapshot['tax_category']] ?? null;
-            if (! $rule) {
+            $rule = $taxEnabled ? ($rules[$snapshot['tax_category'] ?? $defaultCategory] ?? null) : null;
+            if ($taxEnabled && ! $rule) {
                 throw new CheckoutConflict('TAX_CONFIGURATION_REQUIRED', 'A required product tax category is not configured.');
             }
-            $tax = TaxMath::tax((int) $line->line_subtotal_minor, $rule['rate']);
+            $tax = $taxEnabled ? TaxMath::tax((int) $line->line_subtotal_minor, $rule['rate']) : 0;
             $productTax = CartMoney::add($productTax, $tax);
-            $taxes[$line->id] = ['configuration_id' => $config['id'], 'version' => $config['version_code'], 'category' => $rule['category'], 'label' => $rule['label'], 'rate' => $rule['rate'], 'taxable_base_minor' => (string) $line->line_subtotal_minor, 'tax_minor' => (string) $tax, 'rounding' => 'HALF_UP', 'allocation' => TaxMath::allocation($tax, $line->quantity)];
+            $taxes[$line->id] = ['configuration_id' => $config['id'], 'version' => $config['version_code'], 'category' => $rule['category'] ?? 'NO_TAX', 'label' => $rule['label'] ?? 'No tax', 'rate' => $rule['rate'] ?? '0', 'taxable_base_minor' => (string) $line->line_subtotal_minor, 'tax_minor' => (string) $tax, 'rounding' => 'HALF_UP', 'allocation' => TaxMath::allocation($tax, $line->quantity)];
         }
         $dt = $config['payload']['delivery_tax'];
         $fee = CartMoney::line($delivery['amount_minor'], 1);
-        $deliveryTax = $dt['taxable'] ? TaxMath::tax($fee, $dt['rate']) : 0;
+        $deliveryTax = $taxEnabled && $dt['taxable'] ? TaxMath::tax($fee, $dt['rate']) : 0;
         $tax = CartMoney::add($productTax, $deliveryTax);
         $total = CartMoney::add(CartMoney::add((int) $s->subtotal_minor, $tax), $fee);
         if ($total === 0) {
             throw new CheckoutConflict('ZERO_TOTAL_UNSUPPORTED', 'A zero-total checkout requires separate business review.');
         }
-        $calculation = ['configuration_id' => $config['id'], 'version' => $config['version_code'], 'development_only' => $config['development_only'], 'currency' => 'NGN', 'rounding' => 'HALF_UP', 'product_taxable_base_minor' => $s->subtotal_minor, 'product_tax_minor' => (string) $productTax, 'delivery' => $delivery, 'delivery_taxable' => $dt['taxable'], 'delivery_tax_rate' => $dt['rate'], 'delivery_tax_label' => $dt['label'], 'delivery_taxable_base_minor' => $dt['taxable'] ? (string) $fee : '0', 'delivery_tax_minor' => (string) $deliveryTax];
+        $calculation = ['configuration_id' => $config['id'], 'version' => $config['version_code'], 'development_only' => $config['development_only'], 'tax_enabled' => $taxEnabled, 'currency' => 'NGN', 'rounding' => 'HALF_UP', 'product_taxable_base_minor' => $taxEnabled ? $s->subtotal_minor : '0', 'product_tax_minor' => (string) $productTax, 'delivery' => $delivery, 'delivery_taxable' => $taxEnabled && $dt['taxable'], 'delivery_tax_rate' => $taxEnabled ? $dt['rate'] : null, 'delivery_tax_label' => $dt['label'], 'delivery_taxable_base_minor' => $taxEnabled && $dt['taxable'] ? (string) $fee : '0', 'delivery_tax_minor' => (string) $deliveryTax];
         foreach ($taxes as $id => $snapshot) {
             DB::table('checkout_lines')->where('id', $id)->update(['tax_snapshot' => json_encode($snapshot, JSON_THROW_ON_ERROR)]);
         }

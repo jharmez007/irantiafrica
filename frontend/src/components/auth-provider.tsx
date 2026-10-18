@@ -77,17 +77,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((failure: unknown) => {
         if (active && epoch === epochRef.current) {
+          const hadSession = userRef.current !== null;
           setUser(null);
           if (failure instanceof ApiError && failure.status === 401) {
             epochRef.current += 1;
             userRef.current = null;
             expiredRef.current = true;
+            if (hadSession)
+              toast.warning("Your session has expired. Please sign in again.");
             if (
               pathname.startsWith("/admin") ||
               pathname.startsWith("/account") ||
               pathname === "/mfa"
             ) {
-              toast.warning("Your session has expired. Please sign in again.");
               router.replace("/login");
             }
           } else setError("Unable to load your session. Please retry.");

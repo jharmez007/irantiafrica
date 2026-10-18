@@ -156,6 +156,23 @@ describe("checkout flow", () => {
       mock.request.mock.calls.filter((call) => call[0] === "/checkout"),
     ).toHaveLength(0);
   });
+  it("omits the tax row when the authoritative quote has tax disabled", async () => {
+    setup({
+      ...quote,
+      tax_minor: "0",
+      total_minor: "1510",
+      calculation: {
+        ...quote.calculation!,
+        tax_enabled: false,
+        product_tax_minor: "0",
+        delivery_tax_minor: "0",
+        delivery_taxable: false,
+      },
+    });
+    render(<CheckoutPage />);
+    await screen.findByRole("button", { name: "Continue to payment" });
+    expect(screen.queryByText("Tax", { exact: true })).toBeNull();
+  });
   it.each(["REVIEW_REQUIRED", "EXPIRED", "CANCELLED"] as const)(
     "starts a new draft from the cart when the old checkout is %s",
     async (status) => {
@@ -483,7 +500,7 @@ describe("checkout flow", () => {
     await userEvent.selectOptions(screen.getByLabelText("State"), "FCT");
     expect(
       await screen.findByText(
-        "Delivery is not currently available for this state.",
+        "Delivery is not currently configured for Abuja.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Paystack")).toBeTruthy();
@@ -492,6 +509,72 @@ describe("checkout flow", () => {
         .getByRole("button", { name: "Continue to payment" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+  it("shows Abuja areas as priced radio rows and clears them on State change", async () => {
+    setup();
+    mock.request.mockImplementation(async (path: string) => {
+      if (path === "/checkout/current") return draft;
+      if (path === "/checkout/destinations")
+        return {
+          states: { FCT: "Federal Capital Territory", KADUNA: "Kaduna" },
+          areas: [],
+        };
+      if (path.startsWith("/checkout/shipping-methods?")) {
+        const params = new URLSearchParams(path.split("?")[1]);
+        expect(params.get("include_areas")).toBe("1");
+        return params.get("state_code") === "FCT"
+          ? [
+              {
+                code: "WUSE",
+                locality_code: "WUSE",
+                name: "Home delivery",
+                description: null,
+                estimate: null,
+                amount_minor: "800000",
+              },
+              {
+                code: "MAITAMA",
+                locality_code: "MAITAMA",
+                name: "Home delivery",
+                description: null,
+                estimate: null,
+                amount_minor: "520000",
+              },
+            ]
+          : [
+              {
+                code: "KADUNA",
+                locality_code: null,
+                name: "Standard delivery",
+                description: null,
+                estimate: null,
+                amount_minor: "600000",
+              },
+            ];
+      }
+      throw new Error("Unexpected request " + path);
+    });
+    render(<CheckoutPage />);
+    await screen.findByLabelText("State");
+    await userEvent.selectOptions(screen.getByLabelText("State"), "FCT");
+    expect(await screen.findByRole("radio", { name: /Wuse/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Maitama/ })).toBeTruthy();
+    expect(screen.getByText("₦8,000.00")).toBeTruthy();
+    expect(screen.getByText("₦5,200.00")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Delivery area" })).toBeTruthy();
+    expect(screen.queryByLabelText("Choose your area")).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: /Wuse/ }));
+    expect(
+      (screen.getByRole("radio", { name: /Wuse/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+    await userEvent.selectOptions(screen.getByLabelText("State"), "KADUNA");
+    expect(
+      await screen.findByRole("radio", { name: /Standard delivery/ }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Wuse/ })).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Shipping method" }),
+    ).toBeTruthy();
   });
   it("offers multiple configured methods and requires a selection", async () => {
     setup();
@@ -749,8 +832,7 @@ describe("checkout flow", () => {
         .getAllByRole("status")
         .some(
           (status) =>
-            status.textContent ===
-            "Delivery, tax and total are being recalculated.",
+            status.textContent === "Delivery and total are being recalculated.",
         ),
     ).toBe(true);
     expect(screen.queryByText(/Updating total/i)).toBeNull();
@@ -1130,7 +1212,9 @@ describe("checkout flow", () => {
       screen.getByRole("button", { name: "Continue to payment" }),
     );
     await screen.findByRole("alert");
-    expect(document.activeElement?.id).toBe("checkout-errors");
+    await waitFor(() =>
+      expect(document.activeElement?.id).toBe("checkout-errors"),
+    );
     expect(screen.getByRole("alert").textContent).toContain("Please review");
   });
   it.each(["EXPIRED", "REVIEW_REQUIRED", "CANCELLED"] as const)(

@@ -85,7 +85,7 @@ async function selectEntry() {
   const user = userEvent.setup();
   const permissions = mocks.auth.user?.permissions ?? [];
   const action = permissions.includes("inventory.adjust")
-    ? "Adjust stock"
+    ? "Set stock level"
     : permissions.includes("inventory.movements.read")
       ? "View history"
       : "View stock";
@@ -96,8 +96,8 @@ async function selectEntry() {
   await user.click(await screen.findByRole("button", { name: action }));
   await screen.findByRole("dialog", {
     name:
-      action === "Adjust stock"
-        ? "Adjust Stock"
+      action === "Set stock level"
+        ? "Set stock level"
         : action === "View history"
           ? "Stock movement history"
           : "Stock availability",
@@ -106,18 +106,18 @@ async function selectEntry() {
 }
 async function reviewAdjustment() {
   const user = await selectEntry();
-  await user.type(screen.getByLabelText("Quantity change"), "-3");
+  await user.type(screen.getByLabelText("New stock quantity"), "97");
   await user.type(screen.getByLabelText("Reason"), "Damaged units removed");
-  await user.click(screen.getByRole("button", { name: "Review stock change" }));
+  await user.click(screen.getByRole("button", { name: "Review change" }));
   return user;
 }
 describe("inventory administration", () => {
   it("opens separate adjustment and history modals with labelled numeric input", async () => {
     render(<AdminInventory />);
     const user = await selectEntry();
-    const adjust = screen.getByRole("dialog", { name: "Adjust Stock" });
+    const adjust = screen.getByRole("dialog", { name: "Set stock level" });
     const quantity = within(adjust).getByRole("spinbutton", {
-      name: "Quantity change",
+      name: "New stock quantity",
     });
     expect(quantity.getAttribute("type")).toBe("number");
     expect(quantity.getAttribute("step")).toBe("1");
@@ -126,11 +126,11 @@ describe("inventory administration", () => {
     );
     await user.type(quantity, "abc");
     expect((quantity as HTMLInputElement).value).toBe("");
-    await user.type(quantity, "-4");
-    expect((quantity as HTMLInputElement).value).toBe("-4");
+    await user.type(quantity, "96");
+    expect((quantity as HTMLInputElement).value).toBe("96");
     expect(
       within(adjust).getByText(
-        "Use a positive number to add stock or a negative number to remove stock.",
+        "Enter the physical quantity currently in stock.",
       ),
     ).toBeTruthy();
     expect(
@@ -162,24 +162,22 @@ describe("inventory administration", () => {
     render(<AdminInventory />);
     const user = await selectEntry();
     const quantity = screen.getByRole("spinbutton", {
-      name: "Quantity change",
+      name: "New stock quantity",
     });
     await user.type(quantity, "0");
     await user.type(screen.getByLabelText("Reason"), "Count correction");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    expect(screen.getByRole("alert").textContent).toContain("whole-number");
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    expect(screen.getByRole("alert").textContent).toContain("reserved");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Adjust stock" }));
+    await user.click(screen.getByRole("button", { name: "Set stock level" }));
     const reopened = await screen.findByRole("dialog", {
-      name: "Adjust Stock",
+      name: "Set stock level",
     });
     expect(
       (
         within(reopened).getByRole("spinbutton", {
-          name: "Quantity change",
+          name: "New stock quantity",
         }) as HTMLInputElement
       ).value,
     ).toBe("");
@@ -188,7 +186,7 @@ describe("inventory administration", () => {
     ).toBe("");
     expect(within(reopened).queryByRole("alert")).toBeNull();
     expect(
-      within(reopened).queryByRole("button", { name: "Confirm stock change" }),
+      within(reopened).queryByRole("button", { name: "Confirm change" }),
     ).toBeNull();
   });
   it("pages a structured history table without opening adjustment", async () => {
@@ -300,9 +298,7 @@ describe("inventory administration", () => {
     expect(screen.queryByText("On hand")).toBeNull();
     expect(screen.queryByText("Reserved")).toBeNull();
     expect(screen.queryByText("Stock movement history")).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Review stock change" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review change" })).toBeNull();
     expect(
       mocks.api.mock.calls.some(([path]) =>
         String(path).includes("/movements"),
@@ -357,7 +353,7 @@ describe("inventory administration", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByRole("spinbutton", { name: "Quantity change" }),
+      screen.getByRole("spinbutton", { name: "New stock quantity" }),
     ).toBeTruthy();
     expect(
       screen.getByText(
@@ -373,7 +369,7 @@ describe("inventory administration", () => {
     expect(screen.getByText("Inventory reservation")).toBeTruthy();
     expect(screen.queryByText("owner-id")).toBeNull();
     expect(screen.queryByText("private-checkout-id")).toBeNull();
-    expect(screen.queryByLabelText("Quantity change")).toBeNull();
+    expect(screen.queryByLabelText("New stock quantity")).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Stock movement history" }),
     ).toBeTruthy();
@@ -392,13 +388,13 @@ describe("inventory administration", () => {
       async (
         path: string,
         method?: string,
-        payload?: { delta: number; reason: string },
+        payload?: { new_on_hand: number; reason: string },
       ) => {
         if (method === "POST") {
           current = {
             ...current,
-            on_hand: current.on_hand! + payload!.delta,
-            available_quantity: current.available_quantity! + payload!.delta,
+            on_hand: payload!.new_on_hand,
+            available_quantity: payload!.new_on_hand - current.reserved!,
             version: String(Number(current.version) + 1),
           };
           return { data: current };
@@ -408,32 +404,26 @@ describe("inventory administration", () => {
     );
     render(<AdminInventory />);
     let user = await selectEntry();
-    await user.type(screen.getByLabelText("Quantity change"), "10");
+    await user.type(screen.getByLabelText("New stock quantity"), "110");
     await user.type(screen.getByLabelText("Reason"), "New stock received");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() => expect(success).toHaveBeenCalled());
     expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(screen.getByText("110")).toBeTruthy());
 
     user = await selectEntry();
-    await user.type(screen.getByLabelText("Quantity change"), "-2");
+    await user.type(screen.getByLabelText("New stock quantity"), "108");
     await user.type(screen.getByLabelText("Reason"), "Damaged units");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() => expect(screen.getByText("108")).toBeTruthy());
     const writes = mocks.api.mock.calls.filter(
       ([, method]) => method === "POST",
     );
-    expect(writes.map(([, , payload]) => payload.delta)).toEqual([10, -2]);
+    expect(writes.map(([, , payload]) => payload.new_on_hand)).toEqual([
+      110, 108,
+    ]);
     expect(writes.map(([, , payload]) => payload.reason)).toEqual([
       "New stock received",
       "Damaged units",
@@ -454,13 +444,13 @@ describe("inventory administration", () => {
     });
     render(<AdminInventory />);
     const user = await reviewAdjustment();
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Review the refreshed quantities",
     );
-    expect(screen.getByRole("dialog", { name: "Adjust Stock" })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Set stock level" }),
+    ).toBeTruthy();
   });
   it("requires owner review and reuses the idempotency key for an unchanged retry", async () => {
     const success = vi.spyOn(toast, "success");
@@ -472,26 +462,22 @@ describe("inventory administration", () => {
     });
     render(<AdminInventory />);
     const user = await reviewAdjustment();
-    expect(screen.getByText("Quantity change: -3")).toBeTruthy();
-    expect(screen.getByText("New on-hand quantity: 97")).toBeTruthy();
+    expect(screen.getByText("Change: -3")).toBeTruthy();
+    expect(screen.getByText("New on hand: 97")).toBeTruthy();
     expect(mocks.api.mock.calls.some(([, method]) => method === "POST")).toBe(
       false,
     );
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await screen.findByRole("alert");
-    expect(screen.getByRole("dialog", { name: "Adjust Stock" })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Set stock level" }),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Cancel review" }));
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith(
-        "Stock change saved",
+        "Stock level saved",
         "Inventory is being refreshed.",
       ),
     );
@@ -502,9 +488,13 @@ describe("inventory administration", () => {
     expect(writes).toHaveLength(2);
     expect(writes[0]).toEqual(writes[1]);
     expect(writes[0]).toEqual([
-      "/inventory/variant/adjustments",
+      "/inventory/variant/set-level",
       "POST",
-      { delta: -3, reason: "Damaged units removed", expected_version: "4" },
+      {
+        new_on_hand: 97,
+        reason: "Damaged units removed",
+        expected_version: "4",
+      },
       { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
     ]);
   });
@@ -515,22 +505,14 @@ describe("inventory administration", () => {
     });
     render(<AdminInventory />);
     const user = await reviewAdjustment();
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await screen.findByRole("alert");
     await user.click(screen.getByRole("button", { name: "Cancel review" }));
-    await user.clear(screen.getByLabelText("Quantity change"));
-    await user.type(screen.getByLabelText("Quantity change"), "-4");
-    expect(
-      screen.queryByRole("button", { name: "Confirm stock change" }),
-    ).toBeNull();
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.clear(screen.getByLabelText("New stock quantity"));
+    await user.type(screen.getByLabelText("New stock quantity"), "96");
+    expect(screen.queryByRole("button", { name: "Confirm change" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() =>
       expect(
         mocks.api.mock.calls.filter(([, method]) => method === "POST"),
@@ -557,26 +539,18 @@ describe("inventory administration", () => {
     });
     render(<AdminInventory />);
     const user = await reviewAdjustment();
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Review the refreshed quantities",
     );
-    await screen.findByLabelText("Quantity change");
-    expect(
-      screen.queryByRole("button", { name: "Confirm stock change" }),
-    ).toBeNull();
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    expect(screen.getByText("New on-hand quantity: 77")).toBeTruthy();
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await screen.findByLabelText("New stock quantity");
+    expect(screen.queryByRole("button", { name: "Confirm change" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    expect(screen.getByText("New on hand: 97")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() =>
       expect(mocks.api).toHaveBeenCalledWith(
-        "/inventory/variant/adjustments",
+        "/inventory/variant/set-level",
         "POST",
         expect.objectContaining({ expected_version: "5" }),
         expect.anything(),
@@ -597,15 +571,11 @@ describe("inventory administration", () => {
     );
     render(<AdminInventory />);
     const user = await selectEntry();
-    await user.type(screen.getByLabelText("Opening quantity"), "12");
+    await user.type(screen.getByLabelText("New stock quantity"), "12");
     await user.type(screen.getByLabelText("Reason"), "Initial counted stock");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    expect(screen.getByText("New on-hand quantity: 12")).toBeTruthy();
-    await user.click(
-      screen.getByRole("button", { name: "Confirm stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    expect(screen.getByText("New on hand: 12")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Confirm change" }));
     await waitFor(() =>
       expect(mocks.api).toHaveBeenCalledWith(
         "/inventory/variant/opening",
@@ -618,22 +588,16 @@ describe("inventory administration", () => {
   it("rejects zero changes and removal below reserved stock before sending", async () => {
     render(<AdminInventory />);
     const user = await selectEntry();
-    await user.type(screen.getByLabelText("Quantity change"), "0");
+    await user.type(screen.getByLabelText("New stock quantity"), "100");
     await user.type(screen.getByLabelText("Reason"), "Count correction");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Review change" }));
     expect(screen.getByRole("alert").textContent).toContain(
-      "whole-number stock change",
+      "different whole-number stock quantity",
     );
-    await user.clear(screen.getByLabelText("Quantity change"));
-    await user.type(screen.getByLabelText("Quantity change"), "-99");
-    await user.click(
-      screen.getByRole("button", { name: "Review stock change" }),
-    );
-    expect(
-      screen.queryByRole("button", { name: "Confirm stock change" }),
-    ).toBeNull();
+    await user.clear(screen.getByLabelText("New stock quantity"));
+    await user.type(screen.getByLabelText("New stock quantity"), "1");
+    await user.click(screen.getByRole("button", { name: "Review change" }));
+    expect(screen.queryByRole("button", { name: "Confirm change" })).toBeNull();
     expect(mocks.api.mock.calls.some(([, method]) => method === "POST")).toBe(
       false,
     );

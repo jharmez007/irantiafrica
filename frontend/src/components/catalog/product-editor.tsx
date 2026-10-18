@@ -35,6 +35,7 @@ import {
 type Taxes = {
   data: { code: string; label: string }[];
   development_only: boolean;
+  tax_enabled?: boolean;
 };
 type PendingRemoval =
   | { kind: "option"; id: string; name: string; contentVersion?: number }
@@ -139,10 +140,7 @@ function Editor({ id }: { id?: string }) {
           if (active) setTaxes(t);
         })
         .catch(() => {
-          if (active)
-            setTaxError(
-              "No configured tax categories are available. Ask the configuration owner to publish the approved tax setup. No rate will be assumed.",
-            );
+          if (active) setTaxError("Tax choices could not be loaded.");
         });
     if (id)
       catalogAdmin<{ data: Product }>(`/products/${id}`)
@@ -426,15 +424,17 @@ function Editor({ id }: { id?: string }) {
             ) : (
               <>
                 <p>{product?.description}</p>
-                <p>
-                  Tax treatment:{" "}
-                  {product?.tax_treatment_label
-                    ? displayTaxLabel(
-                        product.tax_treatment_label,
-                        product.tax_category_code ?? undefined,
-                      )
-                    : "Needs configuration"}
-                </p>
+                {taxes.tax_enabled !== false && (
+                  <p>
+                    Tax treatment:{" "}
+                    {product?.tax_treatment_label
+                      ? displayTaxLabel(
+                          product.tax_treatment_label,
+                          product.tax_category_code ?? undefined,
+                        )
+                      : "Use store default"}
+                  </p>
+                )}
               </>
             )}
             {!id && (
@@ -1232,7 +1232,6 @@ function PublicationReadiness({ product }: { product: Product }) {
     ["Category", "Select at least one active category."],
     ["SKU and price", "Add a complete active variant with a SKU and price."],
     ["Image", "Add an image and wait for it to finish processing."],
-    ["Tax treatment", "Choose a configured tax treatment before publishing."],
     ["Variant choices", "Choose a value for every variant option."],
   ] as const;
   const known = checks.map(([, issue]) => issue);
@@ -1598,55 +1597,47 @@ function General({
           setDirty(true);
         }}
       />
-      <details className="product-more-settings">
-        <summary>More settings</summary>
-        {taxes.data.length === 1 &&
-        (!product?.tax_category_code ||
-          product.tax_category_code === taxes.data[0].code) ? (
-          <p className="form-help">
-            Tax treatment:{" "}
-            {displayTaxLabel(taxes.data[0].label, taxes.data[0].code)}. Applied
-            automatically when you save.
-          </p>
-        ) : taxes.data.length > 0 ? (
-          <label>
-            Tax treatment
-            <Select
-              name="tax_category_code"
-              defaultValue={
-                taxes.data.some((t) => t.code === product?.tax_category_code)
-                  ? (product?.tax_category_code ?? "")
-                  : product?.tax_category_code
-                    ? "__keep"
-                    : ""
-              }
-            >
-              <option value="">Choose later — draft only</option>
-              {product?.tax_category_code &&
-                !taxes.data.some(
-                  (t) => t.code === product.tax_category_code,
-                ) && (
-                  <option value="__keep">
-                    Previous treatment needs review
+      {((taxes.tax_enabled !== false && taxes.data.length > 0) || taxError) && (
+        <details className="product-more-settings">
+          <summary>More settings</summary>
+          {taxes.tax_enabled !== false && taxes.data.length > 0 ? (
+            <label>
+              Tax treatment (optional)
+              <Select
+                name="tax_category_code"
+                defaultValue={
+                  taxes.data.some((t) => t.code === product?.tax_category_code)
+                    ? (product?.tax_category_code ?? "")
+                    : product?.tax_category_code
+                      ? "__keep"
+                      : ""
+                }
+              >
+                <option value="">Use store default</option>
+                {product?.tax_category_code &&
+                  !taxes.data.some(
+                    (t) => t.code === product.tax_category_code,
+                  ) && (
+                    <option value="__keep">
+                      Previous treatment needs review
+                    </option>
+                  )}
+                {taxes.data.map((t) => (
+                  <option key={t.code} value={t.code}>
+                    {displayTaxLabel(t.label, t.code)}
                   </option>
-                )}
-              {taxes.data.map((t) => (
-                <option key={t.code} value={t.code}>
-                  {displayTaxLabel(t.label, t.code)}
-                </option>
-              ))}
-            </Select>
-          </label>
-        ) : (
-          <p className="form-help">
-            Tax setup is not available yet. You can save a draft; publishing
-            requires a configured treatment.
-          </p>
-        )}
-        {taxError && (
-          <Alert tone="info">{taxError} You can still save a draft.</Alert>
-        )}
-      </details>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          {taxError && (
+            <Alert tone="info">
+              Tax treatment choices are unavailable. You can still save or
+              publish the product.
+            </Alert>
+          )}
+        </details>
+      )}
       <div className="editor-save-bar">
         <span role="status">
           {busy

@@ -39,6 +39,11 @@ const sameAddress = (left: Address, right: Address) =>
       String(left[key as keyof Address] ?? "") ===
       String(right[key as keyof Address] ?? ""),
   );
+const areaName = (code: string) =>
+  code
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 export function CheckoutPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -388,7 +393,7 @@ export function CheckoutPage() {
       }
     });
     const params = new URLSearchParams({ state_code: state });
-    if (area) params.set("locality_code", area);
+    params.set("include_areas", "1");
     void checkoutRequest<ShippingMethod[]>(
       "/checkout/shipping-methods?" + params.toString(),
     )
@@ -400,9 +405,16 @@ export function CheckoutPage() {
           (shown.contact.address.locality_code ?? "") === area
             ? shown.shipping_method_code
             : null;
+        const matching = available.filter(
+          (method) => (method.locality_code ?? "") === area,
+        );
         setSelectedMethod(
-          available.find((method) => method.code === existing)?.code ??
-            (available.length === 1 ? available[0].code : ""),
+          matching.find((method) => method.code === selectedMethod)?.code ??
+            matching.find((method) => method.code === existing)?.code ??
+            (matching.length === 1 &&
+            (area || !available.some((method) => method.locality_code))
+              ? matching[0].code
+              : ""),
         );
       })
       .catch(() => {
@@ -789,9 +801,7 @@ export function CheckoutPage() {
     ) : (
       "—"
     );
-  const areas = destinations.areas.filter(
-    (a) => a.state_code === address.state_code && a.locality_code !== null,
-  );
+  const hasAreaMethods = methods.some((method) => method.locality_code);
   const addressAlreadySaved = saved.some((entry) =>
     sameAddress(entry, address),
   );
@@ -1055,7 +1065,7 @@ export function CheckoutPage() {
                   </button>
                   {quoteRefreshing && (
                     <span className="sr-only" role="status" aria-live="polite">
-                      Delivery, tax and total are being recalculated.
+                      Delivery and total are being recalculated.
                     </span>
                   )}
                   <div
@@ -1140,10 +1150,12 @@ export function CheckoutPage() {
                         <dt>Delivery</dt>
                         <dd>{quoteAmount(shown.delivery_minor)}</dd>
                       </div>
-                      <div>
-                        <dt>Tax</dt>
-                        <dd>{quoteAmount(shown.tax_minor)}</dd>
-                      </div>
+                      {shown.calculation?.tax_enabled !== false && (
+                        <div>
+                          <dt>Tax</dt>
+                          <dd>{quoteAmount(shown.tax_minor)}</dd>
+                        </div>
+                      )}
                       <div className="checkout-total-row">
                         <dt>Total</dt>
                         <dd>{quoteAmount(shown.total_minor)}</dd>
@@ -1295,6 +1307,9 @@ export function CheckoutPage() {
                                     : undefined
                                 }
                                 onChange={(event) => {
+                                  setSelectedMethod("");
+                                  setMethods([]);
+                                  setMethodsLoading(!!event.target.value);
                                   updateAddress({
                                     ...draftAddress.current,
                                     state_code: event.target.value,
@@ -1325,36 +1340,6 @@ export function CheckoutPage() {
                                 </p>
                               )}
                             </div>
-                            {areas.length > 0 && (
-                              <label
-                                className="checkout-field checkout-field--full"
-                                htmlFor="checkout-area"
-                              >
-                                Delivery area
-                                <Select
-                                  id="checkout-area"
-                                  value={address.locality_code ?? ""}
-                                  onChange={(event) =>
-                                    updateAddress({
-                                      ...draftAddress.current,
-                                      locality_code: event.target.value || null,
-                                    })
-                                  }
-                                >
-                                  <option value="">
-                                    State-wide coverage, if configured
-                                  </option>
-                                  {areas.map((area) => (
-                                    <option
-                                      key={area.locality_code}
-                                      value={area.locality_code!}
-                                    >
-                                      {area.locality_code!.replaceAll("_", " ")}
-                                    </option>
-                                  ))}
-                                </Select>
-                              </label>
-                            )}
                             {addressField(
                               "postal_code",
                               "Postal code (optional)",
@@ -1429,11 +1414,15 @@ export function CheckoutPage() {
                     </div>
                   ) : null}
                   <section className="checkout-section checkout-shipping-section">
-                    <h2 ref={shippingHeading} tabIndex={-1}>
-                      Shipping method
+                    <h2 id="checkout-area" ref={shippingHeading} tabIndex={-1}>
+                      {hasAreaMethods ? "Delivery area" : "Shipping method"}
                     </h2>
                     {methodsLoading ? (
-                      <p role="status">Loading delivery options…</p>
+                      <p role="status">
+                        {address.state_code === "FCT"
+                          ? "Loading Abuja delivery areas…"
+                          : "Loading delivery options…"}
+                      </p>
                     ) : methodsError ? (
                       <div role="alert">
                         <p>
@@ -1452,14 +1441,16 @@ export function CheckoutPage() {
                       </div>
                     ) : address.state_code && methods.length === 0 ? (
                       <p role="status">
-                        {areas.length > 0 && !address.locality_code
-                          ? "Choose a delivery area to see available methods."
+                        {address.state_code === "FCT"
+                          ? "Delivery is not currently configured for Abuja."
                           : "Delivery is not currently available for this state."}
                       </p>
                     ) : methods.length > 0 ? (
                       <fieldset disabled={!!proceeding}>
                         <legend className="sr-only">
-                          Available shipping methods
+                          {hasAreaMethods
+                            ? "Delivery area"
+                            : "Available shipping methods"}
                         </legend>
                         {methods.map((method) => (
                           <label
@@ -1473,9 +1464,14 @@ export function CheckoutPage() {
                               checked={selectedMethod === method.code}
                               onChange={() => {
                                 immediateSelection.current = true;
+                                const nextAddress = {
+                                  ...draftAddress.current,
+                                  locality_code: method.locality_code ?? null,
+                                };
+                                updateAddress(nextAddress);
                                 latestDraft.current = JSON.stringify({
                                   email: draftEmail.current,
-                                  address: draftAddress.current,
+                                  address: nextAddress,
                                   selectedMethod: method.code,
                                 });
                                 setSelectedMethod(method.code);
@@ -1483,10 +1479,20 @@ export function CheckoutPage() {
                               }}
                             />
                             <span>
-                              <strong>{method.name}</strong>
+                              <strong>
+                                {method.locality_code
+                                  ? areaName(method.locality_code)
+                                  : hasAreaMethods
+                                    ? `Other areas · ${method.name}`
+                                    : method.name}
+                              </strong>
                               {(method.description || method.estimate) && (
                                 <small>
-                                  {[method.description, method.estimate]
+                                  {[
+                                    method.locality_code ? method.name : null,
+                                    method.description,
+                                    method.estimate,
+                                  ]
                                     .filter(Boolean)
                                     .join(" · ")}
                                 </small>
@@ -1550,7 +1556,7 @@ export function CheckoutPage() {
                       <>
                         <p>
                           {quoteReady || quoteRefreshing
-                            ? "Review the delivery, tax and total before continuing."
+                            ? "Review the delivery and total before continuing."
                             : !readyAddress
                               ? "Complete your delivery details to continue."
                               : !selectedMethod

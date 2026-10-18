@@ -62,9 +62,6 @@ final class CatalogActions
             if (isset($data['tax_category_code']) && ! in_array($data['tax_category_code'], array_column($choices, 'code'), true)) {
                 $this->invalid('tax_category_code', 'Choose an available tax treatment or leave it unresolved for this draft.');
             }
-            if (! array_key_exists('tax_category_code', $data) && ! $product->tax_category_code && $taxChoices['default_code']) {
-                $data['tax_category_code'] = $taxChoices['default_code'];
-            }
             if (! $id) {
                 $data['kind'] ??= 'simple';
             }
@@ -455,9 +452,6 @@ final class CatalogActions
     public function publicationIssues(Product $product): array
     {
         $issues = [];
-        if (! $product->tax_category_code || ! in_array($product->tax_category_code, array_column(app(CatalogTax::class)->choices()['data'], 'code'), true)) {
-            $issues[] = 'Choose a configured tax treatment before publishing.';
-        }
         if (trim($product->description) === '') {
             $issues[] = 'Add a description.';
         }

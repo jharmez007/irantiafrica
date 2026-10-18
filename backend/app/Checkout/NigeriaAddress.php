@@ -15,7 +15,7 @@ final class NigeriaAddress
         $names = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara', 'FCT'];
         $result = [];
         foreach ($names as $name) {
-            $result[strtoupper(str_replace(' ', '_', $name))] = $name;
+            $result[strtoupper(str_replace(' ', '_', $name))] = $name === 'FCT' ? 'Federal Capital Territory' : $name;
         }
 
         return $result;

@@ -1,5 +1,9 @@
 # Tax calculation and configuration
 
+## Client correction — 2026-10-18
+
+Tax configuration is controlled by the business owner. The intended current local/UAT configuration has tax disabled; an existing active configuration must be switched off through the audited owner Tax settings screen before that environment reflects this choice. A new configuration starts with **Apply tax at checkout** off. Existing immutable configurations without `tax_enabled` retain their original enabled behavior. When off, new quotes add zero product and delivery tax; the customer checkout hides the tax row. This is a business configuration and makes no legal exemption claim. Enabling tax later requires an owner-supplied default rate/treatment; unassigned products inherit it at quote time, while explicit product overrides take priority. Tax is never a product-publication prerequisite. Existing orders and snapshots retain their original amounts. The older sections below describe the earlier implementation and local fixtures, which this correction supersedes where they conflict.
+
 ## Local/UAT 7.5% fixture — 2026-10-14
 
 The explicit, local-only `iranti:seed-uat-commerce-settings` command publishes one `STANDARD` product rule at exact fractional rate `0.075000000`, sets `STANDARD` as the default for new/unassigned products, and marks delivery separately taxable at the same exact rate. Existing published product treatments are not bulk rewritten. The client has **not** approved this percentage or treatment as Nigerian legal/production tax policy. The command records `development_only=true`; production refuses to quote from it. See [shipping](shipping.md) for the guarded command and safe replacement procedure. This is **DEVELOPMENT/UAT TAX RATE ONLY — NOT PRODUCTION TAX POLICY**.

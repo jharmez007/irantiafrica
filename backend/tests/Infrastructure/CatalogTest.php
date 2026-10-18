@@ -824,10 +824,10 @@ final class CatalogTest extends TestCase
         $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => 1, 'tax_category_code' => 'cheap'])->assertUnprocessable();
         $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => 1, 'name' => 'Still incomplete'])->assertOk();
         $this->configureCatalogTax(['standard']);
-        $this->browser('POST', '/api/v1/admin/products', ['name' => 'Automatic treatment'])->assertCreated()->assertJsonPath('data.tax_category_code', 'standard');
+        $this->browser('POST', '/api/v1/admin/products', ['name' => 'Default treatment'])->assertCreated()->assertJsonPath('data.tax_category_code', null);
     }
 
-    public function test_missing_tax_blocks_complete_product_publication_until_configured(): void
+    public function test_missing_tax_does_not_block_complete_product_publication(): void
     {
         $this->owner();
         $p = $this->variant($this->create());
@@ -835,9 +835,7 @@ final class CatalogTest extends TestCase
         app()->call([new ProcessProductImage($media), 'handle']);
         $p = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->json('data');
         $p = $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'], 'tax_category_code' => null])->assertOk()->json('data');
-        $this->assertSame(['Choose a configured tax treatment before publishing.'], $p['publication_issues']);
-        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => $p['content_version']])->assertUnprocessable();
-        $p = $this->browser('PATCH', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'], 'tax_category_code' => 'test'])->assertOk()->json('data');
+        $this->assertSame([], $p['publication_issues']);
         $this->publish($p);
     }
 
@@ -864,7 +862,7 @@ final class CatalogTest extends TestCase
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore', ['content_version' => $restored['content_version']])->assertForbidden();
     }
 
-    public function test_missing_configuration_does_not_block_draft_but_blocks_publication(): void
+    public function test_missing_tax_configuration_does_not_block_complete_product_publication(): void
     {
         Artisan::call('migrate:fresh', ['--force' => true]);
         $this->seed(IdentityPermissionsSeeder::class);
@@ -874,5 +872,11 @@ final class CatalogTest extends TestCase
         $p = $this->browser('POST', '/api/v1/admin/products', ['name' => 'No configuration draft'])->assertCreated()->assertJsonPath('data.tax_category_code', null)->json('data');
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/publication', ['content_version' => 1])->assertUnprocessable();
         $this->browser('POST', '/api/v1/admin/products', ['name' => 'Arbitrary tax', 'tax_category_code' => 'cheap'])->assertUnprocessable();
+        $category = $this->browser('POST', '/api/v1/admin/categories', ['name' => 'Tax-free fixture', 'status' => 'active'])->assertCreated()->json('data.id');
+        $complete = $this->browser('POST', '/api/v1/admin/products', ['name' => 'Complete without tax', 'description' => 'A complete product without a tax configuration.', 'category_ids' => [$category]])->assertCreated()->json('data');
+        $complete = $this->variant($complete, 'NO-TAX-CONFIG-1');
+        $media = $this->image($complete);
+        app()->call([new ProcessProductImage($media), 'handle']);
+        $this->publish($complete);
     }
 }

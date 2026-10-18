@@ -334,10 +334,6 @@ export function CartPage() {
                     <dt>Delivery</dt>
                     <dd>Calculated at checkout</dd>
                   </div>
-                  <div>
-                    <dt>Tax</dt>
-                    <dd>Calculated at checkout</dd>
-                  </div>
                 </dl>
                 <div className="cart-estimated-total">
                   <span>Estimated total</span>
@@ -346,7 +342,7 @@ export function CartPage() {
                   </strong>
                 </div>
                 <p className="cart-summary-note">
-                  Before delivery and tax. Your final total appears at checkout.
+                  Before delivery. Your final total appears at checkout.
                 </p>
                 {cart.needs_review && (
                   <p className="cart-summary-note">

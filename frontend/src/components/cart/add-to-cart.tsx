@@ -274,7 +274,8 @@ export function AddToCart({
                     </strong>
                   </div>
                   <p>
-                    Taxes, delivery and discounts are calculated at checkout.
+                    Delivery and any applicable charges are calculated at
+                    checkout.
                   </p>
                   {cart.needs_review && (
                     <p className="mini-cart-review" role="status">

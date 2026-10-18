@@ -2238,7 +2238,7 @@ describe("UAT catalog workflow", () => {
     render(<AdminProductEditor />);
     await screen.findByText("More settings");
     await userEvent.click(screen.getByText("More settings"));
-    const select = screen.getByLabelText("Tax treatment");
+    const select = screen.getByLabelText("Tax treatment (optional)");
     expect(select.tagName).toBe("SELECT");
     expect(select.textContent).not.toContain("INTERNAL");
     expect((select as HTMLSelectElement).required).toBe(false);
@@ -2246,15 +2246,19 @@ describe("UAT catalog workflow", () => {
       screen.getByRole("option", { name: "Standard taxable" }),
     ).toBeTruthy();
   });
-  it("uses the sole configured treatment automatically with no ordinary selector", async () => {
+  it("offers the store default without assigning a product override", async () => {
     mocks.api.mockImplementation(async (path: string) =>
       path === "/tax-categories"
         ? { data: [{ code: "INTERNAL_STANDARD", label: "Standard taxable" }] }
         : { data: [], meta: { last_page: 1 } },
     );
     render(<AdminProductEditor />);
-    await screen.findByText(/Applied automatically/);
-    expect(screen.queryByLabelText("Tax treatment")).toBeNull();
+    await screen.findByText("More settings");
+    await userEvent.click(screen.getByText("More settings"));
+    expect(
+      (screen.getByLabelText("Tax treatment (optional)") as HTMLSelectElement)
+        .value,
+    ).toBe("");
     expect(screen.queryByText(/INTERNAL_STANDARD/)).toBeNull();
   });
   it("keeps Edit outside the archived overflow and restores through confirmation", async () => {

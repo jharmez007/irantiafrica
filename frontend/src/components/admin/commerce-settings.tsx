@@ -32,6 +32,7 @@ type Zone = {
 type Rule = { category: string; label: string; rate: string };
 type Payload = {
   rounding: "HALF_UP";
+  tax_enabled?: boolean;
   product_rules: Rule[];
   default_tax_category?: string | null;
   delivery_tax: { taxable: boolean; rate: string | null; label: string };
@@ -50,6 +51,7 @@ type Settings = {
 };
 const emptyPayload: Payload = {
   rounding: "HALF_UP",
+  tax_enabled: false,
   product_rules: [],
   default_tax_category: null,
   delivery_tax: { taxable: false, rate: null, label: "Not taxable" },
@@ -68,6 +70,15 @@ function kobo(major: string) {
   const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
   if (amount > 9223372036854775807n) throw new Error("Amount is too large.");
   return amount.toString();
+}
+function normalizedArea(value: string) {
+  return value.trim().replace(/\s+/g, "_").toUpperCase();
+}
+function displayArea(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
 function percentage(rate: string) {
   const [whole, fraction = ""] = rate.split(".");
@@ -102,7 +113,16 @@ function useSettings() {
       .then((result) => {
         if (!active) return;
         setSettings(result);
-        setPayload(structuredClone(result.current?.payload ?? emptyPayload));
+        setPayload(
+          structuredClone(
+            result.current?.payload
+              ? {
+                  ...result.current.payload,
+                  tax_enabled: result.current.payload.tax_enabled ?? true,
+                }
+              : emptyPayload,
+          ),
+        );
         setDevelopmentOnly(result.current?.development_only ?? false);
         setError("");
       })
@@ -323,6 +343,7 @@ function ShippingEditor() {
     setDevelopmentOnly,
   } = useSettings();
   const [editing, setEditing] = useState<string | null>(null);
+  const [areaMode, setAreaMode] = useState(false);
   const [editReturnFocus, setEditReturnFocus] = useState<HTMLElement | null>(
     null,
   );
@@ -357,6 +378,12 @@ function ShippingEditor() {
       zone.locality_code?.replaceAll("_", " ") ?? "",
     ].some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
   });
+  const abujaZones = filteredZones.filter(
+    (zone) => zone.state_code === "FCT" && zone.locality_code,
+  );
+  const otherZones = filteredZones.filter(
+    (zone) => zone.state_code !== "FCT" || !zone.locality_code,
+  );
   const filtersActive = !!search || !!stateFilter || statusFilter !== "all";
   function resetFilters() {
     setSearch("");
@@ -375,11 +402,16 @@ function ShippingEditor() {
     setConfirmationError("");
     clearError();
   }
-  function edit(zone?: Zone, trigger?: HTMLElement) {
+  function edit(zone?: Zone, trigger?: HTMLElement, asArea = false) {
     setEditReturnFocus(trigger ?? null);
     setEditing(zone?.code ?? "new");
-    setName(zone?.service_label ?? "");
-    setState(zone?.state_code ?? "");
+    setAreaMode(asArea);
+    setName(
+      asArea && zone?.locality_code
+        ? displayArea(zone.locality_code)
+        : (zone?.service_label ?? ""),
+    );
+    setState(zone?.state_code ?? (asArea ? "FCT" : ""));
     setLocality(zone?.locality_code ?? "");
     setAmount(zone ? naira(zone.amount_minor) : "");
     setDescription(zone?.description ?? "");
@@ -394,8 +426,10 @@ function ShippingEditor() {
     if (!settings || !editing || busy) return;
     try {
       if (!name.trim()) {
-        setErrorField("name");
-        throw new Error("Method name is required.");
+        setErrorField(areaMode ? "area" : "name");
+        throw new Error(
+          areaMode ? "Area name is required." : "Method name is required.",
+        );
       }
       if (!state) {
         setErrorField("state");
@@ -405,12 +439,35 @@ function ShippingEditor() {
       const amountMinor = kobo(amount);
       setErrorField("");
       const old = payload.zones.find((zone) => zone.code === editing);
+      const area = normalizedArea(areaMode ? name : locality);
+      if (area && !/^[A-Z0-9_-]{1,120}$/.test(area)) {
+        setErrorField("area");
+        throw new Error(
+          "Use letters, numbers, spaces or hyphens for the delivery area.",
+        );
+      }
+      if (
+        active &&
+        area &&
+        payload.zones.some(
+          (item) =>
+            item.code !== old?.code &&
+            item.active &&
+            item.state_code === state &&
+            normalizedArea(item.locality_code ?? "") === area,
+        )
+      ) {
+        setErrorField("area");
+        throw new Error(
+          "An active delivery rate already exists for this area.",
+        );
+      }
       const zone: Zone = {
         code:
           old?.code ??
           `METHOD_${crypto.randomUUID().replaceAll("-", "").slice(0, 20).toUpperCase()}`,
         state_code: state,
-        locality_code: locality || null,
+        locality_code: area || null,
         active,
         amount_minor: amountMinor,
         provider_label: old?.provider_label ?? "Merchant delivery",
@@ -509,8 +566,116 @@ function ShippingEditor() {
               Changes apply to new checkout quotes. Existing orders are
               unchanged.
             </p>
+            {(!filtersActive || abujaZones.length > 0) &&
+              (!stateFilter || stateFilter === "FCT") && (
+                <section
+                  className="shipping-areas-panel"
+                  aria-labelledby="abuja-areas-heading"
+                >
+                  <div className="shipping-areas-heading">
+                    <div>
+                      <p>Nigeria · Federal Capital Territory</p>
+                      <h2 id="abuja-areas-heading">Abuja delivery areas</h2>
+                      <span>Configure delivery prices by Abuja area.</span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={(event) =>
+                        edit(undefined, event.currentTarget, true)
+                      }
+                      disabled={busy}
+                    >
+                      Add delivery area
+                    </Button>
+                  </div>
+                  {abujaZones.length > 0 ? (
+                    <ul
+                      className="shipping-area-list"
+                      aria-label="Abuja delivery areas"
+                    >
+                      {abujaZones.map((zone) => (
+                        <li key={zone.code}>
+                          <div>
+                            <strong>{displayArea(zone.locality_code!)}</strong>
+                            {zone.description && (
+                              <span>{zone.description}</span>
+                            )}
+                          </div>
+                          <strong className="price">
+                            <Price value={zone.amount_minor} />
+                          </strong>
+                          <StatusBadge
+                            value={zone.active ? "active" : "inactive"}
+                          />
+                          <div className="shipping-method-actions">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={(event) =>
+                                edit(zone, event.currentTarget, true)
+                              }
+                              disabled={busy}
+                            >
+                              Edit
+                            </Button>
+                            <ActionMenu
+                              label={`More actions for ${displayArea(zone.locality_code!)}`}
+                              compact
+                            >
+                              {zone.active ? (
+                                <Button
+                                  type="button"
+                                  variant="quiet"
+                                  onClick={(event) =>
+                                    openConfirm(
+                                      zone,
+                                      "deactivate",
+                                      event.currentTarget,
+                                    )
+                                  }
+                                  disabled={busy}
+                                >
+                                  Deactivate
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="quiet"
+                                  onClick={() => void activate(zone.code)}
+                                  disabled={busy}
+                                >
+                                  Activate
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                variant="danger"
+                                onClick={(event) =>
+                                  openConfirm(
+                                    zone,
+                                    "archive",
+                                    event.currentTarget,
+                                  )
+                                }
+                                disabled={busy}
+                              >
+                                Archive
+                              </Button>
+                            </ActionMenu>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="shipping-areas-empty">
+                      No Abuja delivery areas are configured yet.
+                    </p>
+                  )}
+                </section>
+              )}
             <div className="shipping-list-heading">
-              <h2>Shipping methods</h2>
+              <h2>Other State delivery methods</h2>
             </div>
             <div
               className="shipping-filters"
@@ -584,7 +749,7 @@ function ShippingEditor() {
                   Clear search and filters
                 </Button>
               </div>
-            ) : (
+            ) : otherZones.length > 0 ? (
               <div className="shipping-methods">
                 <div className="shipping-methods-heading" aria-hidden="true">
                   <span>Method</span>
@@ -598,7 +763,7 @@ function ShippingEditor() {
                   className="shipping-method-list"
                   aria-label="Shipping methods"
                 >
-                  {filteredZones.map((zone) => (
+                  {otherZones.map((zone) => (
                     <li className="shipping-method-row" key={zone.code}>
                       <div className="shipping-method-name">
                         <strong>{zone.service_label}</strong>
@@ -687,7 +852,7 @@ function ShippingEditor() {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
             {confirm && (
               <ShippingActionDialog
                 zone={confirm.zone}
@@ -709,9 +874,13 @@ function ShippingEditor() {
               <Modal
                 open
                 title={
-                  editing === "new"
-                    ? "Add shipping method"
-                    : "Edit shipping method"
+                  areaMode
+                    ? editing === "new"
+                      ? "Add Abuja delivery area"
+                      : "Edit Abuja delivery area"
+                    : editing === "new"
+                      ? "Add shipping method"
+                      : "Edit shipping method"
                 }
                 className="shipping-method-modal"
                 initialFocus="input"
@@ -732,75 +901,78 @@ function ShippingEditor() {
                     </div>
                   )}
                   <label>
-                    Method name
+                    {areaMode ? "Area name" : "Method name"}
                     <Input
                       value={name}
-                      placeholder="e.g. Standard Delivery or Express Delivery"
+                      placeholder={
+                        areaMode
+                          ? "e.g. Wuse"
+                          : "e.g. Standard Delivery or Express Delivery"
+                      }
                       onChange={(event) => setName(event.target.value)}
                       required
                       maxLength={160}
-                      aria-invalid={errorField === "name" || undefined}
+                      aria-invalid={
+                        errorField === (areaMode ? "area" : "name") || undefined
+                      }
                       aria-describedby={
-                        errorField === "name"
+                        errorField === (areaMode ? "area" : "name")
                           ? "shipping-settings-error"
                           : undefined
                       }
                     />
                   </label>
-                  <label>
-                    State
-                    <Select
-                      value={state}
-                      onChange={(event) => {
-                        setState(event.target.value);
-                        setLocality("");
-                      }}
-                      required
-                      aria-invalid={errorField === "state" || undefined}
-                      aria-describedby={
-                        errorField === "state"
-                          ? "shipping-settings-error"
-                          : undefined
-                      }
-                    >
-                      <option value="">Choose a state</option>
-                      {Object.entries(settings.states).map(([code, label]) => (
-                        <option key={code} value={code}>
-                          {label}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                  {payload.zones.some(
-                    (zone) => zone.state_code === state && zone.locality_code,
-                  ) && (
+                  {areaMode ? (
+                    <p className="shipping-area-state">
+                      State: Federal Capital Territory
+                    </p>
+                  ) : (
                     <label>
-                      Delivery area (optional)
+                      State
                       <Select
-                        value={locality}
-                        onChange={(event) => setLocality(event.target.value)}
+                        value={state}
+                        onChange={(event) => {
+                          setState(event.target.value);
+                          setLocality("");
+                        }}
+                        required
+                        aria-invalid={errorField === "state" || undefined}
+                        aria-describedby={
+                          errorField === "state"
+                            ? "shipping-settings-error"
+                            : undefined
+                        }
                       >
-                        <option value="">State-wide</option>
-                        {[
-                          ...new Set(
-                            payload.zones
-                              .filter(
-                                (zone) =>
-                                  zone.state_code === state &&
-                                  zone.locality_code,
-                              )
-                              .map((zone) => zone.locality_code!),
+                        <option value="">Choose a state</option>
+                        {Object.entries(settings.states).map(
+                          ([code, label]) => (
+                            <option key={code} value={code}>
+                              {label}
+                            </option>
                           ),
-                        ].map((code) => (
-                          <option key={code} value={code}>
-                            {code.replaceAll("_", " ")}
-                          </option>
-                        ))}
+                        )}
                       </Select>
                     </label>
                   )}
+                  {!areaMode && (
+                    <label>
+                      Delivery area (optional)
+                      <Input
+                        value={locality}
+                        onChange={(event) => setLocality(event.target.value)}
+                        placeholder="Leave blank for State-wide delivery"
+                        maxLength={120}
+                        aria-invalid={errorField === "area" || undefined}
+                        aria-describedby={
+                          errorField === "area"
+                            ? "shipping-settings-error"
+                            : undefined
+                        }
+                      />
+                    </label>
+                  )}
                   <label>
-                    Price (₦)
+                    {areaMode ? "Delivery price (₦)" : "Price (₦)"}
                     <Input
                       value={amount}
                       onChange={(event) => setAmount(event.target.value)}
@@ -862,9 +1034,15 @@ function ShippingEditor() {
                     <Button
                       type="submit"
                       loading={busy}
-                      loadingLabel="Saving method…"
+                      loadingLabel={
+                        areaMode ? "Saving area…" : "Saving method…"
+                      }
                     >
-                      Publish method
+                      {areaMode
+                        ? editing === "new"
+                          ? "Add area"
+                          : "Save area"
+                        : "Publish method"}
                     </Button>
                   </div>
                 </form>
@@ -916,6 +1094,13 @@ function TaxEditor() {
       percent: percentage(rule.rate),
       labelTouched: false,
     }));
+  const taxEnabled = payload.tax_enabled ?? true;
+  const defaultCode =
+    payload.default_tax_category ?? shownRules[0]?.category ?? "";
+  const defaultIndex = Math.max(
+    0,
+    shownRules.findIndex((rule) => rule.category === defaultCode),
+  );
   const [deliveryPercent, setDeliveryPercent] = useState<string | null>(null);
   const shownDeliveryPercent =
     deliveryPercent ??
@@ -923,11 +1108,23 @@ function TaxEditor() {
   async function save(event: FormEvent) {
     event.preventDefault();
     try {
-      if (shownRules.length === 0)
-        throw new Error("Add at least one product tax treatment.");
+      if (taxEnabled && shownRules.length === 0)
+        throw new Error("Enter a default tax rate before enabling tax.");
       const next: Payload = {
         ...payload,
-        product_rules: shownRules.map((rule, index) => ({
+        tax_enabled: taxEnabled,
+        default_tax_category: taxEnabled
+          ? defaultCode
+          : payload.default_tax_category,
+        product_rules: (taxEnabled
+          ? shownRules
+          : payload.product_rules.map((rule) => ({
+              category: rule.category,
+              label: rule.label,
+              percent: percentage(rule.rate),
+              labelTouched: false,
+            }))
+        ).map((rule, index) => ({
           category: rule.category.trim(),
           label:
             !rule.labelTouched &&
@@ -966,7 +1163,7 @@ function TaxEditor() {
   return (
     <AdminShell
       title="Tax"
-      description="Publish exact product and delivery tax rules for future quotes."
+      description="Choose whether tax applies to new orders."
       parent={{ label: "Commerce settings", href: "/admin/settings" }}
     >
       <div className="commerce-settings-body">
@@ -976,181 +1173,290 @@ function TaxEditor() {
           <p role="status">Loading tax settings…</p>
         ) : (
           <form
-            className="commerce-editor"
+            className="commerce-editor tax-editor"
             onSubmit={(event) => void save(event)}
           >
-            <p>
-              Changes apply to new checkout quotes. Existing orders are
-              unchanged.
-            </p>
-            <Alert tone="info">
-              Confirm tax settings with your accountant or tax adviser. No legal
-              rate is supplied by this application.
-            </Alert>
+            <div className="tax-editor-intro">
+              <p>
+                Changes apply to new checkout quotes. Existing orders are
+                unchanged.
+              </p>
+              <Alert tone="info">
+                Confirm tax settings with your accountant or tax adviser. No
+                legal rate is supplied by this application.
+              </Alert>
+            </div>
             {fieldError && (
               <div id="tax-settings-error">
                 <Alert tone="error">{fieldError}</Alert>
               </div>
             )}
-            <h2>Product tax treatments</h2>
-            {shownRules.map((rule, index) => (
-              <div className="commerce-rule" key={index}>
-                <label>
-                  Code
-                  <Input
-                    value={rule.category}
-                    onChange={(event) =>
-                      setRules(
-                        shownRules.map((item, i) =>
-                          i === index
-                            ? {
-                                ...item,
-                                category: event.target.value.toUpperCase(),
-                              }
-                            : item,
-                        ),
-                      )
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Label
-                  <Input
-                    value={rule.label}
-                    onChange={(event) =>
-                      setRules(
-                        shownRules.map((item, i) =>
-                          i === index
-                            ? {
-                                ...item,
-                                label: event.target.value,
-                                labelTouched: true,
-                              }
-                            : item,
-                        ),
-                      )
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Rate (%)
-                  <Input
-                    value={rule.percent}
-                    onChange={(event) =>
-                      setRules(
-                        shownRules.map((item, i) =>
-                          i === index
-                            ? { ...item, percent: event.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                    inputMode="decimal"
-                    required
-                    aria-invalid={!!fieldError || undefined}
-                    aria-describedby={
-                      fieldError ? "tax-settings-error" : undefined
-                    }
-                  />
-                </label>
-                <Button
-                  type="button"
-                  variant="quiet"
-                  onClick={() =>
-                    setRules(shownRules.filter((_, i) => i !== index))
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                setRules([
-                  ...shownRules,
-                  { category: "", label: "", percent: "", labelTouched: true },
-                ])
-              }
+            <section
+              className="tax-editor-section"
+              aria-labelledby="product-tax-heading"
             >
-              Add treatment
-            </Button>
-            <label>
-              Default treatment for new products
-              <Select
-                value={payload.default_tax_category ?? ""}
-                onChange={(event) =>
-                  setPayload((old) => ({
-                    ...old,
-                    default_tax_category: event.target.value || null,
-                  }))
-                }
-              >
-                <option value="">
-                  No explicit default (one treatment is automatic)
-                </option>
-                {shownRules
-                  .filter((rule) => rule.category)
-                  .map((rule) => (
-                    <option key={rule.category} value={rule.category}>
-                      {rule.label || rule.category}
-                    </option>
-                  ))}
-              </Select>
-            </label>
-            <p>
-              Existing products retain their selected treatment. A default
-              affects only new or unassigned products.
-            </p>
-            <h2>Delivery tax</h2>
-            <label className="commerce-checkbox">
-              <input
-                type="checkbox"
-                checked={payload.delivery_tax.taxable}
-                onChange={(event) =>
-                  setPayload((old) => ({
-                    ...old,
-                    delivery_tax: {
-                      ...old.delivery_tax,
-                      taxable: event.target.checked,
-                      rate: event.target.checked ? old.delivery_tax.rate : null,
-                    },
-                  }))
-                }
-              />{" "}
-              Taxable delivery
-            </label>
-            {payload.delivery_tax.taxable && (
-              <label>
-                Delivery tax rate (%)
-                <Input
-                  value={shownDeliveryPercent}
-                  onChange={(event) => setDeliveryPercent(event.target.value)}
-                  inputMode="decimal"
-                  required
-                  aria-invalid={!!fieldError || undefined}
-                  aria-describedby={
-                    fieldError ? "tax-settings-error" : undefined
-                  }
+              <div className="tax-editor-section-heading">
+                <h2 id="product-tax-heading">Product tax</h2>
+                <p>Set the default treatment for products at checkout.</p>
+              </div>
+              <label className="tax-editor-switch">
+                <span className="tax-editor-switch-copy">
+                  <strong>Apply tax at checkout</strong>
+                  <span aria-hidden="true">{taxEnabled ? "On" : "Off"}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Apply tax at checkout"
+                  checked={taxEnabled}
+                  onChange={(event) => {
+                    setPayload((old) => ({
+                      ...old,
+                      tax_enabled: event.target.checked,
+                    }));
+                    if (event.target.checked && shownRules.length === 0) {
+                      setRules([
+                        {
+                          category: "STANDARD",
+                          label: "Standard",
+                          percent: "",
+                          labelTouched: true,
+                        },
+                      ]);
+                      setPayload((old) => ({
+                        ...old,
+                        tax_enabled: true,
+                        default_tax_category: "STANDARD",
+                      }));
+                    }
+                    setFieldError("");
+                  }}
                 />
+                <span className="tax-editor-switch-track" aria-hidden="true">
+                  <span className="tax-editor-switch-thumb" />
+                </span>
               </label>
+              {!taxEnabled && (
+                <p className="tax-editor-help">
+                  {settings.current &&
+                  (settings.current.payload.tax_enabled ?? true)
+                    ? "Save these settings to stop applying tax to new orders."
+                    : "Tax is currently not applied to orders."}
+                </p>
+              )}
+              {taxEnabled && (
+                <>
+                  <div className="tax-editor-fields">
+                    <label>
+                      Default rate (%)
+                      <Input
+                        value={shownRules[defaultIndex]?.percent ?? ""}
+                        onChange={(event) =>
+                          setRules(
+                            shownRules.map((rule, index) =>
+                              index === defaultIndex
+                                ? { ...rule, percent: event.target.value }
+                                : rule,
+                            ),
+                          )
+                        }
+                        inputMode="decimal"
+                        required
+                        aria-invalid={!!fieldError || undefined}
+                        aria-describedby={
+                          fieldError ? "tax-settings-error" : undefined
+                        }
+                      />
+                    </label>
+                    <label>
+                      Default treatment
+                      <Select
+                        value={defaultCode}
+                        onChange={(event) =>
+                          setPayload((old) => ({
+                            ...old,
+                            default_tax_category: event.target.value,
+                          }))
+                        }
+                      >
+                        {shownRules
+                          .filter((rule) => rule.category)
+                          .map((rule) => (
+                            <option key={rule.category} value={rule.category}>
+                              {rule.label || rule.category}
+                            </option>
+                          ))}
+                      </Select>
+                    </label>
+                  </div>
+                  <p className="tax-editor-help">
+                    Products without a specific treatment use this store-wide
+                    default.
+                  </p>
+                  <details className="tax-editor-advanced">
+                    <summary>Advanced: manage tax treatments</summary>
+                    <div className="tax-editor-advanced-content">
+                      <h3>Product tax treatments</h3>
+                      {shownRules.map((rule, index) => (
+                        <div className="commerce-rule" key={index}>
+                          <label>
+                            Code
+                            <Input
+                              value={rule.category}
+                              onChange={(event) =>
+                                setRules(
+                                  shownRules.map((item, i) =>
+                                    i === index
+                                      ? {
+                                          ...item,
+                                          category:
+                                            event.target.value.toUpperCase(),
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Label
+                            <Input
+                              value={rule.label}
+                              onChange={(event) =>
+                                setRules(
+                                  shownRules.map((item, i) =>
+                                    i === index
+                                      ? {
+                                          ...item,
+                                          label: event.target.value,
+                                          labelTouched: true,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Rate (%)
+                            <Input
+                              value={rule.percent}
+                              onChange={(event) =>
+                                setRules(
+                                  shownRules.map((item, i) =>
+                                    i === index
+                                      ? { ...item, percent: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              inputMode="decimal"
+                              required
+                              aria-invalid={!!fieldError || undefined}
+                              aria-describedby={
+                                fieldError ? "tax-settings-error" : undefined
+                              }
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            onClick={() =>
+                              setRules(shownRules.filter((_, i) => i !== index))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() =>
+                          setRules([
+                            ...shownRules,
+                            {
+                              category: "",
+                              label: "",
+                              percent: "",
+                              labelTouched: true,
+                            },
+                          ])
+                        }
+                      >
+                        Add treatment
+                      </Button>
+                    </div>
+                  </details>
+                </>
+              )}
+            </section>
+            {taxEnabled && (
+              <section
+                className="tax-editor-section"
+                aria-labelledby="delivery-tax-heading"
+              >
+                <div className="tax-editor-section-heading">
+                  <h2 id="delivery-tax-heading">Delivery tax</h2>
+                  <p>Choose how tax applies to delivery charges.</p>
+                </div>
+                <label className="commerce-checkbox tax-editor-toggle">
+                  <input
+                    type="checkbox"
+                    checked={payload.delivery_tax.taxable}
+                    onChange={(event) =>
+                      setPayload((old) => ({
+                        ...old,
+                        delivery_tax: {
+                          ...old.delivery_tax,
+                          taxable: event.target.checked,
+                          rate: event.target.checked
+                            ? old.delivery_tax.rate
+                            : null,
+                        },
+                      }))
+                    }
+                  />{" "}
+                  Taxable delivery
+                </label>
+                <div className="tax-editor-fields">
+                  {payload.delivery_tax.taxable && (
+                    <label>
+                      Delivery tax rate (%)
+                      <Input
+                        value={shownDeliveryPercent}
+                        onChange={(event) =>
+                          setDeliveryPercent(event.target.value)
+                        }
+                        inputMode="decimal"
+                        required
+                        aria-invalid={!!fieldError || undefined}
+                        aria-describedby={
+                          fieldError ? "tax-settings-error" : undefined
+                        }
+                      />
+                    </label>
+                  )}
+                  <label>
+                    Delivery tax treatment label
+                    <Input
+                      value={
+                        deliveryLabelDraft ??
+                        displayTaxLabel(payload.delivery_tax.label)
+                      }
+                      onChange={(event) =>
+                        setDeliveryLabelDraft(event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </section>
             )}
-            <label>
-              Delivery tax treatment label
-              <Input
-                value={
-                  deliveryLabelDraft ??
-                  displayTaxLabel(payload.delivery_tax.label)
-                }
-                onChange={(event) => setDeliveryLabelDraft(event.target.value)}
-                required
-              />
-            </label>
             {!settings.current && (
-              <label className="commerce-checkbox">
+              <label className="commerce-checkbox tax-editor-preview">
                 <input
                   type="checkbox"
                   checked={developmentOnly}
@@ -1159,13 +1465,15 @@ function TaxEditor() {
                 Restrict this configuration to preview environments
               </label>
             )}
-            <p>
-              Publishing creates a new immutable configuration. Existing orders
-              keep their original amounts and tax snapshots.
-            </p>
-            <Button type="submit" loading={busy}>
-              Publish tax configuration
-            </Button>
+            <div className="tax-editor-footer">
+              <p>
+                Saving applies these settings to new checkouts. Existing orders
+                keep their original totals.
+              </p>
+              <Button type="submit" loading={busy}>
+                Save tax settings
+              </Button>
+            </div>
           </form>
         )}
       </div>

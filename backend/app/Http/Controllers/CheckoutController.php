@@ -154,19 +154,22 @@ final class CheckoutController
             }
         });
 
-        $areas = collect($zones)->map(fn ($z) => ['state_code' => $z['state_code'], 'locality_code' => $z['locality_code']])->unique(fn ($area) => $area['state_code'].':'.($area['locality_code'] ?? ''))->values()->all();
+        $areas = collect($zones)->filter(fn ($z) => $z['active'] && $z['locality_code'] !== null)->map(fn ($z) => ['state_code' => $z['state_code'], 'locality_code' => $z['locality_code']])->unique(fn ($area) => $area['state_code'].':'.$area['locality_code'])->values()->all();
 
         return response()->json(['data' => ['states' => NigeriaAddress::states(), 'areas' => $areas]]);
     }
 
     public function shippingMethods(Request $r): JsonResponse
     {
-        $data = $r->validate(['state_code' => ['required', Rule::in(array_keys(NigeriaAddress::states()))], 'locality_code' => ['nullable', 'string', 'regex:/^[A-Z0-9_-]{1,120}$/D']]);
+        $data = $r->validate(['state_code' => ['required', Rule::in(array_keys(NigeriaAddress::states()))], 'locality_code' => ['nullable', 'string', 'regex:/^[A-Z0-9_-]{1,120}$/D'], 'include_areas' => ['sometimes', Rule::in(['1'])]]);
         $methods = DB::transaction(function () use ($data): array {
             CheckoutConfiguration::lock();
             $config = $this->configuration->current();
+            $zones = isset($data['include_areas'])
+                ? array_values(array_filter($config['payload']['zones'], fn ($z) => $z['active'] && $z['state_code'] === $data['state_code']))
+                : $this->configuration->eligible($config, $data);
 
-            return array_map(fn ($z) => ['code' => $z['code'], 'name' => $z['service_label'], 'description' => $z['description'] ?? null, 'estimate' => $z['estimate'] ?? null, 'amount_minor' => $z['amount_minor']], $this->configuration->eligible($config, $data));
+            return array_map(fn ($z) => ['code' => $z['code'], 'name' => $z['service_label'], 'locality_code' => $z['locality_code'], 'description' => $z['description'] ?? null, 'estimate' => $z['estimate'] ?? null, 'amount_minor' => $z['amount_minor']], $zones);
         });
 
         return response()->json(['data' => $methods]);

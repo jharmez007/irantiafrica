@@ -59,6 +59,7 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::get('/{id}', [InventoryController::class, 'show'])->whereUuid('id')->middleware('can:inventory.read');
     Route::post('/{id}/opening', [InventoryController::class, 'opening'])->whereUuid('id')->middleware('can:inventory.adjust');
     Route::post('/{id}/adjustments', [InventoryController::class, 'adjust'])->whereUuid('id')->middleware('can:inventory.adjust');
+    Route::post('/{id}/set-level', [InventoryController::class, 'setLevel'])->whereUuid('id')->middleware('can:inventory.adjust');
     Route::get('/{id}/movements', [InventoryController::class, 'movements'])->whereUuid('id')->middleware('can:inventory.movements.read');
 });
 

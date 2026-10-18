@@ -25,7 +25,7 @@ type Review = {
   path: string;
   payload:
     | { quantity: number; reason: string }
-    | { delta: number; reason: string; expected_version: string };
+    | { new_on_hand: number; reason: string; expected_version: string };
   delta: number;
   after: number;
 };
@@ -224,19 +224,22 @@ export function AdminInventory() {
     setModalError("");
     const quantity = Number(amount);
     const opening = selected.initialized === false;
-    const after = (selected.on_hand ?? 0) + quantity;
+    const after = quantity;
+    const delta = after - (selected.on_hand ?? 0);
     if (
-      !/^-?\d+$/.test(amount) ||
+      !/^\d+$/.test(amount) ||
       !Number.isSafeInteger(quantity) ||
-      Math.abs(quantity) > 2147483647 ||
-      quantity === 0 ||
+      quantity > 2147483647 ||
+      (!opening && delta === 0) ||
       (opening && quantity < 1) ||
       after < (selected.reserved ?? 0) ||
       after > 2147483647 ||
       !reason.trim()
     ) {
       setModalError(
-        "Enter a whole-number stock change and a reason. Stock cannot fall below the reserved quantity or exceed 2,147,483,647.",
+        after < (selected.reserved ?? 0)
+          ? "Stock cannot be reduced below the quantity currently reserved."
+          : "Enter a different whole-number stock quantity and a reason. The maximum is 2,147,483,647.",
       );
       return;
     }
@@ -247,15 +250,15 @@ export function AdminInventory() {
     if (review) return;
     const next: Review = {
       key: crypto.randomUUID(),
-      path: `/inventory/${selected.variant_id}/${opening ? "opening" : "adjustments"}`,
+      path: `/inventory/${selected.variant_id}/${opening ? "opening" : "set-level"}`,
       payload: opening
         ? { quantity, reason: reason.trim() }
         : {
-            delta: quantity,
+            new_on_hand: quantity,
             reason: reason.trim(),
             expected_version: selected.version!,
           },
-      delta: quantity,
+      delta,
       after,
     };
     if (
@@ -279,7 +282,7 @@ export function AdminInventory() {
       resetModal();
       setListingLoading(true);
       setReload((value) => value + 1);
-      toast.success("Stock change saved", "Inventory is being refreshed.");
+      toast.success("Stock level saved", "Inventory is being refreshed.");
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setReview(null);
@@ -436,7 +439,7 @@ export function AdminInventory() {
                         choose(entry, permissions.manage ? "adjust" : "stock")
                       }
                     >
-                      {permissions.manage ? "Adjust stock" : "View stock"}
+                      {permissions.manage ? "Set stock level" : "View stock"}
                     </Button>
                     {permissions.quantities && (
                       <ActionMenu label="More actions" compact>
@@ -469,7 +472,7 @@ export function AdminInventory() {
         <Modal
           open
           onClose={closeModal}
-          title={modal === "adjust" ? "Adjust Stock" : "Stock availability"}
+          title={modal === "adjust" ? "Set stock level" : "Stock availability"}
           className="inventory-adjust-modal"
         >
           {modalError && <Alert tone="error">{modalError}</Alert>}
@@ -528,31 +531,28 @@ export function AdminInventory() {
                   <form className="inventory-adjust-form" onSubmit={prepare}>
                     <div>
                       <label htmlFor="inventory-amount">
-                        {selected.initialized
-                          ? "Quantity change"
-                          : "Opening quantity"}
+                        New stock quantity
                       </label>
                       <Input
                         id="inventory-amount"
                         name="amount"
                         type="number"
                         step="1"
+                        min={selected.initialized ? "0" : "1"}
                         required
                         aria-describedby="inventory-amount-hint"
                         value={amount}
                         disabled={busy}
                         onChange={(event) => {
                           const next = event.target.value;
-                          if (next && !/^-?\d*$/.test(next)) return;
+                          if (next && !/^\d*$/.test(next)) return;
                           setAmount(next);
                           setReview(null);
                           previousReview.current = null;
                         }}
                       />
                       <p id="inventory-amount-hint" className="field-hint">
-                        {selected.initialized
-                          ? "Use a positive number to add stock or a negative number to remove stock."
-                          : "Enter a positive whole number for the opening stock balance."}
+                        Enter the physical quantity currently in stock.
                       </p>
                     </div>
                     <div>
@@ -580,7 +580,7 @@ export function AdminInventory() {
                         Cancel
                       </Button>
                       <Button type="submit" disabled={busy}>
-                        Review stock change
+                        Review change
                       </Button>
                     </div>
                   </form>
@@ -589,13 +589,14 @@ export function AdminInventory() {
                     className="inventory-review"
                     aria-labelledby="inventory-review-title"
                   >
-                    <h3 id="inventory-review-title">Review stock change</h3>
+                    <h3 id="inventory-review-title">Set stock level</h3>
                     <p>SKU: {selected.sku}</p>
+                    <p>Current on hand: {selected.on_hand ?? 0}</p>
+                    <p>New on hand: {review.after}</p>
                     <p>
-                      Quantity change: {review.delta > 0 ? "+" : ""}
+                      Change: {review.delta > 0 ? "+" : ""}
                       {review.delta}
                     </p>
-                    <p>New on-hand quantity: {review.after}</p>
                     <p>Reason: {review.payload.reason}</p>
                     <div className="inventory-modal-actions">
                       <Button
@@ -614,7 +615,7 @@ export function AdminInventory() {
                         loading={busy}
                         onClick={() => void confirm()}
                       >
-                        {busy ? "Saving stock change…" : "Confirm stock change"}
+                        {busy ? "Saving stock level…" : "Confirm change"}
                       </Button>
                     </div>
                   </section>

@@ -6899,6 +6899,71 @@ svg {
 .shipping-list-heading h2 {
   margin: 0;
 }
+.shipping-areas-panel {
+  overflow: hidden;
+  border: 1px solid var(--admin-border);
+  border-radius: 7px;
+  background: var(--admin-surface);
+}
+.shipping-areas-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  background: var(--admin-table-header);
+}
+.shipping-areas-heading p {
+  color: var(--admin-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.admin-frame .shipping-areas-heading h2 {
+  margin: 0.2rem 0;
+}
+.shipping-areas-heading span,
+.shipping-areas-empty,
+.shipping-area-state {
+  color: var(--admin-muted);
+}
+.shipping-areas-empty {
+  padding: 1.1rem;
+}
+.shipping-area-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shipping-area-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--admin-border);
+}
+.shipping-area-list li > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+.shipping-area-list li > div:first-child span {
+  color: var(--admin-muted);
+  font-size: 0.76rem;
+}
+.shipping-area-list .price {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 680px) {
+  .shipping-area-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .shipping-area-list li .shipping-method-actions {
+    grid-column: 1 / -1;
+  }
+}
 .shipping-filters {
   display: grid;
   grid-template-columns:
@@ -7085,9 +7150,213 @@ svg {
   align-items: end;
   gap: 0.75rem;
 }
+.admin-frame .tax-editor {
+  max-width: 62rem;
+  gap: 1.25rem;
+  padding: 1.5rem;
+}
+.tax-editor-intro {
+  display: grid;
+  gap: 0.9rem;
+}
+.tax-editor-intro > p,
+.tax-editor-help,
+.tax-editor-section-heading p,
+.tax-editor-footer p {
+  color: var(--admin-muted);
+  line-height: 1.55;
+}
+.tax-editor-intro .alert {
+  margin: 0;
+}
+.tax-editor-section {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-cream) 26%, white);
+}
+.tax-editor-section-heading {
+  display: grid;
+  gap: 0.2rem;
+}
+.admin-frame .tax-editor-section-heading h2 {
+  margin: 0;
+}
+.tax-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.tax-editor-fields > label {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.tax-editor-fields input,
+.tax-editor-fields select {
+  width: 100%;
+}
+.admin-frame .tax-editor .tax-editor-toggle {
+  justify-self: start;
+  gap: 0.7rem;
+  min-height: 42px;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  background: var(--admin-surface);
+  font-weight: 650;
+  cursor: pointer;
+}
+.tax-editor-toggle input {
+  accent-color: var(--color-green);
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.admin-frame .tax-editor-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(100%, 27rem);
+  min-height: 64px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 7px;
+  background: var(--admin-surface);
+  cursor: pointer;
+}
+.tax-editor-switch-copy {
+  display: grid;
+  min-width: 0;
+  line-height: 1.3;
+}
+.tax-editor-switch-copy strong {
+  font-weight: 650;
+}
+.tax-editor-switch-copy > span {
+  margin-top: 0.2rem;
+  color: var(--admin-muted);
+  font-size: 0.74rem;
+}
+.admin-frame .tax-editor-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+.tax-editor-switch-track {
+  display: flex;
+  align-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 26px;
+  padding: 3px;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-charcoal) 18%, white);
+  transition:
+    background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+.tax-editor-switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px #0003;
+  transition: transform var(--duration) var(--ease);
+}
+.tax-editor-switch input:checked + .tax-editor-switch-track {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+.tax-editor-switch
+  input:checked
+  + .tax-editor-switch-track
+  .tax-editor-switch-thumb {
+  transform: translateX(20px);
+}
+.tax-editor-switch input:focus-visible + .tax-editor-switch-track {
+  outline: 2px solid var(--color-green);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tax-editor-switch-track,
+  .tax-editor-switch-thumb {
+    transition: none;
+  }
+}
+.tax-editor-advanced {
+  min-width: 0;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  background: var(--admin-surface);
+}
+.tax-editor-advanced summary {
+  padding: 0.8rem 1rem;
+  color: var(--color-green);
+  font-weight: 650;
+  cursor: pointer;
+}
+.tax-editor-advanced summary:focus-visible,
+.tax-editor-toggle:focus-within {
+  outline: 2px solid var(--color-green);
+  outline-offset: 3px;
+}
+.tax-editor-advanced-content {
+  display: grid;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+}
+.admin-frame .tax-editor-advanced-content h3 {
+  margin: 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--admin-border);
+  color: var(--color-green);
+}
+.tax-editor-advanced-content .commerce-rule + .commerce-rule {
+  padding-top: 1rem;
+  border-top: 1px solid var(--admin-border);
+}
+.tax-editor-preview {
+  padding: 0.5rem 0;
+}
+.tax-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--admin-border);
+}
+.tax-editor-footer p {
+  max-width: 52ch;
+}
 @media (max-width: 768px) {
   .commerce-rule {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .admin-frame .tax-editor {
+    padding: 1rem;
+  }
+  .tax-editor-section {
+    padding: 1rem;
+  }
+  .tax-editor-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tax-editor-footer .button {
+    width: 100%;
   }
 }
 @media (max-width: 1100px) {

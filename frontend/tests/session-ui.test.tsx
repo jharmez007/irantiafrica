@@ -6,10 +6,13 @@ import { AuthProvider, useAuth } from "../src/components/auth-provider";
 import { ToastProvider } from "../src/components/toast-provider";
 import { reportSessionFailure } from "../src/lib/session-events";
 
-const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({
+  replace: vi.fn(),
+  pathname: "/admin/products",
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
-  usePathname: () => "/admin/products",
+  usePathname: () => navigation.pathname,
 }));
 const identity = {
   id: "staff",
@@ -40,6 +43,7 @@ function mount() {
 }
 beforeEach(() => {
   navigation.replace.mockReset();
+  navigation.pathname = "/admin/products";
   document.cookie = "XSRF-TOKEN=proof";
 });
 afterEach(() => {
@@ -148,7 +152,8 @@ it("refreshes CSRF on 419 without replaying the mutation", async () => {
   );
 });
 
-it("does not expose a protected staff page after a revoked session is reloaded", async () => {
+it("sends a guest who opens the profile route to sign-in without claiming a session expired", async () => {
+  navigation.pathname = "/account";
   vi.stubGlobal(
     "fetch",
     vi.fn(() => Promise.resolve(Response.json({ error: {} }, { status: 401 }))),
@@ -159,6 +164,21 @@ it("does not expose a protected staff page after a revoked session is reloaded",
   );
   expect(screen.getByText("Signed out")).toBeTruthy();
   expect(
-    screen.getAllByText("Your session has expired. Please sign in again."),
-  ).toHaveLength(1);
+    screen.queryByText("Your session has expired. Please sign in again."),
+  ).toBeNull();
+});
+
+it("does not expose a protected staff page after an anonymous reload", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ error: {} }, { status: 401 }))),
+  );
+  mount();
+  await waitFor(() =>
+    expect(navigation.replace).toHaveBeenCalledWith("/login"),
+  );
+  expect(screen.getByText("Signed out")).toBeTruthy();
+  expect(
+    screen.queryByText("Your session has expired. Please sign in again."),
+  ).toBeNull();
 });

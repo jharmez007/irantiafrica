@@ -375,7 +375,7 @@ describe("persistent cart UI", () => {
     expect(screen.getByText("Finish: Natural")).toBeTruthy();
     expect(screen.getAllByText("₦200.00").length).toBe(3);
     expect(screen.getByText("Delivery")).toBeTruthy();
-    expect(screen.getByText("Tax")).toBeTruthy();
+    expect(screen.queryByText("Tax")).toBeNull();
     expect(screen.getByText("Estimated total")).toBeTruthy();
     expect(
       screen

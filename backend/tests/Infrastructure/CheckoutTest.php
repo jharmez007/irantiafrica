@@ -126,6 +126,47 @@ final class CheckoutTest extends TestCase
         return ['version_code' => 'demo-'.Str::uuid(), 'development_only' => true, 'payload' => ['rounding' => 'HALF_UP', 'product_rules' => [['category' => 'test-unconfigured', 'rate' => '0.1', 'label' => 'DEVELOPMENT CONFIGURATION ONLY']], 'delivery_tax' => ['taxable' => $taxable, 'rate' => $taxable ? '0.1' : null, 'label' => 'DEVELOPMENT CONFIGURATION ONLY'], 'zones' => [['code' => 'LAGOS', 'state_code' => 'LAGOS', 'locality_code' => null, 'active' => true, 'amount_minor' => '505', 'provider_label' => 'Development sample', 'service_label' => 'Sample delivery', 'source_reference' => 'DEVELOPMENT CONFIGURATION ONLY']]]];
     }
 
+    public function test_tax_can_be_disabled_without_product_rules_and_new_quote_has_zero_tax(): void
+    {
+        $configuration = $this->configuration();
+        $configuration['payload']['tax_enabled'] = false;
+        $configuration['payload']['product_rules'] = [];
+        $configuration['payload']['delivery_tax'] = ['taxable' => false, 'rate' => null, 'label' => 'No tax'];
+        app(CheckoutConfiguration::class)->publish($configuration, $this->owner);
+        $variant = $this->variant(5, '1000');
+        DB::table('products')->where('id', $variant->product_id)->update(['tax_category_code' => null]);
+        $this->add($variant)->assertOk();
+        $quote = $this->quoted($this->addressed($this->start()));
+        $this->assertFalse($quote['calculation']['tax_enabled']);
+        $this->assertSame('0', $quote['tax_minor']);
+        $this->assertSame('0', $quote['lines'][0]['tax']['tax_minor']);
+        $this->assertSame('1505', $quote['total_minor']);
+        $this->reserve($quote)->assertOk();
+    }
+
+    public function test_unassigned_product_inherits_store_default_and_explicit_override_wins(): void
+    {
+        $configuration = $this->configuration(false);
+        $configuration['payload']['tax_enabled'] = true;
+        $configuration['payload']['default_tax_category'] = 'STANDARD';
+        $configuration['payload']['product_rules'] = [
+            ['category' => 'STANDARD', 'rate' => '0.1', 'label' => 'Standard'],
+            ['category' => 'ZERO', 'rate' => '0', 'label' => 'Zero'],
+        ];
+        app(CheckoutConfiguration::class)->publish($configuration, $this->owner);
+        $default = $this->variant(5, '1000');
+        $override = $this->variant(5, '2000');
+        DB::table('products')->where('id', $default->product_id)->update(['tax_category_code' => null]);
+        DB::table('products')->where('id', $override->product_id)->update(['tax_category_code' => 'ZERO']);
+        $this->add($default)->assertOk();
+        $this->add($override)->assertOk();
+        $quote = $this->quoted($this->addressed($this->start()));
+        $this->assertTrue($quote['calculation']['tax_enabled']);
+        $this->assertSame('100', $quote['tax_minor']);
+        $lineTaxes = array_column($quote['lines'], 'tax');
+        $this->assertEqualsCanonicalizing(['STANDARD', 'ZERO'], array_column($lineTaxes, 'category'));
+    }
+
     private function addressData(): array
     {
         return ['recipient_name' => 'Test recipient', 'phone' => '0801 234 5678', 'line1' => '1 Test Road', 'line2' => null, 'city' => 'Lagos', 'state_code' => 'LAGOS', 'postal_code' => null, 'country_code' => 'NG', 'locality_code' => null];
@@ -245,6 +286,71 @@ final class CheckoutTest extends TestCase
         $this->browser('POST', '/api/v1/checkout/'.$s['id'].'/shipping-method', ['expected_version' => $updated['version'], 'code' => 'EXPRESS'])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
     }
 
+    public function test_abuja_areas_are_listed_and_quoted_exactly_without_stale_state_rates(): void
+    {
+        $config = $this->configuration();
+        $base = $config['payload']['zones'][0];
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'WUSE', 'state_code' => 'FCT', 'locality_code' => 'WUSE', 'service_label' => 'Home delivery', 'amount_minor' => '800000']);
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'MAITAMA', 'state_code' => 'FCT', 'locality_code' => 'MAITAMA', 'service_label' => 'Home delivery', 'amount_minor' => '520000']);
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'INACTIVE_FCT', 'state_code' => 'FCT', 'locality_code' => 'JABI', 'active' => false]);
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'KADUNA', 'state_code' => 'KADUNA', 'amount_minor' => '600000']);
+        app(CheckoutConfiguration::class)->publish($config, $this->owner);
+        $areas = $this->browser('GET', '/api/v1/checkout/shipping-methods?state_code=FCT&include_areas=1')->assertOk()->json('data');
+        $this->assertEqualsCanonicalizing(['WUSE', 'MAITAMA'], array_column($areas, 'code'));
+        $this->assertSame('800000', collect($areas)->firstWhere('code', 'WUSE')['amount_minor']);
+        $this->assertSame([], $this->browser('GET', '/api/v1/checkout/shipping-methods?state_code=FCT')->assertOk()->json('data'));
+        $this->assertSame('600000', $this->browser('GET', '/api/v1/checkout/shipping-methods?state_code=KADUNA')->assertOk()->json('data.0.amount_minor'));
+
+        $this->add($this->variant(5, '1000'))->assertOk();
+        $session = $this->start();
+        $fct = $this->addressData();
+        $fct['state_code'] = 'FCT';
+        $fct['city'] = 'Abuja';
+        $fct['locality_code'] = 'WUSE';
+        $session = $this->browser('PATCH', '/api/v1/checkout/'.$session['id'].'/address', ['expected_version' => $session['version'], 'email' => 'checkout@example.test', 'address' => $fct])->assertOk()->json('data');
+        $wuse = $this->browser('POST', '/api/v1/checkout/'.$session['id'].'/shipping-method', ['expected_version' => $session['version'], 'code' => 'WUSE'])->assertOk()->json('data');
+        $this->assertSame('800000', $wuse['delivery_minor']);
+        $this->assertSame('80000', $wuse['calculation']['delivery_tax_minor']);
+        $this->assertSame('881100', $wuse['total_minor']);
+        $this->assertSame('WUSE', $wuse['contact']['address']['locality_code']);
+        $this->assertSame('WUSE', $wuse['calculation']['delivery']['locality_code']);
+        $fct['locality_code'] = 'MAITAMA';
+        $changed = $this->browser('PATCH', '/api/v1/checkout/'.$session['id'].'/address', ['expected_version' => $wuse['version'], 'email' => 'checkout@example.test', 'address' => $fct])->assertOk()->json('data');
+        $this->assertNull($changed['delivery_minor']);
+        $this->assertNull($changed['shipping_method_code']);
+        $this->browser('POST', '/api/v1/checkout/'.$session['id'].'/shipping-method', ['expected_version' => $changed['version'], 'code' => 'WUSE'])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
+        $maitama = $this->browser('POST', '/api/v1/checkout/'.$session['id'].'/shipping-method', ['expected_version' => $changed['version'], 'code' => 'MAITAMA'])->assertOk()->json('data');
+        $this->assertSame('520000', $maitama['delivery_minor']);
+        $this->assertSame('573100', $maitama['total_minor']);
+        $fct['state_code'] = 'KADUNA';
+        $fct['locality_code'] = null;
+        $switched = $this->browser('PATCH', '/api/v1/checkout/'.$session['id'].'/address', ['expected_version' => $maitama['version'], 'email' => 'checkout@example.test', 'address' => $fct])->assertOk()->json('data');
+        $this->assertNull($switched['delivery_minor']);
+        $this->browser('POST', '/api/v1/checkout/'.$session['id'].'/shipping-method', ['expected_version' => $switched['version'], 'code' => 'MAITAMA'])->assertConflict()->assertJsonPath('error.code', 'DELIVERY_UNAVAILABLE');
+        $kaduna = $this->browser('POST', '/api/v1/checkout/'.$session['id'].'/shipping-method', ['expected_version' => $switched['version'], 'code' => 'KADUNA'])->assertOk()->json('data');
+        $this->assertSame('600000', $kaduna['delivery_minor']);
+    }
+
+    public function test_active_area_names_are_normalized_and_duplicates_rejected(): void
+    {
+        $config = $this->configuration();
+        $base = $config['payload']['zones'][0];
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'WUSE', 'state_code' => 'FCT', 'locality_code' => ' Wuse ', 'amount_minor' => '800000']);
+        $config['payload']['zones'][] = array_merge($base, ['code' => 'WUSE_2', 'state_code' => 'FCT', 'locality_code' => 'Wuse 2', 'amount_minor' => '850000']);
+        app(CheckoutConfiguration::class)->publish($config, $this->owner);
+        $this->assertSame('WUSE', $this->browser('GET', '/api/v1/checkout/shipping-methods?state_code=FCT&include_areas=1')->assertOk()->json('data.0.locality_code'));
+        $duplicate = $this->configuration();
+        $duplicate['payload']['zones'][] = array_merge($base, ['code' => 'WUSE', 'state_code' => 'FCT', 'locality_code' => 'WUSE', 'amount_minor' => '800000']);
+        $duplicate['payload']['zones'][] = array_merge($base, ['code' => 'OTHER_WUSE', 'state_code' => 'FCT', 'locality_code' => ' wuse ', 'amount_minor' => '520000']);
+        try {
+            app(CheckoutConfiguration::class)->publish($duplicate, $this->owner);
+            $this->fail('Duplicate active area was accepted.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('configuration', $exception->errors());
+        }
+        $this->assertDatabaseCount('checkout_configurations', 1);
+    }
+
     public function test_published_product_tax_treatment_cannot_be_removed_by_configuration(): void
     {
         app(CheckoutConfiguration::class)->publish($this->configuration(), $this->owner);
@@ -270,10 +376,16 @@ final class CheckoutTest extends TestCase
         $this->assertSame('1611', $s['total_minor']);
         $r = $this->reserve($s)->assertOk()->json('data');
         $historical = $r['lines'][0]['tax'];
-        app(CheckoutConfiguration::class)->publish($this->configuration(), $this->owner);
+        $disabled = $this->configuration();
+        $disabled['payload']['tax_enabled'] = false;
+        $disabled['payload']['product_rules'] = [];
+        app(CheckoutConfiguration::class)->publish($disabled, $this->owner);
         $read = $this->browser('GET', '/api/v1/checkout/'.$s['id'])->assertOk()->assertJsonPath('data.status', 'REVIEW_REQUIRED')->json('data');
         $this->assertSame($historical, $read['lines'][0]['tax']);
         $this->assertSame('1611', $read['total_minor']);
+        $audit = json_decode(DB::table('audit_logs')->where('action', 'checkout.configuration_published')->orderByDesc('occurred_at')->value('changes'), true);
+        $this->assertTrue($audit['tax_enabled_before']);
+        $this->assertFalse($audit['tax_enabled_after']);
         $this->assertSame(0, Inventory::sum('reserved'));
     }
 

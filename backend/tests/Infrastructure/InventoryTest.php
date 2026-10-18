@@ -2,6 +2,7 @@
 
 namespace Tests\Infrastructure;
 
+use App\Inventory\InventoryConflict;
 use App\Inventory\InventoryService;
 use App\Models\Category;
 use App\Models\Inventory;
@@ -171,6 +172,64 @@ final class InventoryTest extends TestCase
         $this->conflict(fn () => $service->adjustStock($variant->id, 1, 'Stale stock view', (string) Str::uuid(), $owner, $originalVersion));
         $this->assertSame(2, InventoryMovement::where('variant_id', $variant->id)->count());
         $this->assertSame(2, DB::table('audit_logs')->where('action', 'like', 'inventory.%')->count());
+    }
+
+    public function test_set_stock_level_computes_audited_movements_and_preserves_replays(): void
+    {
+        $owner = $this->staff();
+        $variant = $this->variant();
+        $this->initialize($owner, $variant, 13);
+        $service = app(InventoryService::class);
+        $version = $this->stock($variant)->version;
+        $key = (string) Str::uuid();
+        $lowered = $service->setStockLevel($variant->id, 8, 'Count correction', $key, $owner, $version);
+        $this->assertSame(-5, $lowered->on_hand_delta);
+        $this->assertSame(8, $lowered->on_hand_after);
+        $this->assertSame($lowered->id, $service->setStockLevel($variant->id, 8, 'Count correction', $key, $owner, $version)->id);
+        $this->conflict(fn () => $service->setStockLevel($variant->id, 9, 'Count correction', $key, $owner, $version));
+        $this->conflict(fn () => $service->setStockLevel($variant->id, 20, 'Stale count', (string) Str::uuid(), $owner, $version));
+        $raised = $service->setStockLevel($variant->id, 20, 'Stock received', (string) Str::uuid(), $owner, $this->stock($variant)->version);
+        $this->assertSame(12, $raised->on_hand_delta);
+        $zero = $service->setStockLevel($variant->id, 0, 'Count correction', (string) Str::uuid(), $owner, $this->stock($variant)->version);
+        $this->assertSame(-20, $zero->on_hand_delta);
+        $this->assertSame(0, $this->stock($variant)->on_hand);
+        $this->assertSame(4, InventoryMovement::where('variant_id', $variant->id)->count());
+        $this->assertSame(4, DB::table('audit_logs')->where('subject_type', 'inventory_movement')->count());
+    }
+
+    public function test_set_stock_level_rejects_target_below_reserved(): void
+    {
+        $owner = $this->staff();
+        $variant = $this->variant();
+        $this->initialize($owner, $variant, 13);
+        DB::table('inventory')->where('variant_id', $variant->id)->update(['reserved' => 4]);
+        $service = app(InventoryService::class);
+        try {
+            $service->setStockLevel($variant->id, 3, 'Count correction', (string) Str::uuid(), $owner, $this->stock($variant)->version);
+            $this->fail('A target below reserved stock must be rejected.');
+        } catch (InventoryConflict $exception) {
+            $this->assertSame('STOCK_BELOW_RESERVED', $exception->inventoryCode);
+        }
+        $this->assertSame(13, $this->stock($variant)->on_hand);
+    }
+
+    public function test_set_stock_level_api_validates_input_and_replays_exact_request(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $variant = $this->variant();
+        $this->initialize($owner, $variant, 13);
+        $path = '/api/v1/admin/inventory/'.$variant->id.'/set-level';
+        $body = ['new_on_hand' => 8, 'reason' => 'Count correction', 'expected_version' => $this->stock($variant)->version];
+        $key = (string) Str::uuid();
+        $changed = $this->browser('POST', $path, $body, $key)->assertOk()->assertJsonPath('data.on_hand', 8);
+        $this->browser('POST', $path, $body, $key)->assertOk()->assertJsonPath('movement_id', $changed->json('movement_id'));
+        $this->browser('POST', $path, ['new_on_hand' => 2.5, 'reason' => 'Invalid', 'expected_version' => $this->stock($variant)->version], (string) Str::uuid())->assertUnprocessable();
+        $this->browser('POST', $path, ['new_on_hand' => -1, 'reason' => 'Invalid', 'expected_version' => $this->stock($variant)->version], (string) Str::uuid())->assertUnprocessable();
+        $this->assertSame(2, InventoryMovement::where('variant_id', $variant->id)->count());
+        $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
+        $this->enroll($this->staff('order_processing'));
+        $this->browser('POST', $path, ['new_on_hand' => 7, 'reason' => 'Denied', 'expected_version' => $this->stock($variant)->version], (string) Str::uuid())->assertForbidden();
     }
 
     public function test_threshold_configuration_is_audited_idempotent_and_does_not_move_stock(): void

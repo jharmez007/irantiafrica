@@ -51,6 +51,13 @@ final class InventoryController
         return response()->json(['data' => $this->stock($request, $id), 'movement_id' => $movement->id]);
     }
 
+    public function setLevel(InventoryRequest $request, string $id): JsonResponse
+    {
+        $movement = $this->service->setStockLevel($id, $request->validated('new_on_hand'), $request->validated('reason'), (string) $request->header('Idempotency-Key'), $this->actor($request), $request->validated('expected_version'));
+
+        return response()->json(['data' => $this->stock($request, $id), 'movement_id' => $movement->id]);
+    }
+
     public function movements(InventoryRequest $request, string $id): JsonResponse
     {
         ProductVariant::findOrFail($id);

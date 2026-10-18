@@ -66,7 +66,11 @@ const settings = {
   },
   states: { LAGOS: "Lagos", FCT: "FCT" },
 };
-let currentSettings = structuredClone(settings);
+let currentSettings: {
+  baseline_id: string | null;
+  current: typeof settings.current | null;
+  states: typeof settings.states;
+} = structuredClone(settings);
 const originalShowModal = Object.getOwnPropertyDescriptor(
   HTMLDialogElement.prototype,
   "showModal",
@@ -104,7 +108,7 @@ beforeEach(() => {
           ...currentSettings,
           baseline_id: "new-version",
           current: {
-            ...currentSettings.current,
+            ...(currentSettings.current ?? settings.current),
             id: "new-version",
             payload: body!.payload,
           },
@@ -150,10 +154,10 @@ describe("owner commerce settings", () => {
     await screen.findByText("Standard delivery");
   });
   it("shows a distinct loading state while the full method configuration is pending", async () => {
-    let finish!: (value: typeof settings) => void;
+    let finish!: (value: typeof currentSettings) => void;
     mock.request.mockImplementationOnce(
       () =>
-        new Promise<typeof settings>((resolve) => {
+        new Promise<typeof currentSettings>((resolve) => {
           finish = resolve;
         }),
     );
@@ -170,7 +174,7 @@ describe("owner commerce settings", () => {
     await screen.findByText("Standard delivery");
   });
   it("distinguishes an empty catalogue from filtered results", async () => {
-    currentSettings.current.payload.zones = [];
+    currentSettings.current!.payload.zones = [];
     render(<ShippingSettings />);
     await screen.findByText("No shipping methods are configured yet.");
     fireEvent.click(
@@ -181,8 +185,8 @@ describe("owner commerce settings", () => {
     ).toBeTruthy();
   });
   it("combines search, state and status filters across the complete configuration", async () => {
-    currentSettings.current.payload.zones.push({
-      ...currentSettings.current.payload.zones[0],
+    currentSettings.current!.payload.zones.push({
+      ...currentSettings.current!.payload.zones[0],
       code: "EXPRESS_FCT",
       state_code: "FCT",
       service_label: "Express delivery",
@@ -281,6 +285,67 @@ describe("owner commerce settings", () => {
     ).toBeTruthy();
     expect(document.activeElement).toBe(add);
   });
+  it("creates and edits an Abuja delivery area through immutable publication", async () => {
+    render(<ShippingSettings />);
+    await screen.findByText("Abuja delivery areas");
+    fireEvent.click(screen.getByRole("button", { name: "Add delivery area" }));
+    const add = screen.getByRole("dialog", { name: "Add Abuja delivery area" });
+    expect(
+      (within(add).getByLabelText("Area name") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      within(add).getByText("State: Federal Capital Territory"),
+    ).toBeTruthy();
+    fireEvent.change(within(add).getByLabelText("Area name"), {
+      target: { value: " Wuse " },
+    });
+    fireEvent.change(within(add).getByLabelText("Delivery price (₦)"), {
+      target: { value: "8000" },
+    });
+    fireEvent.click(within(add).getByRole("button", { name: "Add area" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("Wuse")).toBeTruthy();
+    const firstPost = mock.request.mock.calls.find(
+      (call) =>
+        call[0] === "/admin/checkout-configurations" && call[1] === "POST",
+    )![2];
+    expect(firstPost.expected_current_id).toBe(settings.baseline_id);
+    expect(firstPost.development_only).toBe(true);
+    expect(firstPost.payload.zones.at(-1)).toMatchObject({
+      state_code: "FCT",
+      locality_code: "WUSE",
+      amount_minor: "800000",
+    });
+    fireEvent.click(
+      within(
+        screen.getByRole("list", { name: "Abuja delivery areas" }),
+      ).getByRole("button", { name: "Edit" }),
+    );
+    const edit = screen.getByRole("dialog", {
+      name: "Edit Abuja delivery area",
+    });
+    expect(
+      (within(edit).getByLabelText("Area name") as HTMLInputElement).value,
+    ).toBe("Wuse");
+    expect(
+      (within(edit).getByLabelText("Delivery price (₦)") as HTMLInputElement)
+        .value,
+    ).toBe("8000.00");
+    fireEvent.change(within(edit).getByLabelText("Delivery price (₦)"), {
+      target: { value: "8200" },
+    });
+    fireEvent.click(within(edit).getByRole("button", { name: "Save area" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("₦8,200.00")).toBeTruthy();
+    const posts = mock.request.mock.calls.filter(
+      (call) =>
+        call[0] === "/admin/checkout-configurations" && call[1] === "POST",
+    );
+    expect(posts).toHaveLength(2);
+    expect(posts[1][2].payload.zones.at(-1).code).toBe(
+      firstPost.payload.zones.at(-1).code,
+    );
+  });
   it("prefills Edit, discards unsaved changes, restores focus, and reopens clean Add", async () => {
     render(<ShippingSettings />);
     await screen.findByText("Standard delivery");
@@ -331,8 +396,8 @@ describe("owner commerce settings", () => {
     ).toBe("");
   });
   it("clears stale values and errors when opening another method", async () => {
-    currentSettings.current.payload.zones.push({
-      ...currentSettings.current.payload.zones[0],
+    currentSettings.current!.payload.zones.push({
+      ...currentSettings.current!.payload.zones[0],
       code: "EXPRESS_FCT",
       state_code: "FCT",
       service_label: "Express delivery",
@@ -518,7 +583,7 @@ describe("owner commerce settings", () => {
     expect(document.querySelector(".commerce-confirm")).toBeNull();
   });
   it("opens Archive with the selected locality, dismisses by Escape and keeps the method", async () => {
-    Object.assign(currentSettings.current.payload.zones[0], {
+    Object.assign(currentSettings.current!.payload.zones[0], {
       locality_code: "LEKKI_PHASE_1",
     });
     render(<ShippingSettings />);
@@ -654,7 +719,8 @@ describe("owner commerce settings", () => {
       displayTaxLabel("Development/UAT STANDARD test treatment", "STANDARD"),
     ).toBe("Standard");
     render(<TaxSettings />);
-    await screen.findByLabelText("Rate (%)");
+    await screen.findByLabelText("Default rate (%)");
+    fireEvent.click(screen.getByText("Advanced: manage tax treatments"));
     expect((screen.getByLabelText("Label") as HTMLInputElement).value).toBe(
       "Standard",
     );
@@ -671,15 +737,29 @@ describe("owner commerce settings", () => {
       ),
     ).toBeNull();
   });
+  it("offers an accessible tax switch without publishing until Save", async () => {
+    render(<TaxSettings />);
+    const taxSwitch = await screen.findByRole("switch", {
+      name: "Apply tax at checkout",
+    });
+    expect((taxSwitch as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(taxSwitch);
+    expect((taxSwitch as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByLabelText("Default rate (%)")).toBeNull();
+    expect(
+      mock.request.mock.calls.filter(
+        (call) =>
+          call[0] === "/admin/checkout-configurations" && call[1] === "POST",
+      ),
+    ).toHaveLength(0);
+  });
   it("publishes exact tax fractions and retains the shipping bundle", async () => {
     render(<TaxSettings />);
-    await screen.findByLabelText("Rate (%)");
-    fireEvent.change(screen.getByLabelText("Rate (%)"), {
+    await screen.findByLabelText("Default rate (%)");
+    fireEvent.change(screen.getByLabelText("Default rate (%)"), {
       target: { value: "7.5" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Publish tax configuration" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Save tax settings" }));
     await waitFor(() =>
       expect(
         mock.request.mock.calls.some(
@@ -691,6 +771,54 @@ describe("owner commerce settings", () => {
             call[2]?.payload.delivery_tax.label ===
               "Development/UAT delivery tax test rule" &&
             call[2]?.payload.zones[0].code === "STANDARD_LAGOS",
+        ),
+      ).toBe(true),
+    );
+  });
+  it("starts a new configuration with tax off and reveals a simple default rate on enable", async () => {
+    currentSettings = {
+      ...currentSettings,
+      baseline_id: null,
+      current: null,
+    };
+    render(<TaxSettings />);
+    await screen.findByText("Tax is currently not applied to orders.");
+    expect(screen.queryByLabelText("Default rate (%)")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Apply tax at checkout"));
+    expect(screen.getByLabelText("Default rate (%)")).toBeTruthy();
+    expect(screen.getByLabelText("Default treatment")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Default rate (%)"), {
+      target: { value: "7.5" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save tax settings" }));
+    await waitFor(() =>
+      expect(
+        mock.request.mock.calls.some(
+          (call) =>
+            call[0] === "/admin/checkout-configurations" &&
+            call[2]?.payload.tax_enabled === true &&
+            call[2]?.payload.default_tax_category === "STANDARD" &&
+            call[2]?.payload.product_rules[0].rate === "0.075",
+        ),
+      ).toBe(true),
+    );
+  });
+  it("publishes a new tax-off configuration without requiring a treatment", async () => {
+    currentSettings = {
+      ...currentSettings,
+      baseline_id: null,
+      current: null,
+    };
+    render(<TaxSettings />);
+    await screen.findByText("Tax is currently not applied to orders.");
+    fireEvent.click(screen.getByRole("button", { name: "Save tax settings" }));
+    await waitFor(() =>
+      expect(
+        mock.request.mock.calls.some(
+          (call) =>
+            call[0] === "/admin/checkout-configurations" &&
+            call[2]?.payload.tax_enabled === false &&
+            call[2]?.payload.product_rules.length === 0,
         ),
       ).toBe(true),
     );

@@ -51,6 +51,16 @@ final class InventoryService
         return $this->manual($variantId, $delta, $reason, $key, $actor, $expectedVersion);
     }
 
+    public function setStockLevel(string $variantId, mixed $newOnHand, string $reason, string $key, User $actor, string $expectedVersion): InventoryMovement
+    {
+        $target = StockMath::integer($newOnHand, 0);
+        if (! preg_match('/^[1-9][0-9]{0,18}$/D', $expectedVersion) || (strlen($expectedVersion) === 19 && strcmp($expectedVersion, '9223372036854775807') > 0)) {
+            throw new InvalidArgumentException('A valid inventory version is required.');
+        }
+
+        return $this->manual($variantId, 0, $reason, $key, $actor, $expectedVersion, $target);
+    }
+
     /** Configure an alert threshold without changing physical or reserved stock. */
     public function setLowStockThreshold(string $variantId, int $threshold, User $actor): Inventory
     {
@@ -277,7 +287,7 @@ final class InventoryService
         return $result;
     }
 
-    private function manual(string $variantId, int $delta, string $reason, string $key, User $actor, ?string $expectedVersion): InventoryMovement
+    private function manual(string $variantId, int $delta, string $reason, string $key, User $actor, ?string $expectedVersion, ?int $targetOnHand = null): InventoryMovement
     {
         $variantId = self::uuid($variantId);
         $key = self::uuid($key);
@@ -287,9 +297,9 @@ final class InventoryService
         }
         $kind = $expectedVersion === null ? 'OPENING' : 'ADJUSTMENT';
         $operation = 'inventory:'.strtolower($kind).':'.$actor->id.':'.$variantId.':'.$key;
-        $hash = hash('sha256', json_encode([$kind, $variantId, $delta, $reason, $expectedVersion], JSON_THROW_ON_ERROR));
+        $hash = hash('sha256', json_encode($targetOnHand === null ? [$kind, $variantId, $delta, $reason, $expectedVersion] : ['SET_LEVEL', $variantId, $targetOnHand, $reason, $expectedVersion], JSON_THROW_ON_ERROR));
 
-        return $this->transaction(function () use ($variantId, $delta, $reason, $actor, $expectedVersion, $kind, $operation, $hash): InventoryMovement {
+        return $this->transaction(function () use ($variantId, $delta, $reason, $actor, $expectedVersion, $kind, $operation, $hash, $targetOnHand): InventoryMovement {
             // Serialize with identity changes and then the per-variant balance, including absent opening rows.
             $currentActor = User::query()->lockForUpdate()->findOrFail($actor->id);
             abort_unless($currentActor->hasPermission('inventory.adjust'), 403);
@@ -317,6 +327,15 @@ final class InventoryService
                 }
                 if ($stock->version !== $expectedVersion) {
                     throw new InventoryConflict('INVENTORY_VERSION_CONFLICT', 'Stock changed; reload and review the adjustment.');
+                }
+                if ($targetOnHand !== null) {
+                    if ($targetOnHand < $stock->reserved) {
+                        throw new InventoryConflict('STOCK_BELOW_RESERVED', 'Stock cannot be reduced below the quantity currently reserved.');
+                    }
+                    $delta = $targetOnHand - $stock->on_hand;
+                    if ($delta === 0) {
+                        throw new InventoryConflict('NO_STOCK_CHANGE', 'Enter a different stock quantity.');
+                    }
                 }
             }
             $movement = $this->move($stock, $kind, $delta, 0, $operation, $reason, $currentActor->id);
