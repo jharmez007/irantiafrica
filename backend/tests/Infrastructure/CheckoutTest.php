@@ -126,6 +126,19 @@ final class CheckoutTest extends TestCase
         return ['version_code' => 'demo-'.Str::uuid(), 'development_only' => true, 'payload' => ['rounding' => 'HALF_UP', 'product_rules' => [['category' => 'test-unconfigured', 'rate' => '0.1', 'label' => 'DEVELOPMENT CONFIGURATION ONLY']], 'delivery_tax' => ['taxable' => $taxable, 'rate' => $taxable ? '0.1' : null, 'label' => 'DEVELOPMENT CONFIGURATION ONLY'], 'zones' => [['code' => 'LAGOS', 'state_code' => 'LAGOS', 'locality_code' => null, 'active' => true, 'amount_minor' => '505', 'provider_label' => 'Development sample', 'service_label' => 'Sample delivery', 'source_reference' => 'DEVELOPMENT CONFIGURATION ONLY']]]];
     }
 
+    public function test_non_taxable_delivery_does_not_require_a_label(): void
+    {
+        $configuration = $this->configuration(false);
+        unset($configuration['payload']['delivery_tax']['label']);
+        app(CheckoutConfiguration::class)->publish($configuration, $this->owner);
+        $this->assertSame('Not taxable', app(CheckoutConfiguration::class)->current()['payload']['delivery_tax']['label']);
+
+        $taxable = $this->configuration(true);
+        unset($taxable['payload']['delivery_tax']['label']);
+        $this->expectException(ValidationException::class);
+        app(CheckoutConfiguration::class)->publish($taxable, $this->owner);
+    }
+
     public function test_tax_can_be_disabled_without_product_rules_and_new_quote_has_zero_tax(): void
     {
         $configuration = $this->configuration();

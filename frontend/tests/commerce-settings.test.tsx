@@ -753,6 +753,35 @@ describe("owner commerce settings", () => {
       ),
     ).toHaveLength(0);
   });
+  it("does not require a delivery label when delivery tax is off", async () => {
+    render(<TaxSettings />);
+    const label = await screen.findByLabelText("Delivery tax treatment label");
+    expect((label as HTMLInputElement).required).toBe(true);
+    fireEvent.change(label, { target: { value: "" } });
+    fireEvent.click(screen.getByLabelText("Taxable delivery"));
+    expect(screen.queryByLabelText("Delivery tax treatment label")).toBeNull();
+    expect(screen.queryByLabelText("Delivery tax rate (%)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save tax settings" }));
+    await waitFor(() => {
+      const published = mock.request.mock.calls.find(
+        (call) =>
+          call[0] === "/admin/checkout-configurations" && call[1] === "POST",
+      );
+      expect(published?.[2]?.payload.delivery_tax).toEqual({
+        taxable: false,
+        rate: null,
+        label: "Development/UAT delivery tax test rule",
+      });
+    });
+    fireEvent.click(screen.getByLabelText("Taxable delivery"));
+    expect(
+      (
+        screen.getByLabelText(
+          "Delivery tax treatment label",
+        ) as HTMLInputElement
+      ).required,
+    ).toBe(true);
+  });
   it("publishes exact tax fractions and retains the shipping bundle", async () => {
     render(<TaxSettings />);
     await screen.findByLabelText("Default rate (%)");

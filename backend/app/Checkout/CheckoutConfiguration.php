@@ -37,6 +37,11 @@ final class CheckoutConfiguration
                 $input['payload']['zones'][$index]['locality_code'] = strtoupper($normalized);
             }
         }
+        $deliveryTax = $input['payload']['delivery_tax'] ?? null;
+        if (is_array($deliveryTax) && ($deliveryTax['taxable'] ?? null) === false &&
+            (! isset($deliveryTax['label']) || (is_string($deliveryTax['label']) && trim($deliveryTax['label']) === ''))) {
+            $input['payload']['delivery_tax']['label'] = 'Not taxable';
+        }
         $data = Validator::make($input, [
             'version_code' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,80}$/D'],
             'expected_current_id' => ['sometimes', 'nullable', 'uuid'],

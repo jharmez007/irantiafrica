@@ -1140,7 +1140,11 @@ function TaxEditor() {
         })),
         delivery_tax: {
           ...payload.delivery_tax,
-          label: deliveryLabelDraft?.trim() ?? payload.delivery_tax.label,
+          label: payload.delivery_tax.taxable
+            ? (deliveryLabelDraft?.trim() ?? payload.delivery_tax.label)
+            : deliveryLabelDraft?.trim() ||
+              payload.delivery_tax.label ||
+              "Not taxable",
           rate: payload.delivery_tax.taxable
             ? fraction(shownDeliveryPercent)
             : null,
@@ -1439,19 +1443,21 @@ function TaxEditor() {
                       />
                     </label>
                   )}
-                  <label>
-                    Delivery tax treatment label
-                    <Input
-                      value={
-                        deliveryLabelDraft ??
-                        displayTaxLabel(payload.delivery_tax.label)
-                      }
-                      onChange={(event) =>
-                        setDeliveryLabelDraft(event.target.value)
-                      }
-                      required
-                    />
-                  </label>
+                  {payload.delivery_tax.taxable && (
+                    <label>
+                      Delivery tax treatment label
+                      <Input
+                        value={
+                          deliveryLabelDraft ??
+                          displayTaxLabel(payload.delivery_tax.label)
+                        }
+                        onChange={(event) =>
+                          setDeliveryLabelDraft(event.target.value)
+                        }
+                        required
+                      />
+                    </label>
+                  )}
                 </div>
               </section>
             )}
