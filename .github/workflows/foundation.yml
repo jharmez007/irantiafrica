@@ -57,7 +57,8 @@ jobs:
           tools: composer:2
           coverage: none
       - name: Require patched PHP CLI
-        run: php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'
+        run: |
+          php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'
       - run: cp .env.example .env
       - run: composer install --no-interaction --prefer-dist
       - run: php artisan key:generate --no-interaction
