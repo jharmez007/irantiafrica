@@ -9,7 +9,8 @@ ARG PRODUCTION_PREVIEW_NOINDEX=false
 ENV SITE_URL=${SITE_URL} CSP_ASSET_ORIGINS=${CSP_ASSET_ORIGINS} PRODUCTION_PREVIEW_NOINDEX=${PRODUCTION_PREVIEW_NOINDEX} API_INTERNAL_URL=http://127.0.0.1:8080 NEXT_PUBLIC_API_URL=/api/v1
 RUN npm run build -- --webpack
 
-FROM php:8.5-fpm-bookworm AS runtime
+FROM php:8.5.12-fpm-bookworm AS runtime
+RUN php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'
 # PHP 8.5 official images already enable OPcache; reinstalling it fails.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates gettext-base nginx supervisor unzip \

@@ -185,8 +185,8 @@ def preflight():
     for binary in ['node', 'npm', 'brew', 'launchctl']:
         if not shutil.which(binary):
             raise LaunchError('Missing dependency: ' + binary + '. Load Homebrew/nvm in your shell first.')
-    if run([PHP, '-r', 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 ? 0 : 1);']).returncode:
-        raise LaunchError('PHP 8.5 is required at /opt/homebrew/bin/php.')
+    if run([PHP, '-r', 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);']).returncode:
+        raise LaunchError('PHP 8.5.12 or newer is required at /opt/homebrew/bin/php.')
     if not run(['node', '--version']).stdout.startswith('v24.'):
         raise LaunchError('Node 24 is required; run nvm use from the project root.')
     if 'v=8.2.' not in run([REDIS / 'redis-server', '--version']).stdout:

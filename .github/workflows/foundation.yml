@@ -56,6 +56,9 @@ jobs:
           extensions: pdo_pgsql, mbstring, intl, bcmath, fileinfo, pcntl, gd
           tools: composer:2
           coverage: none
+      - name: Require patched PHP CLI
+        run: |
+          php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'
       - run: cp .env.example .env
       - run: composer install --no-interaction --prefer-dist
       - run: php artisan key:generate --no-interaction
@@ -228,7 +231,8 @@ jobs:
             exit 1
           fi
           docker exec "$container_id" supervisorctl status
-          docker exec "$container_id" php -v | grep -q 'PHP 8.5'
+          docker exec "$container_id" php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'
+          docker exec "$container_id" php-fpm -v | grep -F "PHP $(docker exec "$container_id" php -r 'echo PHP_VERSION;')"
           docker exec "$container_id" node --version | grep -q '^v24\.'
           for extension in pdo_pgsql gd intl mbstring bcmath exif pcntl zip 'Zend OPcache'; do
             docker exec "$container_id" php -m | grep -iq "^$extension$"
