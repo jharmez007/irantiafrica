@@ -45,6 +45,6 @@ The owner approved updating macOS to Sequoia 15.8.1 and restarting. Apple Softwa
 | Frontend Vitest | PASS after Vitest 5.0.5 update — 30 files, 398 tests |
 | Frontend production build | PASS with `--webpack`, the mode used by `Dockerfile.render`, on Next.js 16.4.1 |
 | Docker image | PASS in hosted CI — image built from `php:8.5.12-fpm-bookworm`; CLI/FPM equality, queue, scheduler and readiness checks passed |
-| Hosted CI | Backend and render-image jobs passed on commit `fb87bee`; the first frontend job correctly blocked on newly published Next.js advisories, which were remediated before the final rerun |
+| Hosted CI | PASS — backend, frontend and render-image jobs all passed on security commit `4b6a580` ([run 40303252042](https://github.com/jharmez007/irantiafrica/actions/runs/40303252042)) |
 
 No production deployment or data change occurred. The current Render runtime is already patched, but any earlier immutable image or separate PHP service must be checked independently before use. The local Mac must remain out of PHP web-serving use until its loader problem is resolved and the launcher can be reverified on the patched binary.
