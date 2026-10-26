@@ -1,12 +1,12 @@
 # Authoritative macOS local-development setup
 
-Updated 2026-09-23. Everyday development uses persistent native Homebrew PostgreSQL 18 and Homebrew Redis 8.2 binaries, Laravel/PHP 8.5 and Next.js/Node 24. Docker Compose remains an optional reproducible alternative. No normal startup command depends on `/tmp` database storage or Redis binaries.
+Updated 2026-10-26 for the PHP security floor. Everyday development uses persistent native Homebrew PostgreSQL 18 and Homebrew Redis 8.2 binaries, Laravel/PHP 8.5.12 or newer in the 8.5 line, and Next.js/Node 24. Docker Compose remains an optional reproducible alternative. No normal startup command depends on `/tmp` database storage or Redis binaries.
 
 This guide replaces the earlier Phase 3A-only instructions. Identity, MFA and catalog already exist. Environment setup does not authorize additional inventory/commerce implementation; the existing Phase 3D schema gate remains separate.
 
 ## Prerequisites and installed state
 
-On the inspected Apple Silicon Mac, Homebrew PostgreSQL 18.6, PHP 8.5 and Node 24.14/npm 11 are installed. At the subsequent launcher inspection, Homebrew Redis 8.2.10 was installed and both project Redis services were already running. Docker remains absent. Do not install packages automatically. On a Mac missing the approved Redis line, the installation command (only when authorized) is:
+At the earlier launcher inspection, Homebrew PostgreSQL 18.6, PHP 8.5.8 and Node 24.14/npm 11 were installed on the Apple Silicon Mac. PHP 8.5.8 is now below the security floor and must not serve requests. Homebrew Redis 8.2.10 was installed and both project Redis services were already running. Docker remains absent. On a Mac missing the approved Redis line, the installation command (only when authorized) is:
 
 ```sh
 brew install redis@8.2
@@ -14,7 +14,7 @@ brew install redis@8.2
 
 Use the versioned formula to retain the approved Redis 8.2 release line. The unversioned formula can select a different line. See [Homebrew Redis versions](https://formulae.brew.sh/formula/redis).
 
-Set the current terminal's PATH so Herd PHP 8.4 does not shadow PHP 8.5:
+Set the current terminal's PATH so Herd PHP 8.4 does not shadow the patched Homebrew PHP 8.5 runtime; confirm that `php -v` reports at least 8.5.12:
 
 ```sh
 cd /Users/chiefagu/Desktop/irantiafrica

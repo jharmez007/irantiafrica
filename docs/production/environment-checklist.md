@@ -4,7 +4,7 @@ Phase 3M, 2026-09-24. Names only; inject values through the selected platform se
 
 | Category | Required production setting / verification |
 |---|---|
-| Runtime | PHP 8.5 with PDO PostgreSQL, GD, fileinfo, OpenSSL and pcntl workers; Node 24; locked Composer/npm installs; immutable release ID |
+| Runtime | PHP 8.5.12 or newer in the 8.5 line for CLI, PHP-FPM and workers, with PDO PostgreSQL, GD, fileinfo, OpenSSL and pcntl; Node 24; locked Composer/npm installs; immutable release ID. Verify both PHP SAPIs in the deployed container before release. |
 | Application | `APP_ENV=production`, `APP_DEBUG=false`, unique recoverable `APP_KEY`, canonical HTTPS `APP_URL`; startup rejects debug/insecure URLs |
 | Frontend | `SITE_URL` canonical HTTPS, `NEXT_PUBLIC_API_URL=/api/v1`; private `API_INTERNAL_URL`; edge serves `/api` and `/sanctum` at the same browser origin. Never put credentials in `NEXT_PUBLIC_*` |
 | Origins | `FRONTEND_URL`, `TRUSTED_ORIGINS` exact HTTPS origin; `SANCTUM_STATEFUL_DOMAINS` exact host[:port]. No wildcard CORS. Browser origin/CSRF checks remain mandatory |

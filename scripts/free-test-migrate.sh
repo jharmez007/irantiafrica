@@ -6,9 +6,13 @@ APPROVED_SHA=35fab6dce276378ce41ac01bc4674f90f91f9747
 PHP=/opt/homebrew/bin/php
 
 if [[ ! -x "$PHP" ]]; then
-  echo 'PHP 8.5 is required at /opt/homebrew/bin/php.' >&2
+  echo 'PHP 8.5.12 or newer is required at /opt/homebrew/bin/php.' >&2
   exit 1
 fi
+"$PHP" -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);' || {
+  echo 'PHP 8.5.12 or newer is required at /opt/homebrew/bin/php.' >&2
+  exit 1
+}
 if [[ "$(git -C "$ROOT_DIR" rev-parse HEAD)" != "$APPROVED_SHA" ]] || ! git -C "$ROOT_DIR" diff --quiet "$APPROVED_SHA" -- backend; then
   echo 'The local backend must match the approved release SHA before migrating the free test database.' >&2
   exit 1
