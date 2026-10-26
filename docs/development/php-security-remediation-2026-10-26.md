@@ -12,7 +12,9 @@ This record covers CVE-2026-109618 (out-of-memory state corruption) and CVE-2026
 | Paid Render web container | Dockerfile used floating `php:8.5-fpm-bookworm` at build time | Read-only Web Shell on 26 October reported **8.5.12** for both `php -v` and `php-fpm -v`, including OPcache 8.5.12 | Deployed CLI/FPM are patched; no deployment performed in this review |
 | Render queue/scheduler | Same Docker image as FPM | Supervisor config invokes image-local `php` for both workers; the deployed image's CLI is 8.5.12 | Binary source patched; worker processes were not restarted in this review |
 
-Laravel 13.32.0 is locked. [Laravel's 13.x support matrix](https://laravel.com/framework/docs/releases) lists PHP 8.5 as supported. The project's Composer requirement was `~8.5.0` and is now `~8.5.12` (8.5.12 through the 8.5 line); no package versions were changed. `composer.lock` platform metadata and Composer's content hash were updated together. The hash calculation was checked against the prior lock hash before editing; Composer validation and runtime compatibility tests remain pending until a working patched local runtime or hosted CI verifies them.
+Laravel 13.32.0 is locked. [Laravel's 13.x support matrix](https://laravel.com/framework/docs/releases) lists PHP 8.5 as supported. The project's Composer requirement was `~8.5.0` and is now `~8.5.12` (8.5.12 through the 8.5 line); no Composer package versions were changed. `composer.lock` platform metadata and Composer's content hash were updated together. The hash calculation was checked against the prior lock hash before editing. Hosted CI then installed the lockfile on PHP 8.5.12 and passed Composer validation, Pint, Larastan, PHPUnit and Composer audit.
+
+The required frontend regression exposed three newly published Next.js advisories against the locked 16.3.8 runtime: GHSA-2464-fhr4-w9xw, GHSA-p3m5-59mp-jv5r and GHSA-673q-mjm6-r5xr. The smallest fixed 16.x release is 16.4.1. Next.js and its matching ESLint config were updated to 16.4.1 with strict peer resolution. Vitest was patched from 5.0.1 to 5.0.5, and compatible transitive `undici` and `zod` fixes were captured in the lockfile. React remains 19.3.0. A clean reinstall, all frontend checks and the full npm audit now pass without an exception.
 
 ## Preventing affected rebuilds
 
@@ -35,10 +37,14 @@ The owner approved updating macOS to Sequoia 15.8.1 and restarting. Apple Softwa
 | Render CLI and FPM | PASS — 8.5.12 observed read-only in deployed container |
 | Local CLI and FPM | BLOCKED — 8.5.12_1 installed but unusable until macOS update |
 | Launcher and shell syntax | PASS — Python AST parse, `bash -n`, `sh -n` |
-| Frontend formatting, ESLint, TypeScript | PASS |
-| Frontend Vitest | PASS — 30 files, 398 tests |
-| Frontend production build | PASS with `--webpack`, the same mode used by `Dockerfile.render`; default local Turbopack build could not bind a helper port in the sandbox |
-| Backend PHPUnit, Pint, Larastan, Composer validate/audit | PENDING — local PHP cannot load; run on patched runtime and record exact results |
-| Docker image and hosted CI | PENDING — source safeguards added, image not built or deployed during this review |
+| Backend PHPUnit | PASS in hosted CI on PHP 8.5.12 — 293 tests, 6,943 assertions, 1 skipped |
+| Pint, Larastan and Composer validate | PASS in hosted CI on PHP 8.5.12 |
+| Composer audit | PASS — no security vulnerability advisories found |
+| Frontend clean install and audits | PASS — strict `npm ci`; production and full npm audits report zero vulnerabilities |
+| Frontend formatting, ESLint, TypeScript | PASS after Next.js 16.4.1 update |
+| Frontend Vitest | PASS after Vitest 5.0.5 update — 30 files, 398 tests |
+| Frontend production build | PASS with `--webpack`, the mode used by `Dockerfile.render`, on Next.js 16.4.1 |
+| Docker image | PASS in hosted CI — image built from `php:8.5.12-fpm-bookworm`; CLI/FPM equality, queue, scheduler and readiness checks passed |
+| Hosted CI | Backend and render-image jobs passed on commit `fb87bee`; the first frontend job correctly blocked on newly published Next.js advisories, which were remediated before the final rerun |
 
-No production deployment or data change occurred. The current Render runtime is already patched, but any earlier immutable image or separate PHP service must be checked independently before use. The local Mac must remain out of PHP web-serving use until its loader problem is resolved and complete backend regression passes.
+No production deployment or data change occurred. The current Render runtime is already patched, but any earlier immutable image or separate PHP service must be checked independently before use. The local Mac must remain out of PHP web-serving use until its loader problem is resolved and the launcher can be reverified on the patched binary.
