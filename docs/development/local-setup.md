@@ -162,6 +162,30 @@ make stop
 # Equivalent: ./scripts/dev-stop.sh
 ```
 
+### Temporary macOS FreeType compatibility override
+
+On the currently inspected Mac, Homebrew PHP 8.5.12 is linked to a newer FreeType build that cannot load on the installed macOS release. The retained Homebrew FreeType 2.14.3 library allows the patched PHP runtime to start when its library directory is supplied explicitly. This is a temporary, opt-in compatibility mechanism for the native macOS launcher only; an older library can carry compatibility or security risk and should not become a shared dependency.
+
+Use it only when plain `make dev` fails with the documented FreeType loader error:
+
+```sh
+cd /Users/chiefagu/Desktop/irantiafrica
+IRANTI_LOCAL_FREETYPE_DIR=/opt/homebrew/Cellar/freetype/2.14.3/lib make dev
+```
+
+The launcher requires an absolute, non-symlink directory containing a regular `libfreetype.6.dylib` owned by the current user or root and not writable by group/other users. It does not search for or silently select another version. When enabled, `DYLD_LIBRARY_PATH` is passed only to the PHP version/database probes, Laravel server, queue worker and scheduler. It is removed from the Next.js frontend, Node tools, Redis helpers and Homebrew service commands.
+
+Confirm and stop the launcher normally; the override is unnecessary for these commands:
+
+```sh
+make status
+make stop
+```
+
+The override is rejected in CI, Render, production, staging and any non-local `APP_ENV`. Docker and deployment configuration do not read it. Direct use with `scripts/serve-backend.sh` is rejected; only the native launcher can pass its validated internal handoff to that wrapper. The setting must never be added to an `.env` file or hosted environment. It does not change Homebrew links, PHP configuration or system libraries.
+
+Once the operating-system/Homebrew compatibility issue is resolved, stop the launcher, verify that `/opt/homebrew/bin/php -v` works without `DYLD_LIBRARY_PATH`, then return to plain `make dev`. No repository change or library deletion is needed to disable the workaround: omit `IRANTI_LOCAL_FREETYPE_DIR`. Retain the older Homebrew library until you have confirmed no other local process needs it; removal is an explicit workstation-maintenance decision outside this launcher.
+
 The scripts use bash with `set -euo pipefail` and work when invoked from a macOS zsh or bash terminal. Their project root is resolved from the scripts, so direct absolute-path invocation also works outside the repository; Make commands run from the repository root. Python 3 coordinates safe session/process-group ownership because macOS does not supply GNU setsid by default. No package installation occurs.
 
 Startup verifies PHP 8.5 at `/opt/homebrew/bin/php`, Node 24/npm, Homebrew PostgreSQL 18, Homebrew Redis 8.2, installed app dependencies and the native local environment. It rejects a Compose/non-local profile, DB_URL override, cached Laravel configuration and occupied unmanaged app/Redis ports. It starts PostgreSQL through Homebrew only if unavailable, starts missing project Redis services using the existing helper, verifies PostgreSQL 18/Laravel credentials and both Redis PINGs, then starts backend, worker, scheduler and frontend. The HTTP listeners must belong to their tracked process groups, and both health URLs must respond successfully. It never runs migrations, seeds or dependency installation.
