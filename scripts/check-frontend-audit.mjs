@@ -31,11 +31,35 @@ if (report.error || !report.metadata?.vulnerabilities) {
 }
 
 const expected = new Map([
-  ["braces", "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"],
-  ["micromatch", "braces"],
-  ["fast-glob", "micromatch"],
-  ["@next/eslint-plugin-next", "fast-glob"],
-  ["eslint-config-next", "@next/eslint-plugin-next"],
+  [
+    "minimatch",
+    ["https://github.com/advisories/GHSA-g3hv-75wg-m249"],
+  ],
+  ["@typescript-eslint/typescript-estree", ["minimatch"]],
+  ["@typescript-eslint/parser", ["@typescript-eslint/typescript-estree"]],
+  ["@typescript-eslint/utils", ["@typescript-eslint/typescript-estree"]],
+  [
+    "@typescript-eslint/type-utils",
+    ["@typescript-eslint/typescript-estree", "@typescript-eslint/utils"],
+  ],
+  [
+    "@typescript-eslint/eslint-plugin",
+    [
+      "@typescript-eslint/parser",
+      "@typescript-eslint/type-utils",
+      "@typescript-eslint/utils",
+    ],
+  ],
+  [
+    "typescript-eslint",
+    [
+      "@typescript-eslint/eslint-plugin",
+      "@typescript-eslint/parser",
+      "@typescript-eslint/typescript-estree",
+      "@typescript-eslint/utils",
+    ],
+  ],
+  ["eslint-config-next", ["typescript-eslint"]],
 ]);
 const actual = report.vulnerabilities ?? {};
 const counts = report.metadata.vulnerabilities;
@@ -46,22 +70,23 @@ if (counts.total === 0 && Object.keys(actual).length === 0) {
 const unexpected = Object.keys(actual).filter((name) => !expected.has(name));
 const missing = [...expected.keys()].filter((name) => !actual[name]);
 let valid = unexpected.length === 0 && missing.length === 0;
-valid &&= counts.total === 5 && counts.high === 5;
-valid &&= ["critical", "moderate", "low", "info"].every(
+valid &&= counts.total === 8 && counts.moderate === 8;
+valid &&= ["critical", "high", "low", "info"].every(
   (severity) => counts[severity] === 0,
 );
 
-for (const [name, cause] of expected) {
+for (const [name, causes] of expected) {
   const vulnerability = actual[name];
   if (!vulnerability) continue;
-  valid &&= vulnerability.severity === "high";
+  valid &&= vulnerability.severity === "moderate";
   valid &&= vulnerability.nodes?.length === 1;
   valid &&= vulnerability.nodes?.every(
     (node) => lock.packages[node]?.dev === true,
   );
-  valid &&= vulnerability.via?.length === 1;
-  const via = vulnerability.via?.[0];
-  valid &&= typeof via === "string" ? via === cause : via?.url === cause;
+  const via = (vulnerability.via ?? [])
+    .map((item) => (typeof item === "string" ? item : item?.url))
+    .sort();
+  valid &&= JSON.stringify(via) === JSON.stringify([...causes].sort());
 }
 
 if (!valid) {
@@ -72,5 +97,5 @@ if (!valid) {
 }
 
 console.warn(
-  "Documented temporary dev-tooling exception: GHSA-vfj7-8cjw-p6xm through the five-node ESLint chain only. Full audit remains five HIGH; production audit is a separate blocking gate.",
+  "Documented temporary dev-tooling exception: GHSA-g3hv-75wg-m249 through the eight-node Next.js ESLint chain only. Full audit remains eight MODERATE; production audit is a separate blocking gate.",
 );

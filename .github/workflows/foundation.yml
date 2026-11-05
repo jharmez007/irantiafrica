@@ -96,7 +96,7 @@ jobs:
         run: node ../scripts/check-frontend-audit.mjs
       - name: Confirm affected dev tools are absent from runtime bundle
         run: |
-          for package in braces micromatch fast-glob '@next/eslint-plugin-next' eslint-config-next; do
+          for package in minimatch '@typescript-eslint' typescript-eslint eslint-config-next; do
             if find .next/standalone -path "*/node_modules/$package" -print -quit | grep -q .; then
               echo "Unexpected runtime package: $package" >&2
               exit 1
