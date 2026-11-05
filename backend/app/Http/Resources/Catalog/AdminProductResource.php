@@ -29,7 +29,7 @@ class AdminProductResource extends JsonResource
             'updated_at' => $this->updated_at?->toIso8601String(),
             'publication_issues' => app(CatalogActions::class)->publicationIssues($this->resource),
             'delete_eligibility' => Gate::allows('catalog.products.delete') ? app(CatalogDeletion::class)->productEligibility($this->resource) : null,
-            'id' => $this->id, 'status' => $this->status, 'tax_category_code' => $this->tax_category_code, 'content_version' => $this->content_version,
+            'id' => $this->id, 'status' => $this->status, 'removed_at' => $this->removed_at?->toIso8601String(), 'tax_category_code' => $this->tax_category_code, 'content_version' => $this->content_version,
             'category_ids' => $this->categories->map(fn (Category $c): string => $c->id)->values(),
             'options' => $this->options->map(fn (ProductOption $o): array => ['id' => $o->id, 'name' => $o->name, 'values' => $o->values->map(fn (OptionValue $v): array => ['id' => $v->id, 'value' => $v->value, 'swatch_hex' => $v->swatch_hex, 'removed' => $v->archived_at !== null])->values()])->values(),
             'variants' => $this->variants->map(fn (ProductVariant $v): array => ['id' => $v->id, 'sku' => $v->sku, 'unit_price_minor' => $v->unit_price_minor, 'currency' => $v->currency, 'status' => $v->status, 'price_version' => $v->price_version, 'inventory' => $v->inventory ? ['on_hand' => $v->inventory->on_hand, 'reserved' => $v->inventory->reserved, 'available' => $v->inventory->available()] : null, 'option_value_ids' => $v->selections->pluck('option_value_id')->values()])->values(),

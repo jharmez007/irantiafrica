@@ -492,6 +492,7 @@ final class CatalogActions
             $this->lock();
             $product = Product::lockForUpdate()->findOrFail($id);
             $this->version($product, ['content_version' => $version]);
+            abort_if($product->removed_at !== null, 409);
             $before = $product->only(['status', 'content_version']);
             if (! $archive) {
                 abort_if($product->status === 'archived', 409);
@@ -516,6 +517,7 @@ final class CatalogActions
             $this->lock();
             $product = Product::lockForUpdate()->findOrFail($id);
             $this->version($product, ['content_version' => $version]);
+            abort_if($product->removed_at !== null, 409);
             abort_unless($product->status === 'archived', 409);
             $before = $product->only(['status', 'content_version']);
             $product->status = 'draft';

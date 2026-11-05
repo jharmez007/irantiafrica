@@ -1,12 +1,12 @@
 # Authoritative macOS local-development setup
 
-Updated 2026-09-23. Everyday development uses persistent native Homebrew PostgreSQL 18 and Homebrew Redis 8.2 binaries, Laravel/PHP 8.5 and Next.js/Node 24. Docker Compose remains an optional reproducible alternative. No normal startup command depends on `/tmp` database storage or Redis binaries.
+Updated 2026-10-26 for the PHP security floor. Everyday development uses persistent native Homebrew PostgreSQL 18 and Homebrew Redis 8.2 binaries, Laravel/PHP 8.5.12 or newer in the 8.5 line, and Next.js/Node 24. Docker Compose remains an optional reproducible alternative. No normal startup command depends on `/tmp` database storage or Redis binaries.
 
 This guide replaces the earlier Phase 3A-only instructions. Identity, MFA and catalog already exist. Environment setup does not authorize additional inventory/commerce implementation; the existing Phase 3D schema gate remains separate.
 
 ## Prerequisites and installed state
 
-On the inspected Apple Silicon Mac, Homebrew PostgreSQL 18.6, PHP 8.5 and Node 24.14/npm 11 are installed. At the subsequent launcher inspection, Homebrew Redis 8.2.10 was installed and both project Redis services were already running. Docker remains absent. Do not install packages automatically. On a Mac missing the approved Redis line, the installation command (only when authorized) is:
+At the earlier launcher inspection, Homebrew PostgreSQL 18.6, PHP 8.5.8 and Node 24.14/npm 11 were installed on the Apple Silicon Mac. PHP 8.5.8 is now below the security floor and must not serve requests. Homebrew Redis 8.2.10 was installed and both project Redis services were already running. Docker remains absent. On a Mac missing the approved Redis line, the installation command (only when authorized) is:
 
 ```sh
 brew install redis@8.2
@@ -14,7 +14,7 @@ brew install redis@8.2
 
 Use the versioned formula to retain the approved Redis 8.2 release line. The unversioned formula can select a different line. See [Homebrew Redis versions](https://formulae.brew.sh/formula/redis).
 
-Set the current terminal's PATH so Herd PHP 8.4 does not shadow PHP 8.5:
+Set the current terminal's PATH so Herd PHP 8.4 does not shadow the patched Homebrew PHP 8.5 runtime; confirm that `php -v` reports at least 8.5.12:
 
 ```sh
 cd /Users/chiefagu/Desktop/irantiafrica
@@ -161,6 +161,30 @@ Stop launcher-owned resources:
 make stop
 # Equivalent: ./scripts/dev-stop.sh
 ```
+
+### Temporary macOS FreeType compatibility override
+
+On the currently inspected Mac, Homebrew PHP 8.5.12 is linked to a newer FreeType build that cannot load on the installed macOS release. The retained Homebrew FreeType 2.14.3 library allows the patched PHP runtime to start when its library directory is supplied explicitly. This is a temporary, opt-in compatibility mechanism for the native macOS launcher only; an older library can carry compatibility or security risk and should not become a shared dependency.
+
+Use it only when plain `make dev` fails with the documented FreeType loader error:
+
+```sh
+cd /Users/chiefagu/Desktop/irantiafrica
+IRANTI_LOCAL_FREETYPE_DIR=/opt/homebrew/Cellar/freetype/2.14.3/lib make dev
+```
+
+The launcher requires an absolute, non-symlink directory containing a regular `libfreetype.6.dylib` owned by the current user or root and not writable by group/other users. It does not search for or silently select another version. When enabled, `DYLD_LIBRARY_PATH` is passed only to the PHP version/database probes, Laravel server, queue worker and scheduler. It is removed from the Next.js frontend, Node tools, Redis helpers and Homebrew service commands.
+
+Confirm and stop the launcher normally; the override is unnecessary for these commands:
+
+```sh
+make status
+make stop
+```
+
+The override is rejected in CI, Render, production, staging and any non-local `APP_ENV`. Docker and deployment configuration do not read it. Direct use with `scripts/serve-backend.sh` is rejected; only the native launcher can pass its validated internal handoff to that wrapper. The setting must never be added to an `.env` file or hosted environment. It does not change Homebrew links, PHP configuration or system libraries.
+
+Once the operating-system/Homebrew compatibility issue is resolved, stop the launcher, verify that `/opt/homebrew/bin/php -v` works without `DYLD_LIBRARY_PATH`, then return to plain `make dev`. No repository change or library deletion is needed to disable the workaround: omit `IRANTI_LOCAL_FREETYPE_DIR`. Retain the older Homebrew library until you have confirmed no other local process needs it; removal is an explicit workstation-maintenance decision outside this launcher.
 
 The scripts use bash with `set -euo pipefail` and work when invoked from a macOS zsh or bash terminal. Their project root is resolved from the scripts, so direct absolute-path invocation also works outside the repository; Make commands run from the repository root. Python 3 coordinates safe session/process-group ownership because macOS does not supply GNU setsid by default. No package installation occurs.
 

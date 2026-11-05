@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -22,12 +23,86 @@ APPS = ['backend', 'queue', 'scheduler', 'frontend']
 STOP_ORDER = ['frontend', 'backend', 'queue', 'scheduler']
 SCRIPT = Path(__file__).resolve()
 URLS = 'Frontend: http://localhost:3000\nBackend:  http://127.0.0.1:8000'
+FREETYPE_COMPAT_VAR = 'IRANTI_LOCAL_FREETYPE_DIR'
+FREETYPE_HANDOFF_VAR = 'IRANTI_LAUNCHER_FREETYPE_DIR'
+NATIVE_LAUNCHER_VAR = 'IRANTI_NATIVE_LAUNCHER'
+PHP_BINARY_VAR = 'IRANTI_PHP_BINARY'
+DYLD_LIBRARY_VAR = 'DYLD_LIBRARY_PATH'
 
 class LaunchError(Exception):
     pass
 
+def clean_child_env():
+    """Keep launcher-only compatibility settings away from unrelated children."""
+    env = os.environ.copy()
+    for name in [FREETYPE_COMPAT_VAR, FREETYPE_HANDOFF_VAR, NATIVE_LAUNCHER_VAR, PHP_BINARY_VAR, DYLD_LIBRARY_VAR]:
+        env.pop(name, None)
+    return env
+
+def configured_freetype_dir():
+    configured = os.environ.get(FREETYPE_COMPAT_VAR, '')
+    if not configured:
+        return None
+    if sys.platform != 'darwin':
+        raise LaunchError('The FreeType compatibility override is supported only by the macOS native launcher.')
+    blocked_environment = any(
+        os.environ.get(name, '').strip().lower() not in ['', '0', 'false', 'no', 'off']
+        for name in ['CI', 'GITHUB_ACTIONS', 'RENDER']
+    )
+    app_env = os.environ.get('APP_ENV', '').strip().lower()
+    if blocked_environment or (app_env and app_env != 'local') or os.environ.get('IRANTI_DEPLOYMENT_PROFILE'):
+        raise LaunchError('The FreeType compatibility override is unavailable outside local development.')
+
+    path = Path(configured)
+    library = path / 'libfreetype.6.dylib'
+    if not path.is_absolute() or path.is_symlink() or not path.is_dir() or library.is_symlink() or not library.is_file():
+        raise LaunchError('Invalid local FreeType compatibility directory: expected an absolute directory containing a regular libfreetype.6.dylib file.')
+    for candidate in [path, library]:
+        metadata = candidate.stat()
+        if metadata.st_uid not in [0, os.getuid()] or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise LaunchError('Invalid local FreeType compatibility directory: path must be owned by the current user or root and must not be group/world writable.')
+    return path
+
+def php_env():
+    env = clean_child_env()
+    path = configured_freetype_dir()
+    if path is not None:
+        env[DYLD_LIBRARY_VAR] = str(path)
+    return env
+
+def app_env(name):
+    env = clean_child_env() if name == 'frontend' else php_env()
+    if name != 'frontend':
+        env[PHP_BINARY_VAR] = str(PHP)
+    # macOS strips DYLD_LIBRARY_PATH while launching its protected /bin/bash.
+    # Hand the already-validated directory to the backend wrapper explicitly;
+    # it sets DYLD only for PHP and removes these internal launcher markers.
+    if name == 'backend':
+        path = configured_freetype_dir()
+        if path is not None:
+            env[FREETYPE_HANDOFF_VAR] = str(path)
+            env[NATIVE_LAUNCHER_VAR] = '1'
+    return env
+
+def supervisor_env():
+    env = clean_child_env()
+    path = configured_freetype_dir()
+    if path is not None:
+        env[FREETYPE_COMPAT_VAR] = str(path)
+    return env
+
 def run(args, **kwargs):
+    kwargs.setdefault('env', clean_child_env())
     return subprocess.run([str(x) for x in args], capture_output=True, text=True, timeout=30, **kwargs)
+
+def verify_php_version():
+    if run([PHP, '-r', 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 && PHP_VERSION_ID >= 80512 ? 0 : 1);'], env=php_env()).returncode:
+        raise LaunchError('PHP 8.5.12 or newer is required at /opt/homebrew/bin/php.')
+
+def verify_database_connection():
+    probe = "require 'vendor/autoload.php'; $app=require 'bootstrap/app.php'; $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); try { $r=Illuminate\\Support\\Facades\\DB::selectOne(\"SELECT current_database() AS name, current_setting('server_version_num') AS version\"); if ($r->name !== 'iranti_local' || (int) $r->version < 180000 || (int) $r->version >= 190000) exit(1); } catch (Throwable $e) { exit(1); }"
+    if run([PHP, '-r', probe], cwd=ROOT / 'backend', env=php_env()).returncode:
+        raise LaunchError('Laravel PostgreSQL connection failed; verify native credentials and database provisioning.')
 
 def ensure_runtime():
     for path in [RUNTIME, RUNTIME / 'logs']:
@@ -185,12 +260,6 @@ def preflight():
     for binary in ['node', 'npm', 'brew', 'launchctl']:
         if not shutil.which(binary):
             raise LaunchError('Missing dependency: ' + binary + '. Load Homebrew/nvm in your shell first.')
-    if run([PHP, '-r', 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5 ? 0 : 1);']).returncode:
-        raise LaunchError('PHP 8.5 is required at /opt/homebrew/bin/php.')
-    if not run(['node', '--version']).stdout.startswith('v24.'):
-        raise LaunchError('Node 24 is required; run nvm use from the project root.')
-    if 'v=8.2.' not in run([REDIS / 'redis-server', '--version']).stdout:
-        raise LaunchError('Homebrew Redis 8.2 is required.')
     for path in ['backend/vendor/autoload.php', 'frontend/node_modules/.bin/next', 'backend/.env', 'frontend/.env.local']:
         if not (ROOT / path).exists():
             raise LaunchError('Missing dependency/configuration: ' + path + '. See docs/development/local-setup.md.')
@@ -207,6 +276,11 @@ def preflight():
         raise LaunchError('Cached Laravel configuration may override the native profile; run php artisan config:clear first.')
     if os.environ.get('DB_URL', values.get('DB_URL', '')):
         raise LaunchError('DB_URL override is not supported by the native launcher.')
+    verify_php_version()
+    if not run(['node', '--version']).stdout.startswith('v24.'):
+        raise LaunchError('Node 24 is required; run nvm use from the project root.')
+    if 'v=8.2.' not in run([REDIS / 'redis-server', '--version']).stdout:
+        raise LaunchError('Homebrew Redis 8.2 is required.')
 
 def app_command(name):
     return {
@@ -226,7 +300,7 @@ def supervise(name):
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     command, cwd = app_command(name)
-    env = dict(os.environ, IRANTI_PHP_BINARY=str(PHP))
+    env = app_env(name)
     log(name, 'Starting; raw application output is not persisted (secret-safe lifecycle log).')
     child = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     while child.poll() is None and not stopping:
@@ -301,14 +375,12 @@ def start():
     new_apps, new_redis = [], []
     try:
         if not pg_ready():
-            result = run(['brew', 'services', 'start', 'postgresql@18'], env=dict(os.environ, HOMEBREW_NO_AUTO_UPDATE='1'))
+            result = run(['brew', 'services', 'start', 'postgresql@18'], env=dict(clean_child_env(), HOMEBREW_NO_AUTO_UPDATE='1'))
             if result.returncode:
                 raise LaunchError('PostgreSQL Homebrew service could not start; inspect brew services list.')
         wait_for(pg_ready, 'PostgreSQL')
         # Verify Laravel credentials without printing exception messages or configuration.
-        probe = "require 'vendor/autoload.php'; $app=require 'bootstrap/app.php'; $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); try { $r=Illuminate\\Support\\Facades\\DB::selectOne(\"SELECT current_database() AS name, current_setting('server_version_num') AS version\"); if ($r->name !== 'iranti_local' || (int) $r->version < 180000 || (int) $r->version >= 190000) exit(1); } catch (Throwable $e) { exit(1); }"
-        if run([PHP, '-r', probe], cwd=ROOT / 'backend').returncode:
-            raise LaunchError('Laravel PostgreSQL connection failed; verify native credentials and database provisioning.')
+        verify_database_connection()
         for name, port in [('queue', 63790), ('cache', 63791)]:
             previously_loaded = service_loaded(name)
             if not previously_loaded:
@@ -325,7 +397,7 @@ def start():
                 print(name + ': already running (PID ' + str(existing['pid']) + ')')
                 continue
             token = uuid.uuid4().hex
-            process = subprocess.Popen([sys.executable, str(SCRIPT), 'supervise', name, token], cwd=ROOT, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            process = subprocess.Popen([sys.executable, str(SCRIPT), 'supervise', name, token], cwd=ROOT, env=supervisor_env(), start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
             # The parent records the exact session leader, not an npm/PHP child guessed by name.
             try:
                 record_process(name, process.pid, token)

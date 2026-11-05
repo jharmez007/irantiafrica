@@ -44,6 +44,10 @@ const areaName = (code: string) =>
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+const validCheckoutEmail = (value: string) => {
+  const email = value.trim();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
 export function CheckoutPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -101,17 +105,34 @@ export function CheckoutPage() {
   const heading = useRef<HTMLHeadingElement>(null);
   const shippingHeading = useRef<HTMLHeadingElement>(null);
   const paymentHeading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    const first = Object.keys(fieldErrors)[0]?.replace(/^address\./, "");
-    if (!first) return;
-    const id =
-      first === "state_code"
-        ? "checkout-state"
-        : first === "locality_code"
-          ? "checkout-area"
-          : `checkout-${first}`;
-    document.getElementById(id)?.focus();
-  }, [fieldErrors]);
+  const showFieldErrors = useCallback(
+    (fields: Record<string, string[]>, focus = true) => {
+      const next = Object.fromEntries(
+        Object.entries(fields)
+          .map(([key, messages]) => [key, messages.join(" ").trim()])
+          .filter((entry) => entry[1]),
+      );
+      setFieldErrors(next);
+      if (!focus) return;
+      const first = Object.keys(next)[0]?.replace(/^address\./, "");
+      if (!first) return;
+      const id =
+        first === "state_code"
+          ? "checkout-state"
+          : first === "locality_code"
+            ? "checkout-area"
+            : `checkout-${first}`;
+      queueMicrotask(() => document.getElementById(id)?.focus());
+    },
+    [],
+  );
+  const clearFieldError = useCallback((...keys: string[]) => {
+    setFieldErrors((old) => {
+      const next = { ...old };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+  }, []);
   const intent = useRef<{ kind: string; body: string; key: string } | null>(
     null,
   );
@@ -520,15 +541,7 @@ export function CheckoutPage() {
       if (request !== sequence.current) return;
       const hasFieldErrors =
         e instanceof CheckoutError && Object.keys(e.fields).length > 0;
-      if (e instanceof CheckoutError)
-        setFieldErrors(
-          Object.fromEntries(
-            Object.entries(e.fields).map(([key, messages]) => [
-              key,
-              messages.join(" "),
-            ]),
-          ),
-        );
+      if (e instanceof CheckoutError) showFieldErrors(e.fields);
       setError(
         hasFieldErrors
           ? ""
@@ -634,7 +647,7 @@ export function CheckoutPage() {
       (!!shown.shipping_method_code &&
         selectedMethod !== shown.shipping_method_code));
   const readyAddress =
-    !!email.trim() &&
+    validCheckoutEmail(email) &&
     !!address.recipient_name.trim() &&
     !!address.phone.trim() &&
     !!address.line1.trim() &&
@@ -717,14 +730,7 @@ export function CheckoutPage() {
               if (failure instanceof CheckoutError) {
                 if (!hasNewerDraft) {
                   setMethodUnavailable(failure.code === "DELIVERY_UNAVAILABLE");
-                  setFieldErrors(
-                    Object.fromEntries(
-                      Object.entries(failure.fields).map(([key, messages]) => [
-                        key,
-                        messages.join(" "),
-                      ]),
-                    ),
-                  );
+                  showFieldErrors(failure.fields);
                 }
                 if (failure.details.checkout) next = failure.details.checkout;
                 if (failure.code === "DELIVERY_UNAVAILABLE")
@@ -875,11 +881,7 @@ export function CheckoutPage() {
               ...draftAddress.current,
               [key]: event.target.value,
             });
-            setFieldErrors((old) => ({
-              ...old,
-              [key]: "",
-              [`address.${key}`]: "",
-            }));
+            clearFieldError(key, `address.${key}`);
           }}
         />
         {problem && (
@@ -1209,7 +1211,7 @@ export function CheckoutPage() {
                                 event.target.value,
                                 draftAddress.current,
                               );
-                              setFieldErrors((old) => ({ ...old, email: "" }));
+                              clearFieldError("email");
                             }}
                             aria-invalid={!!fieldError("email") || undefined}
                             aria-describedby={
@@ -1315,11 +1317,12 @@ export function CheckoutPage() {
                                     state_code: event.target.value,
                                     locality_code: null,
                                   });
-                                  setFieldErrors((old) => ({
-                                    ...old,
-                                    state_code: "",
-                                    "address.state_code": "",
-                                  }));
+                                  clearFieldError(
+                                    "state_code",
+                                    "address.state_code",
+                                    "locality_code",
+                                    "address.locality_code",
+                                  );
                                 }}
                               >
                                 <option value="">Choose a state</option>

@@ -17,7 +17,7 @@ Phase 3N admin UAT remediation: [report and 21-step retest](docs/development/pha
 | docs/development/  | Setup, environment, tests, decisions and execution report                     |
 | docs/design/       | Brand tokens, components, storefront/admin patterns and visual QA             |
 
-Prerequisites: PHP 8.5 with pdo_pgsql, gd, fileinfo and framework extensions, Composer 2, Node 24/npm 11, Git; persistent native Homebrew PostgreSQL 18 and Redis 8.2 for macOS development. Docker Compose v2 is an optional reproducible alternative.
+Prerequisites: PHP 8.5.12 or newer in the 8.5 line, with pdo_pgsql, gd, fileinfo and framework extensions; Composer 2, Node 24/npm 11, Git; persistent native Homebrew PostgreSQL 18 and Redis 8.2 for macOS development. Docker Compose v2 is an optional reproducible alternative.
 
 Start with [local setup](docs/development/local-setup.md). See [testing](docs/development/testing.md), [quality checks](docs/development/code-quality.md), [configuration](docs/development/environment-variables.md) and [implementation issues](docs/development/implementation-issues.md).
 

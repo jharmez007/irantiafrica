@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PaymentResult } from "../src/components/payments/payment-result";
 import type { OrderRecord } from "../src/lib/order-api";
@@ -53,7 +53,7 @@ describe("compact payment result", () => {
       });
       render(<PaymentResult id={order.id} />);
       await screen.findByRole("heading", { name: "Payment successful" });
-      expect(mock.refreshCart).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mock.refreshCart).toHaveBeenCalledTimes(1));
       expect(screen.getByText("Thank you for your order.")).toBeTruthy();
       expect(screen.getByText("Order reference").tagName).toBe("DT");
       expect(screen.getByText("Amount paid").tagName).toBe("DT");

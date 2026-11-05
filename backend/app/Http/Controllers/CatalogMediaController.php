@@ -33,7 +33,7 @@ final class CatalogMediaController
         $m = DB::transaction(function () use ($data): ProductMedia {
             $this->actions->lock();
             $product = Product::where('id', $data['product_id'])->lockForUpdate()->firstOrFail();
-            abort_if($product->status === 'archived', 409);
+            abort_if($product->status === 'archived' || $product->removed_at !== null, 409);
             if (isset($data['variant_id']) && ! ProductVariant::where('product_id', $product->id)->whereKey($data['variant_id'])->exists()) {
                 $this->actions->invalid('variant_id', 'Variant must belong to this product.');
             }
@@ -101,6 +101,7 @@ final class CatalogMediaController
         DB::transaction(function () use ($r, $id): void {
             $this->actions->lock();
             $m = ProductMedia::lockForUpdate()->findOrFail($id);
+            abort_if(Product::whereKey($m->product_id)->whereNotNull('removed_at')->exists(), 409);
             abort_if(in_array($m->status, ['retired', 'rejected'], true), 409);
             $data = $r->validated();
             if (isset($data['variant_id']) && ! ProductVariant::where('product_id', $m->product_id)->whereKey($data['variant_id'])->exists()) {
@@ -122,6 +123,7 @@ final class CatalogMediaController
             $this->actions->lock();
             $m = ProductMedia::lockForUpdate()->findOrFail($id);
             $p = Product::findOrFail($m->product_id);
+            abort_if($p->removed_at !== null, 409);
             if ($p->status === 'published' && $m->status === 'ready' && ! $p->media()->where('status', 'ready')->where('id', '!=', $id)->exists()) {
                 $this->actions->invalid('media', 'Upload a ready replacement before retiring the last published image.');
             }

@@ -13,7 +13,7 @@ final class CatalogRead
     {
         $q = Product::query()->with(['categories', 'options.values', 'variants.selections', 'variants.inventory', 'media']);
         if (! $admin) {
-            $q->where('status', 'published')->whereHas('variants', fn (Builder $v) => $v->where('status', 'active'))->whereHas('categories', fn (Builder $c) => $c->where('status', 'active'))->whereHas('media', fn (Builder $m) => $m->where('status', 'ready'));
+            $q->whereNull('removed_at')->where('status', 'published')->whereHas('variants', fn (Builder $v) => $v->where('status', 'active'))->whereHas('categories', fn (Builder $c) => $c->where('status', 'active'))->whereHas('media', fn (Builder $m) => $m->where('status', 'ready'));
             if ($browse) {
                 $q->whereHas('variants', fn (Builder $v) => self::availableVariant($v));
             }
@@ -29,8 +29,15 @@ final class CatalogRead
      */
     public static function filter(Builder $q, array $filters, bool $availablePrices = true): Builder
     {
-        if (! $availablePrices && isset($filters['status'])) {
-            $q->where('status', $filters['status']);
+        if (! $availablePrices) {
+            if (($filters['status'] ?? null) === 'removed') {
+                $q->whereNotNull('removed_at');
+            } else {
+                $q->whereNull('removed_at');
+                if (isset($filters['status'])) {
+                    $q->where('status', $filters['status']);
+                }
+            }
         }
         if (! empty($filters['q'])) {
             $q->whereRaw("to_tsvector('simple', name || ' ' || slug) @@ plainto_tsquery('simple', ?)", [$filters['q']]);

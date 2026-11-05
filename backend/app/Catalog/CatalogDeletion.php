@@ -5,6 +5,7 @@ namespace App\Catalog;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 /** Narrow physical deletion of unused draft catalog records; operational history is never erased. */
 final class CatalogDeletion
 {
-    public const PRODUCT_BLOCKED = 'This product cannot be permanently deleted because it has historical records. Archive it instead.';
+    public const PRODUCT_BLOCKED = 'This product cannot be permanently deleted because it has historical records. Remove it to hide it while retaining those records.';
 
     public const CATEGORY_BLOCKED = 'This category cannot be deleted while products are assigned to it.';
 
@@ -22,12 +23,12 @@ final class CatalogDeletion
     public function productEligibility(Product $product): array
     {
         if ($product->status !== 'draft') {
-            return ['allowed' => false, 'reason' => 'Only unused draft products can be permanently deleted. Archive this product instead.'];
+            return ['allowed' => false, 'reason' => 'Only unused draft products can be permanently deleted. Remove this product instead.'];
         }
         $ids = ProductVariant::where('product_id', $product->id)->pluck('id');
         if (DB::table('product_media')->where('product_id', $product->id)->exists()) {
             // Private objects and async image jobs have their own lifecycle. Never leave an orphaned file.
-            return ['allowed' => false, 'reason' => 'This product has media records. Archive it instead.'];
+            return ['allowed' => false, 'reason' => 'This product has media records. Remove it instead so its images remain recoverable.'];
         }
         foreach (['inventory', 'inventory_movements', 'reservation_items', 'cart_items', 'checkout_lines', 'order_items'] as $table) {
             if ($ids->isNotEmpty() && DB::table($table)->whereIn('variant_id', $ids)->exists()) {
@@ -78,6 +79,43 @@ final class CatalogDeletion
             }
             throw ValidationException::withMessages(['product' => self::PRODUCT_BLOCKED]);
         }
+    }
+
+    public function remove(string $id, int $expectedVersion, User $actor): Product
+    {
+        return DB::transaction(function () use ($id, $expectedVersion, $actor): Product {
+            $this->actions->lock();
+            $product = Product::whereKey($id)->lockForUpdate()->firstOrFail();
+            abort_if($product->content_version !== $expectedVersion || $product->removed_at !== null, 409);
+            // Match inventory reservation lock ordering so removal and a new hold cannot cross.
+            ProductVariant::where('product_id', $id)->orderBy('id')->lockForUpdate()->get();
+            $before = $product->only(['status', 'content_version', 'removed_at']);
+            $product->removed_at = now()->toImmutable();
+            $product->removed_by_user_id = $actor->id;
+            $product->content_version++;
+            $product->save();
+            CatalogAudit::record('product_removed', 'product', $id, ['before' => $before, 'after' => $product->only(['status', 'content_version', 'removed_at'])]);
+
+            return $product;
+        });
+    }
+
+    public function restoreRemoval(string $id, int $expectedVersion): Product
+    {
+        return DB::transaction(function () use ($id, $expectedVersion): Product {
+            $this->actions->lock();
+            $product = Product::whereKey($id)->lockForUpdate()->firstOrFail();
+            abort_if($product->content_version !== $expectedVersion || $product->removed_at === null, 409);
+            ProductVariant::where('product_id', $id)->orderBy('id')->lockForUpdate()->get();
+            $before = $product->only(['status', 'content_version', 'removed_at']);
+            $product->removed_at = null;
+            $product->removed_by_user_id = null;
+            $product->content_version++;
+            $product->save();
+            CatalogAudit::record('product_removal_restored', 'product', $id, ['before' => $before, 'after' => $product->only(['status', 'content_version', 'removed_at'])]);
+
+            return $product;
+        });
     }
 
     public function category(string $id): void

@@ -3,6 +3,7 @@
 namespace Tests\Infrastructure;
 
 use App\Catalog\MediaStorage;
+use App\Inventory\InventoryConflict;
 use App\Inventory\InventoryService;
 use App\Jobs\ProcessProductImage;
 use App\Models\Product;
@@ -193,6 +194,137 @@ final class CatalogTest extends TestCase
         $this->assertDatabaseHas('products', ['id' => $cartProduct['id']]);
     }
 
+    public function test_owner_can_remove_and_restore_published_product_without_changing_stock_or_media(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->variant($this->create('simple', 'Recoverable published product'), 'RECOVERABLE-1');
+        $mediaId = $this->image($p);
+        app()->call([new ProcessProductImage($mediaId), 'handle']);
+        $variantId = $p['variants'][0]['id'];
+        app(InventoryService::class)->initializeStock($variantId, 8, 'Removal lifecycle test', (string) Str::uuid(), $owner);
+        $p = $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data');
+        $p = $this->publish($p);
+
+        $removed = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'published')->json('data');
+        $this->assertNotNull($removed['removed_at']);
+        $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertNotFound();
+        $this->browser('GET', '/api/v1/admin/products')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->browser('GET', '/api/v1/admin/products?status=removed')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $p['id']);
+        $this->browser('GET', '/api/v1/admin/inventory')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->assertDatabaseHas('inventory', ['variant_id' => $variantId, 'on_hand' => 8, 'reserved' => 0]);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $variantId, 'kind' => 'OPENING']);
+        $this->assertDatabaseHas('product_media', ['id' => $mediaId, 'product_id' => $p['id'], 'status' => 'ready']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_removed', 'subject_id' => $p['id']]);
+
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $removed['content_version'] - 1])->assertStatus(409);
+        $restored = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $removed['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'published')->assertJsonPath('data.removed_at', null)->json('data');
+        $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk();
+        $this->browser('GET', '/api/v1/admin/inventory')->assertOk()->assertJsonPath('meta.total', 1);
+        $this->assertSame(8, $restored['variants'][0]['inventory']['on_hand']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_removal_restored', 'subject_id' => $p['id']]);
+    }
+
+    public function test_draft_and_archived_products_keep_their_catalog_state_through_removal(): void
+    {
+        $this->owner();
+        $draft = $this->create('simple', 'Removed draft');
+        $removedDraft = $this->browser('POST', '/api/v1/admin/products/'.$draft['id'].'/remove', ['content_version' => $draft['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'draft')->json('data');
+        $restoredDraft = $this->browser('POST', '/api/v1/admin/products/'.$draft['id'].'/restore-removal', ['content_version' => $removedDraft['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'draft')->assertJsonPath('data.removed_at', null)->json('data');
+        $this->assertSame($draft['id'], $restoredDraft['id']);
+
+        $archived = $this->create('simple', 'Removed archive');
+        $archived = $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/archive', ['content_version' => $archived['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'archived')->json('data');
+        $removedArchived = $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/remove', ['content_version' => $archived['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'archived')->json('data');
+        $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/restore-removal', ['content_version' => $removedArchived['content_version']])
+            ->assertOk()->assertJsonPath('data.status', 'archived')->assertJsonPath('data.removed_at', null);
+    }
+
+    public function test_removal_retains_active_reservation_order_and_payment_evidence_and_blocks_new_holds(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $p = $this->variant($this->create('simple', 'Historically retained product'), 'RETAINED-1');
+        $mediaId = $this->image($p);
+        app()->call([new ProcessProductImage($mediaId), 'handle']);
+        $variantId = $p['variants'][0]['id'];
+        app(InventoryService::class)->initializeStock($variantId, 5, 'Historical removal test', (string) Str::uuid(), $owner);
+        $p = $this->publish($this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->json('data'));
+        $referenceId = (string) Str::uuid();
+        $reservation = app(InventoryService::class)->reserveMany($referenceId, [['variant_id' => $variantId, 'quantity' => 1]]);
+        $cartId = (string) Str::uuid();
+        $checkoutId = (string) Str::uuid();
+        $orderId = (string) Str::uuid();
+        $attemptId = (string) Str::uuid();
+        $paymentId = (string) Str::uuid();
+        $configId = DB::table('checkout_configurations')->value('id');
+        $guestHash = hash('sha256', 'catalog-removal-history');
+        DB::table('carts')->insert(['id' => $cartId, 'guest_token_hash' => $guestHash, 'status' => 'converted', 'version' => 1, 'expires_at' => now()->addDay()]);
+        DB::table('checkout_sessions')->insert([
+            'id' => $checkoutId, 'guest_token_hash' => $guestHash, 'cart_id' => $cartId, 'source_cart_id' => $cartId,
+            'cart_version' => 1, 'creation_key' => (string) Str::uuid(), 'creation_hash' => str_repeat('a', 64),
+            'status' => 'RESERVED', 'version' => 1, 'configuration_id' => $configId,
+            'inventory_reference_id' => $referenceId, 'current_reservation_id' => $reservation->id,
+            'reserve_key' => (string) Str::uuid(), 'reserve_hash' => str_repeat('b', 64),
+            'subtotal_minor' => 125000, 'tax_minor' => 0, 'delivery_minor' => 0, 'total_minor' => 125000,
+            'currency' => 'NGN', 'calculation' => '{}', 'fingerprint' => str_repeat('c', 64),
+            'expires_at' => now()->addHour(), 'promoted_at' => now(),
+        ]);
+        DB::table('checkout_lines')->insert([
+            'id' => (string) Str::uuid(), 'checkout_id' => $checkoutId, 'variant_id' => $variantId,
+            'quantity' => 1, 'unit_price_minor' => 125000, 'line_subtotal_minor' => 125000,
+            'snapshot' => json_encode(['name' => $p['name'], 'options' => [], 'image' => null], JSON_THROW_ON_ERROR),
+        ]);
+        DB::table('orders')->insert([
+            'id' => $orderId, 'public_reference' => 'IRA-REMOVAL-HISTORY', 'checkout_id' => $checkoutId,
+            'source_cart_id' => $cartId, 'source_cart_version' => 1, 'inventory_reference_id' => $referenceId,
+            'current_reservation_id' => $reservation->id, 'contact_email' => 'history@example.test',
+            'status' => 'PENDING_PAYMENT', 'payment_state' => 'PENDING', 'version' => 1, 'currency' => 'NGN',
+            'subtotal_minor' => 125000, 'product_tax_minor' => 0, 'delivery_minor' => 0,
+            'delivery_tax_minor' => 0, 'tax_minor' => 0, 'total_minor' => 125000, 'calculation' => '{}',
+            'configuration_id' => $configId, 'fingerprint' => str_repeat('c', 64),
+            'creation_scope' => str_repeat('d', 64), 'creation_key' => (string) Str::uuid(),
+            'creation_hash' => str_repeat('e', 64), 'guest_token_hash' => $guestHash, 'guest_expires_at' => now()->addDay(),
+        ]);
+        DB::table('order_items')->insert([
+            'id' => (string) Str::uuid(), 'order_id' => $orderId, 'variant_id' => $variantId,
+            'quantity' => 1, 'unit_price_minor' => 125000, 'line_subtotal_minor' => 125000,
+            'tax_minor' => 0, 'line_total_minor' => 125000,
+            'snapshot' => json_encode(['name' => $p['name'], 'options' => []], JSON_THROW_ON_ERROR),
+            'tax_snapshot' => '{}',
+        ]);
+        DB::table('payment_attempts')->insert([
+            'id' => $attemptId, 'order_id' => $orderId, 'provider' => 'paystack', 'reference' => 'IRA-P-REMOVAL-HISTORY',
+            'request_key' => (string) Str::uuid(), 'method' => 'card', 'expected_amount_minor' => 125000,
+            'currency' => 'NGN', 'status' => 'UNKNOWN',
+        ]);
+        DB::table('payments')->insert([
+            'id' => $paymentId, 'order_id' => $orderId, 'attempt_id' => $attemptId, 'provider' => 'paystack',
+            'provider_transaction_id' => 'removal-history-transaction', 'provider_reference' => 'IRA-P-REMOVAL-HISTORY',
+            'amount_minor' => 125000, 'currency' => 'NGN', 'channel' => 'card', 'verified_at' => now(),
+            'verification_source' => 'manual',
+        ]);
+
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertOk();
+        $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'ACTIVE']);
+        $this->assertDatabaseHas('inventory', ['variant_id' => $variantId, 'on_hand' => 5, 'reserved' => 1]);
+        $this->assertDatabaseHas('order_items', ['order_id' => $orderId, 'variant_id' => $variantId]);
+        $this->assertDatabaseHas('payment_attempts', ['id' => $attemptId, 'status' => 'UNKNOWN']);
+        $this->assertDatabaseHas('payments', ['id' => $paymentId, 'order_id' => $orderId]);
+        try {
+            app(InventoryService::class)->reserveMany((string) Str::uuid(), [['variant_id' => $variantId, 'quantity' => 1]]);
+            $this->fail('A removed product must not accept a new reservation.');
+        } catch (InventoryConflict $conflict) {
+            $this->assertSame('VARIANT_UNAVAILABLE', $conflict->inventoryCode);
+        }
+    }
+
     public function test_category_deletion_requires_no_assignments_or_children_and_owner_permission(): void
     {
         $this->owner();
@@ -219,6 +351,8 @@ final class CatalogTest extends TestCase
         $this->enroll($this->staff('order_processing'));
         $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility', null);
         $this->browser('GET', '/api/v1/admin/categories')->assertOk()->assertJsonMissingPath('data.0.delete_eligibility');
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertForbidden();
+        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $p['content_version']])->assertForbidden();
         $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertForbidden();
         $this->browser('DELETE', '/api/v1/admin/categories/'.$category)->assertForbidden();
         $this->assertDatabaseHas('products', ['id' => $p['id']]);

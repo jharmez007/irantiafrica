@@ -77,6 +77,7 @@ export type Product = {
   variants: Variant[];
   media: CatalogImage[];
   status?: string;
+  removed_at?: string | null;
   content_version?: number;
   tax_category_code?: string | null;
   tax_treatment_label?: string | null;

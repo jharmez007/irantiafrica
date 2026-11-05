@@ -23,6 +23,8 @@ use Illuminate\Support\Carbon;
  * @property int $content_version
  * @property CarbonImmutable|null $published_at
  * @property CarbonImmutable|null $archived_at
+ * @property CarbonImmutable|null $removed_at
+ * @property string|null $removed_by_user_id
  */
 class Product extends Model
 {
@@ -31,12 +33,12 @@ class Product extends Model
 
     use HasUuids;
 
-    protected $fillable = ['name', 'slug', 'description', 'kind', 'status', 'tax_category_code', 'content_version', 'published_at', 'archived_at'];
+    protected $fillable = ['name', 'slug', 'description', 'kind', 'status', 'tax_category_code', 'content_version', 'published_at', 'archived_at', 'removed_at', 'removed_by_user_id'];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
-        return ['content_version' => 'integer', 'published_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime'];
+        return ['content_version' => 'integer', 'published_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime', 'removed_at' => 'immutable_datetime'];
     }
 
     /** @return HasMany<ProductVariant, $this> */
