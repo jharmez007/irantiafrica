@@ -487,6 +487,70 @@ describe("checkout flow", () => {
       ),
     ).toBeNull();
   });
+  it("does not move focus away from the field being corrected after validation errors", async () => {
+    mock.request.mockImplementation(async (path: string, method = "GET") => {
+      if (path === "/checkout/current") return draft;
+      if (path === "/checkout/destinations") return places;
+      if (path.startsWith("/checkout/shipping-methods?"))
+        return [
+          {
+            code: "LAGOS",
+            name: "Sample delivery",
+            description: null,
+            estimate: null,
+            amount_minor: "505",
+          },
+        ];
+      if (path.endsWith("/address") && method === "PATCH")
+        throw new CheckoutError(422, "VALIDATION", "Check these fields.", {
+          email: ["Enter a valid email address."],
+          "address.city": ["Enter a city."],
+        });
+      throw new Error("Unexpected request " + path);
+    });
+    render(<CheckoutPage />);
+    await screen.findByLabelText("Email");
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "buyer@example.test" },
+    });
+    for (const [label, value] of [
+      ["Full name", "Test recipient"],
+      ["Phone", "08012345678"],
+      ["Address", "1 Test Road"],
+      ["City", "Lagos"],
+    ])
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await userEvent.selectOptions(screen.getByLabelText("State"), "LAGOS");
+    await screen.findByText("Enter a valid email address.");
+    const city = screen.getByLabelText("City");
+    city.focus();
+    fireEvent.change(city, { target: { value: "Ikeja" } });
+    await waitFor(() => expect(document.activeElement).toBe(city));
+    expect((city as HTMLInputElement).value).toBe("Ikeja");
+  });
+  it("does not request a quote until the email address is syntactically valid", async () => {
+    render(<CheckoutPage />);
+    await screen.findByLabelText("Email");
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "not-an-email" },
+    });
+    for (const [label, value] of [
+      ["Full name", "Test recipient"],
+      ["Phone", "08012345678"],
+      ["Address", "1 Test Road"],
+      ["City", "Lagos"],
+    ])
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await userEvent.selectOptions(screen.getByLabelText("State"), "LAGOS");
+    await screen.findByRole("radio", { name: /Sample delivery/ });
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(
+      mock.request.mock.calls.filter(
+        (call) =>
+          call[0] === "/checkout/checkout-one/address" && call[1] === "PATCH",
+      ),
+    ).toHaveLength(0);
+  });
   it("shows no-delivery state with payment visible but progression disabled", async () => {
     setup();
     mock.request.mockImplementation(async (path: string) => {

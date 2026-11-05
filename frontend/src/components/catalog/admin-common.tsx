@@ -110,10 +110,14 @@ export function StockSummary({ product }: { product: Product }) {
 export function ProductStatus({ product }: { product: Product }) {
   return (
     <div className="status-stack">
-      <StatusBadge value={product.status ?? "draft"} />
-      {product.status !== "archived" &&
+      <StatusBadge
+        value={product.removed_at ? "removed" : (product.status ?? "draft")}
+      />
+      {!product.removed_at &&
+        product.status !== "archived" &&
         !!product.publication_issues?.length && <Badge>Needs Attention</Badge>}
-      {product.status === "published" &&
+      {!product.removed_at &&
+        product.status === "published" &&
         !product.variants.some(
           (v) => v.status === "active" && (v.inventory?.available ?? 0) > 0,
         ) && <Badge>Out of Stock</Badge>}

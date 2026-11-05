@@ -25,26 +25,36 @@ class ProductPolicy
 
     public function update(User $user, Product $product): bool
     {
-        return $this->create($user) && $product->status !== 'archived';
+        return $this->create($user) && $product->status !== 'archived' && $product->removed_at === null;
     }
 
     public function publish(User $user, Product $product): bool
     {
-        return Gate::forUser($user)->allows('catalog.publish_archive') && $product->status !== 'archived';
+        return Gate::forUser($user)->allows('catalog.publish_archive') && $product->status !== 'archived' && $product->removed_at === null;
     }
 
     public function archive(User $user, Product $product): bool
     {
-        return Gate::forUser($user)->allows('catalog.publish_archive');
+        return Gate::forUser($user)->allows('catalog.publish_archive') && $product->removed_at === null;
     }
 
     public function restore(User $user, Product $product): bool
     {
-        return Gate::forUser($user)->allows('catalog.publish_archive');
+        return Gate::forUser($user)->allows('catalog.publish_archive') && $product->removed_at === null;
     }
 
     public function delete(User $user, Product $product): bool
     {
         return Gate::forUser($user)->allows('catalog.products.delete');
+    }
+
+    public function remove(User $user, Product $product): bool
+    {
+        return Gate::forUser($user)->allows('catalog.products.delete') && $product->removed_at === null;
+    }
+
+    public function restoreRemoval(User $user, Product $product): bool
+    {
+        return Gate::forUser($user)->allows('catalog.products.delete') && $product->removed_at !== null;
     }
 }

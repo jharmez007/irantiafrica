@@ -14,6 +14,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductOption;
 use App\Models\ProductVariant;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -110,6 +111,26 @@ final class CatalogController
         return response()->noContent();
     }
 
+    public function removeProduct(CatalogRequest $r, string $id): AdminProductResource
+    {
+        $product = Product::findOrFail($id);
+        Gate::authorize('remove', $product);
+        $actor = $r->user();
+        abort_unless($actor instanceof User, 401);
+        $this->deletion->remove($id, (int) $r->validated('content_version'), $actor);
+
+        return $this->adminShow($id);
+    }
+
+    public function restoreRemovedProduct(CatalogRequest $r, string $id): AdminProductResource
+    {
+        $product = Product::findOrFail($id);
+        Gate::authorize('restoreRemoval', $product);
+        $this->deletion->restoreRemoval($id, (int) $r->validated('content_version'));
+
+        return $this->adminShow($id);
+    }
+
     public function categories(CatalogQuery $r): JsonResponse
     {
         return $this->categoryList($r, false);
@@ -180,7 +201,8 @@ final class CatalogController
 
     public function addValues(CatalogRequest $r, string $id): AdminProductResource
     {
-        Gate::authorize('catalog.create_update');
+        $option = ProductOption::findOrFail($id);
+        Gate::authorize('update', Product::findOrFail($option->product_id));
         $option = $this->actions->addValues($id, $r->validated('values'));
 
         return $this->adminShow($option->product_id);

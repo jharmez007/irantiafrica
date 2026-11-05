@@ -295,7 +295,8 @@ function Editor({ id }: { id?: string }) {
       );
     }
   }
-  const editable = manage && product?.status !== "archived";
+  const editable =
+    manage && product?.status !== "archived" && !product?.removed_at;
   const addingOption = product?.options.find(
     (option) => option.id === addingOptionId,
   );
@@ -894,17 +895,26 @@ function Editor({ id }: { id?: string }) {
                     ? new Date(product.updated_at).toLocaleString("en-NG")
                     : "Not recorded"}
                 </p>
-                {product.status === "published" && (
+                {!product.removed_at && product.status === "published" && (
                   <p>
                     <Link href={`/products/${product.slug}`}>
                       View storefront ↗
                     </Link>
                   </p>
                 )}
-                {manage && product.status === "archived" && (
-                  <Button onClick={() => setRestore(true)}>
-                    Restore product
-                  </Button>
+                {manage &&
+                  !product.removed_at &&
+                  product.status === "archived" && (
+                    <Button onClick={() => setRestore(true)}>
+                      Restore product
+                    </Button>
+                  )}
+                {product.removed_at && (
+                  <Alert tone="info">
+                    This product is removed. Its records and stock are retained;
+                    restore it from the Removed filter on the Products page to
+                    edit or sell it again.
+                  </Alert>
                 )}
                 <h3>Publication readiness</h3>
                 <PublicationReadiness product={product} />

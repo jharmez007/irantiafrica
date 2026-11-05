@@ -81,6 +81,8 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::post('/products/{id}/publication', [$c, 'publication'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/archive', [$c, 'archive'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/restore', [$c, 'restore'])->whereUuid('id')->middleware('can:catalog.publish_archive');
+    Route::post('/products/{id}/remove', [$c, 'removeProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
+    Route::post('/products/{id}/restore-removal', [$c, 'restoreRemovedProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
     Route::delete('/products/{id}', [$c, 'deleteProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
     Route::post('/products/{id}/options', [$c, 'addOption'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/products/{id}/variants', [$c, 'createVariant'])->whereUuid('id')->middleware('can:catalog.create_update');

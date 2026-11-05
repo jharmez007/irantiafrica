@@ -49,6 +49,10 @@ function Products() {
   const [busy, setBusy] = useState(false);
   const [archive, setArchive] = useState<Product | null>(null);
   const [restore, setRestore] = useState<Product | null>(null);
+  const [removing, setRemoving] = useState<Product | null>(null);
+  const [restoringRemoved, setRestoringRemoved] = useState<Product | null>(
+    null,
+  );
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -126,6 +130,7 @@ function Products() {
               <option value="draft">Draft</option>
               <option value="published">Published</option>
               <option value="archived">Archived</option>
+              <option value="removed">Removed</option>
             </Select>
           </label>
           <label>
@@ -201,7 +206,7 @@ function Products() {
                     className="button button--secondary"
                     href={`/admin/products/${p.id}/edit`}
                   >
-                    {manage ? "Edit" : "View details"}
+                    {manage && !p.removed_at ? "Edit" : "View details"}
                   </Link>
                   {manage && (
                     <ActionMenu
@@ -212,12 +217,13 @@ function Products() {
                         setOpenMenu(next ? (p.id ?? p.slug) : null)
                       }
                     >
-                      {p.status === "published" && (
+                      {!p.removed_at && p.status === "published" && (
                         <Link href={`/products/${p.slug}`}>
                           View storefront
                         </Link>
                       )}
                       {manage &&
+                        !p.removed_at &&
                         p.status === "draft" &&
                         !p.publication_issues?.length && (
                           <Button
@@ -248,7 +254,7 @@ function Products() {
                             Publish
                           </Button>
                         )}
-                      {manage && p.status !== "archived" && (
+                      {manage && !p.removed_at && p.status !== "archived" && (
                         <Button
                           type="button"
                           variant="danger"
@@ -257,12 +263,29 @@ function Products() {
                           Archive
                         </Button>
                       )}
-                      {p.status === "archived" && (
+                      {!p.removed_at && p.status === "archived" && (
                         <Button type="button" onClick={() => setRestore(p)}>
                           Restore
                         </Button>
                       )}
-                      {p.delete_eligibility?.allowed && (
+                      {!p.removed_at && (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => setRemoving(p)}
+                        >
+                          Remove product
+                        </Button>
+                      )}
+                      {!!p.removed_at && (
+                        <Button
+                          type="button"
+                          onClick={() => setRestoringRemoved(p)}
+                        >
+                          Restore removed product
+                        </Button>
+                      )}
+                      {manage && (
                         <Button
                           type="button"
                           variant="danger"
@@ -271,7 +294,7 @@ function Products() {
                             setDeleting(p);
                           }}
                         >
-                          Delete product
+                          Permanently delete
                         </Button>
                       )}
                     </ActionMenu>
@@ -307,6 +330,111 @@ function Products() {
           }}
         />
         <Modal
+          open={!!removing}
+          onClose={() => {
+            if (!busy) setRemoving(null);
+          }}
+          title="Remove product?"
+        >
+          <p>
+            Remove <strong>{removing?.name}</strong> from the storefront and
+            normal inventory lists? Product history, images, stock quantities,
+            reservations, orders and payments will be retained.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => setRemoving(null)}
+          >
+            Keep product
+          </Button>{" "}
+          <Button
+            type="button"
+            variant="danger"
+            loading={busy}
+            onClick={async () => {
+              if (!removing) return;
+              setBusy(true);
+              setError("");
+              try {
+                await catalogAdmin(`/products/${removing.id}/remove`, "POST", {
+                  content_version: removing.content_version,
+                });
+                setRemoving(null);
+                setOpenMenu(null);
+                setRefresh((value) => value + 1);
+                toast.success(
+                  "Product removed",
+                  "History and stock were retained.",
+                );
+              } catch (failure) {
+                setError(
+                  failure instanceof Error
+                    ? failure.message
+                    : "Product could not be removed.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Removing…" : "Remove product"}
+          </Button>
+        </Modal>
+        <Modal
+          open={!!restoringRemoved}
+          onClose={() => {
+            if (!busy) setRestoringRemoved(null);
+          }}
+          title="Restore removed product?"
+        >
+          <p>
+            Restore <strong>{restoringRemoved?.name}</strong> to its previous
+            {restoringRemoved?.status === "published"
+              ? " published state? It will be visible on the storefront again."
+              : " catalog state?"}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => setRestoringRemoved(null)}
+          >
+            Cancel
+          </Button>{" "}
+          <Button
+            type="button"
+            loading={busy}
+            onClick={async () => {
+              if (!restoringRemoved) return;
+              setBusy(true);
+              setError("");
+              try {
+                await catalogAdmin(
+                  `/products/${restoringRemoved.id}/restore-removal`,
+                  "POST",
+                  { content_version: restoringRemoved.content_version },
+                );
+                setRestoringRemoved(null);
+                setOpenMenu(null);
+                setRefresh((value) => value + 1);
+                toast.success("Product restored");
+              } catch (failure) {
+                setError(
+                  failure instanceof Error
+                    ? failure.message
+                    : "Product could not be restored.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Restoring…" : "Restore product"}
+          </Button>
+        </Modal>
+        <Modal
           open={!!deleting}
           onClose={() => {
             if (!busy) {
@@ -314,12 +442,20 @@ function Products() {
               setDeleteError("");
             }
           }}
-          title="Delete product?"
+          title="Permanently delete product?"
         >
-          <p>
-            This permanently removes the product because it has no historical
-            sales or operational records. This action cannot be undone.
-          </p>
+          {deleting?.delete_eligibility?.allowed ? (
+            <p>
+              Permanently delete <strong>{deleting.name}</strong>? It has no
+              historical sales, stock, media or operational records. This action
+              cannot be undone.
+            </p>
+          ) : (
+            <Alert tone="error">
+              {deleting?.delete_eligibility?.reason ??
+                "This product is not eligible for permanent deletion. Remove it instead to retain its records."}
+            </Alert>
+          )}
           {deleteError && <Alert tone="error">{deleteError}</Alert>}
           <Button
             type="button"
@@ -332,36 +468,38 @@ function Products() {
           >
             Cancel
           </Button>{" "}
-          <Button
-            type="button"
-            variant="danger"
-            loading={busy}
-            onClick={async () => {
-              if (!deleting) return;
-              setBusy(true);
-              setDeleteError("");
-              try {
-                await catalogAdmin(`/products/${deleting.id}`, "DELETE", {
-                  content_version: deleting.content_version,
-                });
-                setDeleting(null);
-                setOpenMenu(null);
-                setRefresh((x) => x + 1);
-                toast.success("Product deleted successfully.");
-              } catch (e) {
-                const message =
-                  e instanceof Error
-                    ? e.message
-                    : "Product could not be deleted.";
-                setDeleteError(message);
-                toast.error("Product could not be deleted.", message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "Deleting…" : "Delete product"}
-          </Button>
+          {deleting?.delete_eligibility?.allowed && (
+            <Button
+              type="button"
+              variant="danger"
+              loading={busy}
+              onClick={async () => {
+                if (!deleting) return;
+                setBusy(true);
+                setDeleteError("");
+                try {
+                  await catalogAdmin(`/products/${deleting.id}`, "DELETE", {
+                    content_version: deleting.content_version,
+                  });
+                  setDeleting(null);
+                  setOpenMenu(null);
+                  setRefresh((x) => x + 1);
+                  toast.success("Product deleted successfully.");
+                } catch (e) {
+                  const message =
+                    e instanceof Error
+                      ? e.message
+                      : "Product could not be deleted.";
+                  setDeleteError(message);
+                  toast.error("Product could not be deleted.", message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Deleting…" : "Permanently delete"}
+            </Button>
+          )}
         </Modal>
         <ArchiveDialog
           product={archive}

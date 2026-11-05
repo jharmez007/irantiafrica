@@ -12,6 +12,7 @@ final class InventoryRead
     {
         return DB::table('product_variants as v')
             ->join('products as p', 'p.id', '=', 'v.product_id')
+            ->whereNull('p.removed_at')
             ->leftJoin('inventory as i', 'i.variant_id', '=', 'v.id')
             ->select(['v.id as variant_id', 'v.sku', 'v.product_id', 'v.status as variant_status', 'p.name as product_name', 'p.status as product_status', 'i.id as inventory_id', 'i.on_hand', 'i.reserved', 'i.low_stock_threshold', 'i.version']);
     }
