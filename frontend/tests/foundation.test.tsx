@@ -51,6 +51,58 @@ describe("brand homepage", () => {
     expect(html).toContain('href="/categories/textiles"');
     expect(html).toContain("A new collection awaits.");
   });
+  it("loads a representative image for a category outside the featured product set", async () => {
+    vi.mocked(catalogFetch).mockImplementation(async (path) => {
+      if (path.startsWith("/categories")) {
+        return {
+          data: [{ name: "Textiles", slug: "textiles" }],
+          meta: { page: 1, last_page: 1, total: 1 },
+        };
+      }
+      if (path === "/products?page_size=1&category=textiles") {
+        return {
+          data: [
+            {
+              slug: "woven-throw",
+              name: "Woven throw",
+              description: "A woven throw.",
+              kind: "simple",
+              currency: "NGN",
+              available: true,
+              price_min_minor: "10000",
+              price_max_minor: "10000",
+              categories: [{ name: "Textiles", slug: "textiles" }],
+              options: [],
+              variants: [],
+              media: [
+                {
+                  id: "textiles-cover",
+                  variant_id: null,
+                  alt_text: "Textile collection cover",
+                  position: 0,
+                  width: 640,
+                  height: 640,
+                  sources: [
+                    { url: "/textiles-cover.webp", width: 640, height: 640 },
+                  ],
+                },
+              ],
+            },
+          ],
+          meta: { page: 1, last_page: 1, total: 1 },
+        };
+      }
+      return { data: [], meta: { page: 1, last_page: 1, total: 0 } };
+    });
+
+    const html = await renderHome();
+
+    expect(catalogFetch).toHaveBeenCalledWith(
+      "/products?page_size=1&category=textiles",
+    );
+    expect(html).toContain("Textile collection cover");
+    expect(html).toContain("textiles-cover.webp");
+  });
   it("provides a recovery link for an unknown route", () => {
     expect(renderToStaticMarkup(<NotFound />)).toContain('href="/"');
   });

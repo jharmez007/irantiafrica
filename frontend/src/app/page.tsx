@@ -6,7 +6,13 @@ import { Container, SectionHeader, EmptyState } from "@/components/ui";
 import { ProductCard } from "@/components/catalog/product-card";
 import { CategoryCard } from "@/components/catalog/category-card";
 import { catalogFetch } from "@/lib/catalog-server";
-import type { Category, Page, Product } from "@/lib/catalog";
+import {
+  generalProductImage,
+  type CatalogImage,
+  type Category,
+  type Page,
+  type Product,
+} from "@/lib/catalog";
 import {
   HomeLoadingFallback,
   HomeSectionScroll,
@@ -34,6 +40,36 @@ async function HomeContent() {
     productsResult.status === "fulfilled" ? productsResult.value.data : [];
   const categories =
     categoriesResult.status === "fulfilled" ? categoriesResult.value.data : [];
+  const visibleCategories = categories.slice(0, 4);
+  const categoryImageResults = await Promise.allSettled(
+    visibleCategories.map(async (category) => {
+      const featuredProduct = products.find((product) =>
+        product.categories.some((item) => item.slug === category.slug),
+      );
+      const featuredImage = featuredProduct
+        ? generalProductImage(featuredProduct)
+        : undefined;
+      if (featuredImage) return [category.slug, featuredImage] as const;
+
+      const params = new URLSearchParams({
+        page_size: "1",
+        category: category.slug,
+      });
+      const result = await catalogFetch<Page<Product>>(`/products?${params}`);
+      const representative = result.data[0];
+      return [
+        category.slug,
+        representative ? generalProductImage(representative) : undefined,
+      ] as const;
+    }),
+  );
+  const categoryImages = new Map<string, CatalogImage>(
+    categoryImageResults.flatMap((result) =>
+      result.status === "fulfilled" && result.value[1]
+        ? [[result.value[0], result.value[1]]]
+        : [],
+    ),
+  );
   return (
     <main id="main-content">
       <HomeSectionScroll />
@@ -53,17 +89,11 @@ async function HomeContent() {
           </SectionHeader>
           {categories.length > 0 ? (
             <div className="category-grid">
-              {categories.slice(0, 4).map((category) => (
+              {visibleCategories.map((category) => (
                 <CategoryCard
                   key={category.slug}
                   category={category}
-                  image={
-                    products.find((product) =>
-                      product.categories.some(
-                        (item) => item.slug === category.slug,
-                      ),
-                    )?.media[0]
-                  }
+                  image={categoryImages.get(category.slug)}
                 />
               ))}
             </div>
