@@ -46,7 +46,8 @@ case "${1:-}" in
     exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
     ;;
   migrate)
-    exec php /app/backend/artisan migrate --force
+    php /app/backend/artisan migrate --force --no-interaction
+    php /app/backend/artisan db:seed --class=IdentityPermissionsSeeder --force --no-interaction
     ;;
   *)
     echo 'Usage: iranti-entrypoint {web|migrate}' >&2
