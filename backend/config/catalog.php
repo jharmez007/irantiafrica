@@ -13,4 +13,5 @@ return [
     'retention_days' => 7,
     'recycle_days' => 30,
     'purge_batch' => 50,
+    'automatic_purge_enabled' => (bool) env('CATALOG_AUTOMATIC_PURGE_ENABLED', false),
 ];

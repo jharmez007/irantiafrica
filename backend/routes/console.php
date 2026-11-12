@@ -16,7 +16,11 @@ Schedule::call(function (): void {
 
 Schedule::command('catalog:media-maintenance')->hourly()->withoutOverlapping()->onOneServer();
 
-Schedule::command('catalog:purge-recycled')->hourly()->withoutOverlapping(30)->onOneServer();
+Schedule::command('catalog:purge-recycled')
+    ->hourly()
+    ->withoutOverlapping(30)
+    ->onOneServer()
+    ->when(fn (): bool => (bool) config('catalog.automatic_purge_enabled', false));
 
 Schedule::command('inventory:expire-reservations')->everyMinute()->withoutOverlapping(5)->onOneServer();
 
