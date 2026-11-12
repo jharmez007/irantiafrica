@@ -78,12 +78,23 @@ export type Product = {
   media: CatalogImage[];
   status?: string;
   removed_at?: string | null;
+  recycle_expires_at?: string | null;
+  purge_status?:
+    "recoverable" | "blocked" | "completed" | "legacy_review" | null;
+  purge_block_code?: string | null;
+  purge_block_reason?: string | null;
+  purge_completed_at?: string | null;
+  removed_by?: { id: string; name: string } | null;
   content_version?: number;
   tax_category_code?: string | null;
   tax_treatment_label?: string | null;
   updated_at?: string;
   publication_issues?: string[];
-  delete_eligibility?: { allowed: boolean; reason: string | null } | null;
+  purge_eligibility?: {
+    allowed: boolean;
+    code: string | null;
+    reason: string | null;
+  } | null;
 };
 export type Page<T> = {
   data: T[];

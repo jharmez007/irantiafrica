@@ -24,6 +24,7 @@ import {
   CatalogFailure,
 } from "../src/components/catalog/catalog-list";
 import { AdminCatalog } from "../src/components/catalog/admin-catalog";
+import { AdminRecycleBin } from "../src/components/catalog/admin-recycle-bin";
 import { AdminCategories } from "../src/components/catalog/admin-categories";
 import { AdminProductEditor } from "../src/components/catalog/product-editor";
 import {
@@ -47,7 +48,11 @@ import {
 } from "../src/lib/catalog";
 const mocks = vi.hoisted(() => ({
   auth: {
-    user: null as null | { authentication_state: string; roles: string[] },
+    user: null as null | {
+      authentication_state: string;
+      roles: string[];
+      permissions?: string[];
+    },
     loading: false,
   },
   api: vi.fn(),
@@ -436,6 +441,14 @@ describe("simplified product editor", () => {
     mocks.auth.user = {
       authentication_state: "authenticated",
       roles: ["owner"],
+      permissions: [
+        "catalog.create_update",
+        "catalog.publish_archive",
+        "catalog.recycle.view",
+        "catalog.recycle.move",
+        "catalog.recycle.restore",
+        "catalog.recycle.purge",
+      ],
     };
     HTMLDialogElement.prototype.showModal = function () {
       this.setAttribute("open", "");
@@ -2098,6 +2111,14 @@ describe("catalog administration", () => {
     mocks.auth.user = {
       authentication_state: "authenticated",
       roles: ["owner"],
+      permissions: [
+        "catalog.create_update",
+        "catalog.publish_archive",
+        "catalog.recycle.view",
+        "catalog.recycle.move",
+        "catalog.recycle.restore",
+        "catalog.recycle.purge",
+      ],
     };
     mocks.api.mockImplementation(async (path: string) =>
       path === "/products/p"
@@ -2190,6 +2211,14 @@ describe("UAT catalog workflow", () => {
     mocks.auth.user = {
       authentication_state: "authenticated",
       roles: ["owner"],
+      permissions: [
+        "catalog.create_update",
+        "catalog.publish_archive",
+        "catalog.recycle.view",
+        "catalog.recycle.move",
+        "catalog.recycle.restore",
+        "catalog.recycle.purge",
+      ],
     };
     HTMLDialogElement.prototype.showModal = function () {
       this.setAttribute("open", "");
@@ -2361,212 +2390,148 @@ describe("UAT catalog workflow", () => {
     await userEvent.click(document.body);
     expect(first.getAttribute("aria-expanded")).toBe("false");
   });
-  it("confirms eligible product deletion, refreshes, and reports success", async () => {
-    let removed = false;
+  it("moves a product to the Recycle Bin without exposing permanent deletion", async () => {
     const success = vi.spyOn(toast, "success");
     mocks.api.mockImplementation(async (path: string, method?: string) => {
-      if (path === "/products/p" && method === "DELETE") {
-        removed = true;
-        return undefined;
-      }
+      if (path === "/products/p/remove" && method === "POST")
+        return { data: { ...product, removed_at: "2026-11-10T08:00:00Z" } };
+      if (path.startsWith("/products/recycle-bin"))
+        return { data: [], meta: { total: 0, last_page: 1, page: 1 } };
       return path.startsWith("/products?")
-        ? {
-            data: removed
-              ? []
-              : [
-                  {
-                    ...product,
-                    media: [],
-                    delete_eligibility: { allowed: true, reason: null },
-                  },
-                ],
-            meta: { last_page: 1 },
-          }
-        : { data: [], meta: { last_page: 1 } };
+        ? { data: [product], meta: { total: 1, last_page: 1 } }
+        : { data: [], meta: { total: 0, last_page: 1 } };
     });
     render(<AdminCatalog />);
+    const recycleLink = await screen.findByRole("link", {
+      name: /Recycle Bin/,
+    });
+    expect(recycleLink.getAttribute("href")).toBe(
+      "/admin/products/recycle-bin",
+    );
+    expect(
+      screen.queryByRole("navigation", { name: "Product lifecycle" }),
+    ).toBeNull();
     await userEvent.click(
       await screen.findByRole("button", { name: "More actions" }),
     );
+    expect(screen.queryByText("Permanently delete")).toBeNull();
     await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
+      screen.getByRole("button", { name: "Move to Recycle Bin" }),
     );
-    expect(
-      screen.getByText(
-        /no historical sales, stock, media or operational records/,
-      ),
-    ).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mocks.api).not.toHaveBeenCalledWith(
-      "/products/p",
-      "DELETE",
-      expect.anything(),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Move product to Recycle Bin?",
+    });
+    expect(within(dialog).getByText(/within 30 days/i)).toBeTruthy();
     await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
+      within(dialog).getByRole("button", { name: "Move to Recycle Bin" }),
     );
     await waitFor(() =>
-      expect(mocks.api).toHaveBeenCalledWith("/products/p", "DELETE", {
+      expect(mocks.api).toHaveBeenCalledWith("/products/p/remove", "POST", {
         content_version: product.content_version,
       }),
     );
-    await waitFor(() =>
-      expect(success).toHaveBeenCalledWith("Product deleted successfully."),
-    );
-    await screen.findByText(/No products/);
-  });
-  it("explains blocked permanent deletion and preserves failure context", async () => {
-    const error = vi.spyOn(toast, "error");
-    mocks.api.mockImplementation(async (path: string, method?: string) => {
-      if (method === "DELETE")
-        throw new Error("This record now has history. Archive it instead.");
-      return path.startsWith("/products?")
-        ? {
-            data: [
-              {
-                ...product,
-                status: "draft",
-                media: [],
-                delete_eligibility: { allowed: true, reason: null },
-              },
-            ],
-            meta: { last_page: 1 },
-          }
-        : { data: [], meta: { last_page: 1 } };
-    });
-    render(<AdminCatalog />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "More actions" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
-    );
-    await screen.findByText("This record now has history. Archive it instead.");
-    expect(error).toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    cleanup();
-    mocks.api.mockImplementation(async (path: string) =>
-      path.startsWith("/products?")
-        ? {
-            data: [
-              {
-                ...product,
-                delete_eligibility: {
-                  allowed: false,
-                  reason: "Archive it instead.",
-                },
-              },
-            ],
-            meta: { last_page: 1 },
-          }
-        : { data: [], meta: { last_page: 1 } },
-    );
-    render(<AdminCatalog />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "More actions" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Permanently delete" }),
-    );
-    expect(screen.getByText("Archive it instead.")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Permanently delete" }),
-    ).toBeNull();
-  });
-  it("removes a published product into a recoverable view and restores it", async () => {
-    let removedAt: string | null = null;
-    const success = vi.spyOn(toast, "success");
-    mocks.api.mockImplementation(
-      async (
-        path: string,
-        method?: string,
-        body?: { content_version?: number },
-      ) => {
-        if (path === "/products/p/remove" && method === "POST") {
-          expect(body?.content_version).toBe(product.content_version);
-          removedAt = "2026-11-05T08:00:00Z";
-          return { data: { ...product, removed_at: removedAt } };
-        }
-        if (path === "/products/p/restore-removal" && method === "POST") {
-          removedAt = null;
-          return { data: { ...product, removed_at: null } };
-        }
-        if (path.startsWith("/products?")) {
-          const removedFilter = new URLSearchParams(path.split("?")[1]).get(
-            "status",
-          );
-          return {
-            data:
-              (removedFilter === "removed" && removedAt) ||
-              (removedFilter !== "removed" && !removedAt)
-                ? [
-                    {
-                      ...product,
-                      status: "published",
-                      removed_at: removedAt,
-                      delete_eligibility: {
-                        allowed: false,
-                        reason: "Published history is retained.",
-                      },
-                    },
-                  ]
-                : [],
-            meta: { last_page: 1 },
-          };
-        }
-        return { data: [], meta: { last_page: 1 } };
-      },
-    );
-    render(<AdminCatalog />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "More actions" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Remove product" }),
-    );
-    const removalDialog = screen.getByRole("dialog", {
-      name: "Remove product?",
-    });
-    expect(within(removalDialog).getByText(product.name)).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Keep product" }));
-    expect(mocks.api).not.toHaveBeenCalledWith(
-      "/products/p/remove",
-      "POST",
-      expect.anything(),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-    await userEvent.click(
-      screen.getByRole("button", { name: "Remove product" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Remove product" }),
-    );
-    await screen.findByText(/No products/);
+    expect(screen.queryByRole("rowheader", { name: product.name })).toBeNull();
     expect(success).toHaveBeenCalledWith(
-      "Product removed",
-      "History and stock were retained.",
+      "Product moved to Recycle Bin",
+      "It remains recoverable for 30 days.",
     );
-    await userEvent.selectOptions(screen.getByLabelText("Status"), "removed");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    await screen.findByRole("link", { name: product.name });
-    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Restore removed product" }),
-    );
-    expect(screen.getByText(/visible on the storefront again/)).toBeTruthy();
+  });
+
+  it("restores a recycled product and requires typed permanent-removal confirmation", async () => {
+    const recycled = {
+      ...product,
+      status: "published",
+      removed_at: "2026-11-10T08:00:00Z",
+      recycle_expires_at: "2026-12-10T08:00:00Z",
+      purge_status: "recoverable" as const,
+      removed_by: { id: "owner", name: "Business Owner" },
+      purge_eligibility: { allowed: true, code: null, reason: null },
+    };
+    mocks.api.mockImplementation(async (path: string, method?: string) => {
+      if (path === "/products/p/restore-removal" && method === "POST")
+        return {
+          data: { ...product, status: "published" },
+          meta: { restored_as_draft: false },
+        };
+      if (path === "/products/p" && method === "DELETE") return undefined;
+      return path.startsWith("/products/recycle-bin")
+        ? { data: [recycled], meta: { total: 1, page: 1, last_page: 1 } }
+        : { data: [], meta: { total: 0, last_page: 1 } };
+    });
+    const view = render(<AdminRecycleBin />);
+    await screen.findByText("Business Owner");
+    await userEvent.click(screen.getByRole("button", { name: "Restore" }));
     await userEvent.click(
       screen.getByRole("button", { name: "Restore product" }),
     );
-    await screen.findByText(/No products/);
-    expect(success).toHaveBeenCalledWith("Product restored");
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith(
+        "/products/p/restore-removal",
+        "POST",
+        { content_version: product.content_version },
+      ),
+    );
+    view.unmount();
+    render(<AdminRecycleBin />);
+    await screen.findByText("Business Owner");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete permanently" }),
+    );
+    const purgeDialog = screen.getByRole("dialog", {
+      name: "Permanently delete product?",
+    });
+    const deleteButton = within(purgeDialog).getByRole("button", {
+      name: "Delete permanently",
+    }) as HTMLButtonElement;
+    expect(deleteButton.disabled).toBe(true);
+    await userEvent.type(
+      screen.getByLabelText("Type DELETE to confirm"),
+      "DELETE",
+    );
+    expect(deleteButton.disabled).toBe(false);
+    await userEvent.click(deleteButton);
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith("/products/p", "DELETE", {
+        content_version: product.content_version,
+        confirmation: "DELETE",
+      }),
+    );
+  });
+
+  it("explains a stock blocker and does not offer a destructive submit", async () => {
+    mocks.api.mockImplementation(async (path: string) =>
+      path.startsWith("/products/recycle-bin")
+        ? {
+            data: [
+              {
+                ...product,
+                removed_at: "2026-11-01T08:00:00Z",
+                purge_status: "blocked",
+                purge_block_reason: "Physical stock remains.",
+                purge_eligibility: {
+                  allowed: false,
+                  code: "PHYSICAL_STOCK_REMAINS",
+                  reason: "Physical stock remains.",
+                },
+              },
+            ],
+            meta: { total: 1, page: 1, last_page: 1 },
+          }
+        : { data: [], meta: { total: 0, last_page: 1 } },
+    );
+    render(<AdminRecycleBin />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Delete permanently" }),
+    );
+    expect(
+      screen.getAllByText("Physical stock remains.").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Type DELETE to confirm")).toBeNull();
+    expect(
+      within(screen.getByRole("dialog")).queryByRole("button", {
+        name: "Delete permanently",
+      }),
+    ).toBeNull();
   });
   it("confirms empty category deletion and hides deletion for assigned categories", async () => {
     let removed = false;
@@ -2673,18 +2638,18 @@ describe("UAT catalog workflow", () => {
   it.each([
     [
       "draft",
-      ["Archive", "Remove product", "Permanently delete"],
-      ["View storefront", "Restore"],
+      ["Archive", "Move to Recycle Bin"],
+      ["View storefront", "Restore", "Permanently delete"],
     ],
     [
       "published",
-      ["View storefront", "Archive", "Remove product", "Permanently delete"],
-      ["Publish", "Restore"],
+      ["View storefront", "Archive", "Move to Recycle Bin"],
+      ["Publish", "Restore", "Permanently delete"],
     ],
     [
       "archived",
-      ["Restore", "Remove product", "Permanently delete"],
-      ["Publish", "Archive", "View storefront"],
+      ["Restore", "Move to Recycle Bin"],
+      ["Publish", "Archive", "View storefront", "Permanently delete"],
     ],
   ] as const)(
     "shows valid %s product actions only",

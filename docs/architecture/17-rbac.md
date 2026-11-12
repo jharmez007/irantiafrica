@@ -8,7 +8,8 @@ Trace: FR-ADM-001/002, FR-INV-001, FR-RET-004, NFR15; Q13. Role names and owner 
 | catalog.read_internal | Yes | Yes | Yes |
 | catalog.create_update | Yes | No | No |
 | catalog.publish_archive | Yes | No | No |
-| catalog.products.delete / catalog.categories.delete | Yes, guarded Draft/empty-leaf cleanup only | No | No |
+| catalog.recycle.view / move / restore / purge | Yes; purge is elevated and retention-safe | No | No |
+| catalog.categories.delete | Yes, empty-leaf cleanup only | No | No |
 | media.manage | Yes | No | No |
 | inventory.read | Yes | Yes (availability only) | Yes |
 | inventory.adjust | Yes | No | Yes — opening and reasoned on-hand adjustment only |

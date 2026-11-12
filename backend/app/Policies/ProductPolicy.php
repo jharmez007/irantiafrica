@@ -43,18 +43,26 @@ class ProductPolicy
         return Gate::forUser($user)->allows('catalog.publish_archive') && $product->removed_at === null;
     }
 
-    public function delete(User $user, Product $product): bool
+    public function viewRecycleBin(User $user): bool
     {
-        return Gate::forUser($user)->allows('catalog.products.delete');
+        return Gate::forUser($user)->allows('catalog.recycle.view');
     }
 
     public function remove(User $user, Product $product): bool
     {
-        return Gate::forUser($user)->allows('catalog.products.delete') && $product->removed_at === null;
+        return Gate::forUser($user)->allows('catalog.recycle.move') && $product->purge_status !== 'completed';
     }
 
     public function restoreRemoval(User $user, Product $product): bool
     {
-        return Gate::forUser($user)->allows('catalog.products.delete') && $product->removed_at !== null;
+        return Gate::forUser($user)->allows('catalog.recycle.restore')
+            && $product->removed_at !== null
+            && $product->purge_status !== 'completed'
+            && ($product->recycle_expires_at === null || $product->recycle_expires_at->isFuture());
+    }
+
+    public function delete(User $user, Product $product): bool
+    {
+        return Gate::forUser($user)->allows('catalog.recycle.purge') && $product->removed_at !== null;
     }
 }

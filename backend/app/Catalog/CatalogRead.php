@@ -17,6 +17,8 @@ final class CatalogRead
             if ($browse) {
                 $q->whereHas('variants', fn (Builder $v) => self::availableVariant($v));
             }
+        } else {
+            $q->whereNull('removed_at');
         }
 
         return $q;
@@ -29,15 +31,8 @@ final class CatalogRead
      */
     public static function filter(Builder $q, array $filters, bool $availablePrices = true): Builder
     {
-        if (! $availablePrices) {
-            if (($filters['status'] ?? null) === 'removed') {
-                $q->whereNotNull('removed_at');
-            } else {
-                $q->whereNull('removed_at');
-                if (isset($filters['status'])) {
-                    $q->where('status', $filters['status']);
-                }
-            }
+        if (! $availablePrices && isset($filters['status'])) {
+            $q->where('status', $filters['status']);
         }
         if (! empty($filters['q'])) {
             $q->whereRaw("to_tsvector('simple', name || ' ' || slug) @@ plainto_tsquery('simple', ?)", [$filters['q']]);

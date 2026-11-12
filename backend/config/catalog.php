@@ -11,4 +11,6 @@ return [
     'max_pixels' => 25000000,
     'widths' => [320, 640, 1280],
     'retention_days' => 7,
+    'recycle_days' => 30,
+    'purge_batch' => 50,
 ];

@@ -16,6 +16,8 @@ Schedule::call(function (): void {
 
 Schedule::command('catalog:media-maintenance')->hourly()->withoutOverlapping()->onOneServer();
 
+Schedule::command('catalog:purge-recycled')->hourly()->withoutOverlapping(30)->onOneServer();
+
 Schedule::command('inventory:expire-reservations')->everyMinute()->withoutOverlapping(5)->onOneServer();
 
 Schedule::command('cart:purge-guests')->hourly()->withoutOverlapping(5)->onOneServer();

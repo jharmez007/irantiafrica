@@ -10,7 +10,8 @@ final class PermissionMatrix
         return [
             'owner' => [
                 'catalog.read_internal', 'catalog.create_update', 'catalog.publish_archive',
-                'catalog.products.delete', 'catalog.categories.delete', 'media.manage',
+                'catalog.recycle.view', 'catalog.recycle.move', 'catalog.recycle.restore', 'catalog.recycle.purge',
+                'catalog.categories.delete', 'media.manage',
                 'inventory.read', 'inventory.adjust', 'inventory.movements.read', 'inventory.threshold.configure', 'orders.read', 'orders.prepare',
                 'shipments.record', 'delivery.record', 'orders.cancel', 'payments.read_summary', 'payments.reconcile',
                 'exceptions.resolve', 'returns.read', 'returns.review', 'returns.decide', 'refunds.approve', 'refunds.submit',

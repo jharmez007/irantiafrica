@@ -1373,6 +1373,63 @@ svg {
   gap: 1rem;
   margin-top: 1rem;
 }
+
+.catalog-lifecycle-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1.25rem;
+}
+
+.catalog-lifecycle-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.75rem 0.9rem;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+
+.catalog-lifecycle-nav a[aria-current="page"] {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  font-weight: 700;
+}
+
+.catalog-lifecycle-nav a span {
+  min-width: 1.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--green);
+  color: var(--cream);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.recycle-expiring {
+  color: var(--rust);
+  font-weight: 700;
+}
+
+.recycle-block-reason {
+  max-width: 24rem;
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.recycle-actions {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.recycle-empty-link {
+  margin-top: 1rem;
+}
 .admin-confirmation {
   padding: 1rem;
   border: 1px solid var(--error);
@@ -4356,6 +4413,31 @@ svg {
   gap: 16px;
   margin: 0 0 22px;
 }
+.admin-frame .admin-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.admin-frame .button-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+.admin-frame .product-recycle-link {
+  gap: 8px;
+}
+.admin-frame .product-recycle-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-green) 12%, transparent);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  text-align: center;
+}
 .admin-frame h1,
 .admin-frame h2,
 .admin-frame h3 {
@@ -4913,6 +4995,7 @@ svg {
   }
   .admin-frame .admin-page-actions {
     width: 100%;
+    justify-content: flex-start;
   }
   .admin-frame .editor-sections {
     position: static;

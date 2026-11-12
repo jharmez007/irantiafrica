@@ -7,6 +7,7 @@ use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -25,6 +26,11 @@ use Illuminate\Support\Carbon;
  * @property CarbonImmutable|null $archived_at
  * @property CarbonImmutable|null $removed_at
  * @property string|null $removed_by_user_id
+ * @property CarbonImmutable|null $recycle_expires_at
+ * @property string|null $purge_status
+ * @property string|null $purge_block_code
+ * @property string|null $purge_block_reason
+ * @property CarbonImmutable|null $purge_completed_at
  */
 class Product extends Model
 {
@@ -33,12 +39,12 @@ class Product extends Model
 
     use HasUuids;
 
-    protected $fillable = ['name', 'slug', 'description', 'kind', 'status', 'tax_category_code', 'content_version', 'published_at', 'archived_at', 'removed_at', 'removed_by_user_id'];
+    protected $fillable = ['name', 'slug', 'description', 'kind', 'status', 'tax_category_code', 'content_version', 'published_at', 'archived_at', 'removed_at', 'removed_by_user_id', 'recycle_expires_at', 'purge_status', 'purge_block_code', 'purge_block_reason', 'purge_completed_at'];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
-        return ['content_version' => 'integer', 'published_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime', 'removed_at' => 'immutable_datetime'];
+        return ['content_version' => 'integer', 'published_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime', 'removed_at' => 'immutable_datetime', 'recycle_expires_at' => 'immutable_datetime', 'purge_completed_at' => 'immutable_datetime'];
     }
 
     /** @return HasMany<ProductVariant, $this> */
@@ -63,5 +69,11 @@ class Product extends Model
     public function categories(): BelongsToMany
     {
         return $this->belongsToMany(Category::class, 'product_categories')->withTimestamps()->orderBy('slug');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function removedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'removed_by_user_id');
     }
 }

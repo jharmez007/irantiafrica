@@ -32,6 +32,8 @@ final class CatalogTest extends TestCase
 
     private array $jar = [];
 
+    private bool $usesPreMigratedSchema = false;
+
     private const PASSWORD = 'Catalog-test-passphrase';
 
     protected function setUp(): void
@@ -41,9 +43,17 @@ final class CatalogTest extends TestCase
             $this->markTestSkipped('Requires isolated PostgreSQL/Redis.');
         }
         $this->assertTrue($this->app->environment('testing'));
+        $this->usesPreMigratedSchema = getenv('IRANTI_TEST_SCHEMA_READY') === '1';
         $this->assertSame('iranti_test', config('database.connections.pgsql.database'));
-        $this->assertContains(config('database.connections.pgsql.host'), ['127.0.0.1', 'localhost']);
-        Artisan::call('migrate:fresh', ['--force' => true]);
+        $allowedHosts = $this->usesPreMigratedSchema
+            ? ['127.0.0.1', 'localhost', '/tmp']
+            : ['127.0.0.1', 'localhost'];
+        $this->assertContains(config('database.connections.pgsql.host'), $allowedHosts);
+        if ($this->usesPreMigratedSchema) {
+            DB::beginTransaction();
+        } else {
+            Artisan::call('migrate:fresh', ['--force' => true]);
+        }
         $this->configureCatalogTax();
         config(['session.driver' => 'database', 'session.secure' => false, 'session.encrypt' => true, 'cors.allowed_origins' => ['http://localhost:3000'], 'sanctum.stateful' => ['localhost:3000'], 'cache.prefix' => 'catalog-test-'.bin2hex(random_bytes(8)), 'hashing.bcrypt.rounds' => 4, 'catalog.disk' => 'local']);
         $this->app['hash']->forgetDrivers();
@@ -51,6 +61,14 @@ final class CatalogTest extends TestCase
         Notification::fake();
         Storage::fake('local');
         $this->browser('GET', '/sanctum/csrf-cookie')->assertNoContent();
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->usesPreMigratedSchema && DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+        parent::tearDown();
     }
 
     private function browser(string $method, string $path, array $data = [], bool $csrf = true): TestResponse
@@ -141,7 +159,7 @@ final class CatalogTest extends TestCase
         }
     }
 
-    public function test_owner_can_delete_only_unused_draft_with_options_variants_and_audit_retained(): void
+    public function test_owner_moves_product_to_recycle_bin_and_permanent_removal_keeps_catalogue_tombstone(): void
     {
         $this->owner();
         $p = $this->create('variant', 'Disposable draft');
@@ -149,49 +167,86 @@ final class CatalogTest extends TestCase
         $option = $p['options'][0];
         $p = $this->variant($p, 'DISPOSABLE-1', [$option['values'][0]['id']]);
         $variantId = $p['variants'][0]['id'];
-        $categoryId = $p['category_ids'][0];
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $p['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertForbidden();
 
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version'] - 1])->assertStatus(409);
-        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility.allowed', true);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertNoContent();
-        foreach (['products' => $p['id'], 'product_options' => $option['id'], 'option_values' => $option['values'][0]['id'], 'product_variants' => $variantId] as $table => $id) {
-            $this->assertDatabaseMissing($table, ['id' => $id]);
-        }
-        $this->assertDatabaseMissing('product_categories', ['product_id' => $p['id']]);
-        $this->assertDatabaseMissing('variant_option_values', ['variant_id' => $variantId]);
-        $this->assertDatabaseHas('categories', ['id' => $categoryId]);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_deleted', 'subject_id' => $p['id']]);
+        $removed = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'draft')
+            ->assertJsonPath('data.purge_status', 'recoverable')
+            ->json('data');
+        $this->assertNotNull($removed['recycle_expires_at']);
+        $this->browser('GET', '/api/v1/admin/products')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->browser('GET', '/api/v1/admin/products/recycle-bin')->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $p['id'])
+            ->assertJsonPath('data.0.purge_eligibility.allowed', true);
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $removed['content_version'],
+        ])->assertUnprocessable();
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $removed['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertNoContent();
+
+        $this->assertDatabaseHas('products', ['id' => $p['id'], 'purge_status' => 'completed']);
+        $this->assertDatabaseHas('product_options', ['id' => $option['id'], 'product_id' => $p['id']]);
+        $this->assertDatabaseHas('option_values', ['id' => $option['values'][0]['id']]);
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId, 'sku' => 'DISPOSABLE-1']);
+        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertNotFound();
+        $this->browser('GET', '/api/v1/admin/products/recycle-bin')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_recycled', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_purge_requested', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_purge_completed', 'subject_id' => $p['id']]);
     }
 
-    public function test_product_deletion_blocks_media_inventory_and_archived_history(): void
+    public function test_permanent_removal_blocks_stock_and_reservations_but_retires_media_when_safe(): void
     {
         $owner = $this->staff();
         $this->enroll($owner);
         $p = $this->create();
         $p = $this->variant($p, 'KEEP-HISTORY-1');
         app(InventoryService::class)->initializeStock($p['variants'][0]['id'], 1, 'Deletion safety test', (string) Str::uuid(), $owner);
-        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility.allowed', false);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertUnprocessable();
-        $this->assertDatabaseHas('products', ['id' => $p['id']]);
+        $removed = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertOk()->json('data');
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $removed['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('products', [
+            'id' => $p['id'],
+            'purge_status' => 'blocked',
+            'purge_block_code' => 'PHYSICAL_STOCK_REMAINS',
+        ]);
         $this->assertDatabaseHas('inventory_movements', ['variant_id' => $p['variants'][0]['id']]);
 
         $mediaProduct = $this->create('simple', 'Media draft');
-        $this->image($mediaProduct);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$mediaProduct['id'], ['content_version' => Product::findOrFail($mediaProduct['id'])->content_version])->assertUnprocessable();
-        $this->assertDatabaseHas('products', ['id' => $mediaProduct['id']]);
-
-        $archived = $this->create('simple', 'Archived draft');
-        $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/archive', ['content_version' => $archived['content_version']])->assertOk();
-        $this->browser('DELETE', '/api/v1/admin/products/'.$archived['id'], ['content_version' => Product::findOrFail($archived['id'])->content_version])->assertUnprocessable();
+        $mediaId = $this->image($mediaProduct);
+        $removedMedia = $this->browser('POST', '/api/v1/admin/products/'.$mediaProduct['id'].'/remove', [
+            'content_version' => Product::findOrFail($mediaProduct['id'])->content_version,
+        ])->assertOk()->json('data');
+        $this->browser('DELETE', '/api/v1/admin/products/'.$mediaProduct['id'], [
+            'content_version' => $removedMedia['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertNoContent();
+        $this->assertDatabaseHas('product_media', ['id' => $mediaId, 'status' => 'retired']);
+        $this->assertDatabaseHas('products', ['id' => $mediaProduct['id'], 'purge_status' => 'completed']);
 
         $cartProduct = $this->variant($this->create('simple', 'Cart-linked draft'), 'KEEP-CART-1');
         $cartId = (string) Str::uuid();
         $cartItemId = (string) Str::uuid();
         DB::table('carts')->insert(['id' => $cartId, 'guest_token_hash' => hash('sha256', 'catalog-delete-test'), 'expires_at' => now()->addDays(30)]);
         DB::table('cart_items')->insert(['id' => $cartItemId, 'cart_id' => $cartId, 'variant_id' => $cartProduct['variants'][0]['id'], 'quantity' => 1]);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$cartProduct['id'], ['content_version' => $cartProduct['content_version']])->assertUnprocessable();
+        $removedCartProduct = $this->browser('POST', '/api/v1/admin/products/'.$cartProduct['id'].'/remove', [
+            'content_version' => $cartProduct['content_version'],
+        ])->assertOk()->json('data');
+        $this->browser('DELETE', '/api/v1/admin/products/'.$cartProduct['id'], [
+            'content_version' => $removedCartProduct['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertNoContent();
         $this->assertDatabaseHas('cart_items', ['id' => $cartItemId]);
-        $this->assertDatabaseHas('products', ['id' => $cartProduct['id']]);
+        $this->assertDatabaseHas('products', ['id' => $cartProduct['id'], 'purge_status' => 'completed']);
     }
 
     public function test_owner_can_remove_and_restore_published_product_without_changing_stock_or_media(): void
@@ -211,12 +266,15 @@ final class CatalogTest extends TestCase
         $this->assertNotNull($removed['removed_at']);
         $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertNotFound();
         $this->browser('GET', '/api/v1/admin/products')->assertOk()->assertJsonPath('meta.total', 0);
-        $this->browser('GET', '/api/v1/admin/products?status=removed')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $p['id']);
+        $this->browser('GET', '/api/v1/admin/products/recycle-bin')->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $p['id'])
+            ->assertJsonPath('data.0.purge_eligibility.code', 'PHYSICAL_STOCK_REMAINS');
         $this->browser('GET', '/api/v1/admin/inventory')->assertOk()->assertJsonPath('meta.total', 0);
         $this->assertDatabaseHas('inventory', ['variant_id' => $variantId, 'on_hand' => 8, 'reserved' => 0]);
         $this->assertDatabaseHas('inventory_movements', ['variant_id' => $variantId, 'kind' => 'OPENING']);
         $this->assertDatabaseHas('product_media', ['id' => $mediaId, 'product_id' => $p['id'], 'status' => 'ready']);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_removed', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_recycled', 'subject_id' => $p['id']]);
 
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $removed['content_version'] - 1])->assertStatus(409);
         $restored = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $removed['content_version']])
@@ -224,7 +282,7 @@ final class CatalogTest extends TestCase
         $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertOk();
         $this->browser('GET', '/api/v1/admin/inventory')->assertOk()->assertJsonPath('meta.total', 1);
         $this->assertSame(8, $restored['variants'][0]['inventory']['on_hand']);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_removal_restored', 'subject_id' => $p['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_recycle_restored', 'subject_id' => $p['id']]);
     }
 
     public function test_draft_and_archived_products_keep_their_catalog_state_through_removal(): void
@@ -233,6 +291,8 @@ final class CatalogTest extends TestCase
         $draft = $this->create('simple', 'Removed draft');
         $removedDraft = $this->browser('POST', '/api/v1/admin/products/'.$draft['id'].'/remove', ['content_version' => $draft['content_version']])
             ->assertOk()->assertJsonPath('data.status', 'draft')->json('data');
+        $this->browser('POST', '/api/v1/admin/products/'.$draft['id'].'/remove', ['content_version' => $draft['content_version']])
+            ->assertOk()->assertJsonPath('data.content_version', $removedDraft['content_version']);
         $restoredDraft = $this->browser('POST', '/api/v1/admin/products/'.$draft['id'].'/restore-removal', ['content_version' => $removedDraft['content_version']])
             ->assertOk()->assertJsonPath('data.status', 'draft')->assertJsonPath('data.removed_at', null)->json('data');
         $this->assertSame($draft['id'], $restoredDraft['id']);
@@ -244,6 +304,27 @@ final class CatalogTest extends TestCase
             ->assertOk()->assertJsonPath('data.status', 'archived')->json('data');
         $this->browser('POST', '/api/v1/admin/products/'.$archived['id'].'/restore-removal', ['content_version' => $removedArchived['content_version']])
             ->assertOk()->assertJsonPath('data.status', 'archived')->assertJsonPath('data.removed_at', null);
+    }
+
+    public function test_published_restore_falls_back_to_draft_when_publication_requirements_changed(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $product = $this->variant($this->create('simple', 'Restore validation product'), 'RESTORE-VALIDATION-1');
+        $mediaId = $this->image($product);
+        app()->call([new ProcessProductImage($mediaId), 'handle']);
+        app(InventoryService::class)->initializeStock($product['variants'][0]['id'], 1, 'Restore validation', (string) Str::uuid(), $owner);
+        $product = $this->publish($this->browser('GET', '/api/v1/admin/products/'.$product['id'])->assertOk()->json('data'));
+        $removed = $this->browser('POST', '/api/v1/admin/products/'.$product['id'].'/remove', ['content_version' => $product['content_version']])
+            ->assertOk()->json('data');
+        ProductMedia::whereKey($mediaId)->update(['status' => 'retired', 'retired_at' => now()]);
+
+        $this->browser('POST', '/api/v1/admin/products/'.$product['id'].'/restore-removal', ['content_version' => $removed['content_version']])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'draft')
+            ->assertJsonPath('meta.restored_as_draft', true);
+        $this->browser('GET', '/api/v1/products/'.$product['slug'])->assertNotFound();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_recycle_restored', 'subject_id' => $product['id']]);
     }
 
     public function test_removal_retains_active_reservation_order_and_payment_evidence_and_blocks_new_holds(): void
@@ -311,7 +392,7 @@ final class CatalogTest extends TestCase
             'verification_source' => 'manual',
         ]);
 
-        $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertOk();
+        $removed = $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertOk()->json('data');
         $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'ACTIVE']);
         $this->assertDatabaseHas('inventory', ['variant_id' => $variantId, 'on_hand' => 5, 'reserved' => 1]);
         $this->assertDatabaseHas('order_items', ['order_id' => $orderId, 'variant_id' => $variantId]);
@@ -323,6 +404,56 @@ final class CatalogTest extends TestCase
         } catch (InventoryConflict $conflict) {
             $this->assertSame('VARIANT_UNAVAILABLE', $conflict->inventoryCode);
         }
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $removed['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('products', [
+            'id' => $p['id'],
+            'purge_status' => 'blocked',
+            'purge_block_code' => 'ACTIVE_RESERVATIONS',
+        ]);
+        $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'ACTIVE']);
+    }
+
+    public function test_scheduled_expiry_is_bounded_and_preserves_blocked_and_legacy_products(): void
+    {
+        $owner = $this->staff();
+        $this->enroll($owner);
+        $due = $this->variant($this->create('simple', 'Due recycle product'), 'RECYCLE-DUE-1');
+        $due = $this->browser('POST', '/api/v1/admin/products/'.$due['id'].'/remove', ['content_version' => $due['content_version']])->assertOk()->json('data');
+        Product::whereKey($due['id'])->update(['removed_at' => now()->subDays(31), 'recycle_expires_at' => now()->subDay()]);
+
+        $notDue = $this->variant($this->create('simple', 'Not due recycle product'), 'RECYCLE-NOT-DUE-1');
+        $this->browser('POST', '/api/v1/admin/products/'.$notDue['id'].'/remove', ['content_version' => $notDue['content_version']])->assertOk();
+
+        $blocked = $this->variant($this->create('simple', 'Blocked recycle product'), 'RECYCLE-BLOCKED-1');
+        app(InventoryService::class)->initializeStock($blocked['variants'][0]['id'], 2, 'Purge blocker', (string) Str::uuid(), $owner);
+        $this->browser('POST', '/api/v1/admin/products/'.$blocked['id'].'/remove', ['content_version' => $blocked['content_version']])->assertOk();
+        Product::whereKey($blocked['id'])->update(['removed_at' => now()->subDays(31), 'recycle_expires_at' => now()->subDay()]);
+
+        $this->browser('POST', '/api/v1/admin/products/'.$due['id'].'/restore-removal', [
+            'content_version' => Product::findOrFail($due['id'])->content_version,
+        ])->assertForbidden();
+
+        $legacy = $this->variant($this->create('simple', 'Legacy recycle product'), 'RECYCLE-LEGACY-1');
+        Product::whereKey($legacy['id'])->update([
+            'removed_at' => now()->subDays(90),
+            'removed_by_user_id' => $owner->id,
+            'purge_status' => 'legacy_review',
+        ]);
+
+        $this->artisan('catalog:purge-recycled', ['--limit' => 2])->assertSuccessful();
+        $this->assertDatabaseHas('products', ['id' => $due['id'], 'purge_status' => 'completed']);
+        $this->assertDatabaseHas('products', [
+            'id' => $blocked['id'],
+            'purge_status' => 'blocked',
+            'purge_block_code' => 'PHYSICAL_STOCK_REMAINS',
+        ]);
+        $this->assertDatabaseHas('products', ['id' => $notDue['id'], 'purge_status' => 'recoverable']);
+        $this->assertDatabaseHas('products', ['id' => $legacy['id'], 'purge_status' => 'legacy_review']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_purge_completed', 'subject_id' => $due['id']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_purge_blocked', 'subject_id' => $blocked['id']]);
     }
 
     public function test_category_deletion_requires_no_assignments_or_children_and_owner_permission(): void
@@ -349,11 +480,15 @@ final class CatalogTest extends TestCase
         $category = $this->browser('POST', '/api/v1/admin/categories', ['name' => 'Standalone'])->assertCreated()->json('data.id');
         $this->browser('POST', '/api/v1/auth/logout')->assertNoContent();
         $this->enroll($this->staff('order_processing'));
-        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.delete_eligibility', null);
+        $this->browser('GET', '/api/v1/admin/products/'.$p['id'])->assertOk()->assertJsonPath('data.purge_eligibility', null);
         $this->browser('GET', '/api/v1/admin/categories')->assertOk()->assertJsonMissingPath('data.0.delete_eligibility');
+        $this->browser('GET', '/api/v1/admin/products/recycle-bin')->assertForbidden();
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/remove', ['content_version' => $p['content_version']])->assertForbidden();
         $this->browser('POST', '/api/v1/admin/products/'.$p['id'].'/restore-removal', ['content_version' => $p['content_version']])->assertForbidden();
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => $p['content_version']])->assertForbidden();
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => $p['content_version'],
+            'confirmation' => 'DELETE',
+        ])->assertForbidden();
         $this->browser('DELETE', '/api/v1/admin/categories/'.$category)->assertForbidden();
         $this->assertDatabaseHas('products', ['id' => $p['id']]);
         $this->assertDatabaseHas('categories', ['id' => $category]);
@@ -413,7 +548,10 @@ final class CatalogTest extends TestCase
         $this->browser('GET', '/api/v1/products/'.$p['slug'])->assertNotFound();
         $this->assertDatabaseHas('product_variants', ['sku' => 'BASKET-1']);
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.product_published', 'subject_type' => 'product', 'subject_id' => $p['id']]);
-        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], ['content_version' => Product::findOrFail($p['id'])->content_version])->assertUnprocessable();
+        $this->browser('DELETE', '/api/v1/admin/products/'.$p['id'], [
+            'content_version' => Product::findOrFail($p['id'])->content_version,
+            'confirmation' => 'DELETE',
+        ])->assertForbidden();
         $this->assertDatabaseHas('products', ['id' => $p['id'], 'status' => 'archived']);
     }
 

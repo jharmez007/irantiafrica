@@ -72,7 +72,12 @@ final class InventoryService
         return $this->transaction(function () use ($variantId, $threshold, $actor): Inventory {
             $currentActor = User::query()->lockForUpdate()->findOrFail($actor->id);
             abort_unless($currentActor->hasPermission('inventory.threshold.configure'), 403);
+            $candidate = ProductVariant::query()->findOrFail($variantId);
+            $product = Product::query()->lockForUpdate()->findOrFail($candidate->product_id);
             ProductVariant::query()->lockForUpdate()->findOrFail($variantId);
+            if ($product->removed_at !== null) {
+                throw new InventoryConflict('PRODUCT_RECYCLED', 'Restore this product before changing its inventory settings.');
+            }
             $stock = Inventory::where('variant_id', $variantId)->lockForUpdate()->firstOrFail();
             if ($stock->low_stock_threshold === $threshold) {
                 return $stock;
@@ -303,6 +308,8 @@ final class InventoryService
             // Serialize with identity changes and then the per-variant balance, including absent opening rows.
             $currentActor = User::query()->lockForUpdate()->findOrFail($actor->id);
             abort_unless($currentActor->hasPermission('inventory.adjust'), 403);
+            $candidate = ProductVariant::query()->findOrFail($variantId);
+            $product = Product::query()->lockForUpdate()->findOrFail($candidate->product_id);
             ProductVariant::query()->lockForUpdate()->findOrFail($variantId);
             $previous = InventoryMovement::where('operation_key', $operation)->first();
             if ($previous !== null) {
@@ -312,6 +319,9 @@ final class InventoryService
                 }
 
                 return $previous;
+            }
+            if ($product->removed_at !== null) {
+                throw new InventoryConflict('PRODUCT_RECYCLED', 'Restore this product before changing its physical inventory.');
             }
             $stock = Inventory::where('variant_id', $variantId)->lockForUpdate()->first();
             if ($expectedVersion === null) {

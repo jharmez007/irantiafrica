@@ -8,6 +8,7 @@ use App\Catalog\CatalogRead;
 use App\Catalog\CatalogTax;
 use App\Http\Requests\Catalog\CatalogQuery;
 use App\Http\Requests\Catalog\CatalogRequest;
+use App\Http\Requests\Catalog\RecycleBinQuery;
 use App\Http\Resources\Catalog\AdminProductResource;
 use App\Http\Resources\Catalog\PublicProductResource;
 use App\Models\Category;
@@ -18,6 +19,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 final class CatalogController
 {
@@ -57,10 +59,47 @@ final class CatalogController
 
     public function adminShow(string $id): AdminProductResource
     {
-        $p = CatalogRead::query(true)->findOrFail($id);
+        $p = Product::with(['categories', 'options.values', 'variants.selections', 'variants.inventory', 'media', 'removedBy'])->findOrFail($id);
+        abort_if($p->purge_status === 'completed', 404);
         Gate::authorize('view', $p);
+        if ($p->removed_at !== null) {
+            Gate::authorize('viewRecycleBin', $p);
+        }
 
         return new AdminProductResource($p);
+    }
+
+    public function recycleBin(RecycleBinQuery $request): JsonResponse
+    {
+        Gate::authorize('viewRecycleBin', Product::class);
+        $filters = $request->validated();
+        $query = Product::query()
+            ->with(['categories', 'options.values', 'variants.selections', 'variants.inventory', 'media', 'removedBy'])
+            ->whereNotNull('removed_at')->where('purge_status', '<>', 'completed');
+        if (! empty($filters['q'])) {
+            $term = $filters['q'];
+            $query->where(function ($candidate) use ($term): void {
+                $candidate->whereRaw("to_tsvector('simple', name || ' ' || slug) @@ plainto_tsquery('simple', ?)", [$term])
+                    ->orWhereHas('variants', fn ($variant) => $variant->where('sku', 'ilike', '%'.addcslashes($term, '\\%_').'%'));
+            });
+        }
+        if (isset($filters['previous_status'])) {
+            $query->where('status', $filters['previous_status']);
+        }
+        match ($filters['view'] ?? null) {
+            'recent' => $query->where('removed_at', '>=', now()->subDays(7)),
+            'expiring' => $query->whereNotNull('recycle_expires_at')->whereBetween('recycle_expires_at', [now(), now()->addDays(7)]),
+            'pending' => $query->whereNotNull('recycle_expires_at')->where('recycle_expires_at', '<=', now())->where('purge_status', '<>', 'blocked'),
+            'blocked' => $query->where('purge_status', 'blocked'),
+            'legacy' => $query->where('purge_status', 'legacy_review'),
+            default => null,
+        };
+        $page = $query->orderByDesc('removed_at')->orderBy('id')->paginate((int) $request->input('page_size', 25));
+
+        return response()->json([
+            'data' => AdminProductResource::collection($page->getCollection())->resolve(),
+            'meta' => ['page' => $page->currentPage(), 'page_size' => $page->perPage(), 'total' => $page->total(), 'last_page' => $page->lastPage()],
+        ]);
     }
 
     public function createProduct(CatalogRequest $r): JsonResponse
@@ -106,7 +145,10 @@ final class CatalogController
     public function deleteProduct(CatalogRequest $r, string $id): Response
     {
         Gate::authorize('delete', Product::findOrFail($id));
-        $this->deletion->product($id, (int) $r->validated('content_version'));
+        $result = $this->deletion->purge($id, (int) $r->validated('content_version'));
+        if ($result['outcome'] === 'blocked') {
+            throw ValidationException::withMessages(['product' => $result['reason']]);
+        }
 
         return response()->noContent();
     }
@@ -117,7 +159,7 @@ final class CatalogController
         Gate::authorize('remove', $product);
         $actor = $r->user();
         abort_unless($actor instanceof User, 401);
-        $this->deletion->remove($id, (int) $r->validated('content_version'), $actor);
+        $this->deletion->recycle($id, (int) $r->validated('content_version'), $actor);
 
         return $this->adminShow($id);
     }
@@ -126,9 +168,10 @@ final class CatalogController
     {
         $product = Product::findOrFail($id);
         Gate::authorize('restoreRemoval', $product);
-        $this->deletion->restoreRemoval($id, (int) $r->validated('content_version'));
+        $result = $this->deletion->restoreRemoval($id, (int) $r->validated('content_version'));
 
-        return $this->adminShow($id);
+        return (new AdminProductResource($result['product']->load(['categories', 'options.values', 'variants.selections', 'variants.inventory', 'media', 'removedBy'])))
+            ->additional(['meta' => ['restored_as_draft' => $result['restored_as_draft'], 'publication_issues' => $result['publication_issues']]]);
     }
 
     public function categories(CatalogQuery $r): JsonResponse

@@ -74,6 +74,7 @@ Route::middleware('throttle:catalog-public')->group(function (): void {
 Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 'throttle:catalog-admin'])->prefix('admin')->group(function (): void {
     $c = CatalogController::class;
     Route::get('/products', [$c, 'adminIndex']);
+    Route::get('/products/recycle-bin', [$c, 'recycleBin'])->middleware('can:catalog.recycle.view');
     Route::get('/tax-categories', [CatalogController::class, 'taxCategories']);
     Route::post('/products', [$c, 'createProduct'])->middleware('can:catalog.create_update');
     Route::get('/products/{id}', [$c, 'adminShow'])->whereUuid('id');
@@ -81,9 +82,9 @@ Route::middleware([TrustedBrowser::class, 'auth:web', CurrentIdentity::class, 't
     Route::post('/products/{id}/publication', [$c, 'publication'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/archive', [$c, 'archive'])->whereUuid('id')->middleware('can:catalog.publish_archive');
     Route::post('/products/{id}/restore', [$c, 'restore'])->whereUuid('id')->middleware('can:catalog.publish_archive');
-    Route::post('/products/{id}/remove', [$c, 'removeProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
-    Route::post('/products/{id}/restore-removal', [$c, 'restoreRemovedProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
-    Route::delete('/products/{id}', [$c, 'deleteProduct'])->whereUuid('id')->middleware('can:catalog.products.delete');
+    Route::post('/products/{id}/remove', [$c, 'removeProduct'])->whereUuid('id')->middleware('can:catalog.recycle.move');
+    Route::post('/products/{id}/restore-removal', [$c, 'restoreRemovedProduct'])->whereUuid('id')->middleware('can:catalog.recycle.restore');
+    Route::delete('/products/{id}', [$c, 'deleteProduct'])->whereUuid('id')->middleware('can:catalog.recycle.purge');
     Route::post('/products/{id}/options', [$c, 'addOption'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/products/{id}/variants', [$c, 'createVariant'])->whereUuid('id')->middleware('can:catalog.create_update');
     Route::post('/options/{id}/values', [$c, 'addValues'])->whereUuid('id')->middleware('can:catalog.create_update');

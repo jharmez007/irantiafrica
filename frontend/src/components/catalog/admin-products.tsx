@@ -20,6 +20,7 @@ import {
   RestoreDialog,
   CatalogAccess,
   ProductStatus,
+  StockSummary,
 } from "./admin-common";
 export function AdminProducts() {
   return (
@@ -28,9 +29,29 @@ export function AdminProducts() {
     </CatalogAccess>
   );
 }
+
+function RecycleBinIcon() {
+  return (
+    <svg
+      className="button-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h16 M9 7V4h6v3 M7 7l1 13h8l1-13 M10 11v5 M14 11v5" />
+    </svg>
+  );
+}
+
 function Products() {
   const { user } = useAuth();
-  const manage = user?.roles?.includes("owner");
+  const manage = user?.permissions?.includes("catalog.create_update");
+  const canMove = user?.permissions?.includes("catalog.recycle.move");
+  const canViewRecycle = user?.permissions?.includes("catalog.recycle.view");
   const [result, setResult] = useState<Page<Product> | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [q, setQ] = useState("");
@@ -45,16 +66,12 @@ function Products() {
     category ? new URLSearchParams({ category }).toString() : "",
   );
   const [refresh, setRefresh] = useState(0);
+  const [recycleTotal, setRecycleTotal] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [archive, setArchive] = useState<Product | null>(null);
   const [restore, setRestore] = useState<Product | null>(null);
   const [removing, setRemoving] = useState<Product | null>(null);
-  const [restoringRemoved, setRestoringRemoved] = useState<Product | null>(
-    null,
-  );
-  const [deleting, setDeleting] = useState<Product | null>(null);
-  const [deleteError, setDeleteError] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -87,15 +104,51 @@ function Products() {
       active = false;
     };
   }, [query, page, refresh]);
+  useEffect(() => {
+    if (!canViewRecycle) return;
+    let active = true;
+    catalogAdmin<Page<Product>>("/products/recycle-bin?page_size=1")
+      .then((response) => {
+        if (active) setRecycleTotal(response.meta.total);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [canViewRecycle, refresh]);
   return (
     <AdminShell
       title="Products"
       description="Manage your storefront catalog."
       actions={
-        manage ? (
-          <Link className="button button--primary" href="/admin/products/new">
-            Add Product
-          </Link>
+        canViewRecycle || manage ? (
+          <>
+            {canViewRecycle && (
+              <Link
+                className="button button--secondary product-recycle-link"
+                href="/admin/products/recycle-bin"
+              >
+                <RecycleBinIcon />
+                <span>Recycle Bin</span>
+                {recycleTotal !== null && (
+                  <span
+                    className="product-recycle-count"
+                    aria-label={`${recycleTotal} recycled ${recycleTotal === 1 ? "product" : "products"}`}
+                  >
+                    {recycleTotal}
+                  </span>
+                )}
+              </Link>
+            )}
+            {manage && (
+              <Link
+                className="button button--primary"
+                href="/admin/products/new"
+              >
+                Add Product
+              </Link>
+            )}
+          </>
         ) : undefined
       }
     >
@@ -130,7 +183,6 @@ function Products() {
               <option value="draft">Draft</option>
               <option value="published">Published</option>
               <option value="archived">Archived</option>
-              <option value="removed">Removed</option>
             </Select>
           </label>
           <label>
@@ -208,7 +260,7 @@ function Products() {
                   >
                     {manage && !p.removed_at ? "Edit" : "View details"}
                   </Link>
-                  {manage && (
+                  {(manage || canMove) && (
                     <ActionMenu
                       label="More actions"
                       compact
@@ -268,33 +320,13 @@ function Products() {
                           Restore
                         </Button>
                       )}
-                      {!p.removed_at && (
+                      {canMove && !p.removed_at && (
                         <Button
                           type="button"
                           variant="danger"
                           onClick={() => setRemoving(p)}
                         >
-                          Remove product
-                        </Button>
-                      )}
-                      {!!p.removed_at && (
-                        <Button
-                          type="button"
-                          onClick={() => setRestoringRemoved(p)}
-                        >
-                          Restore removed product
-                        </Button>
-                      )}
-                      {manage && (
-                        <Button
-                          type="button"
-                          variant="danger"
-                          onClick={() => {
-                            setDeleteError("");
-                            setDeleting(p);
-                          }}
-                        >
-                          Permanently delete
+                          Move to Recycle Bin
                         </Button>
                       )}
                     </ActionMenu>
@@ -334,20 +366,26 @@ function Products() {
           onClose={() => {
             if (!busy) setRemoving(null);
           }}
-          title="Remove product?"
+          title="Move product to Recycle Bin?"
         >
           <p>
-            Remove <strong>{removing?.name}</strong> from the storefront and
-            normal inventory lists? Product history, images, stock quantities,
-            reservations, orders and payments will be retained.
+            <strong>{removing?.name}</strong> will be removed from your
+            storefront and active product listings. You can restore it from the
+            Recycle Bin within 30 days.
           </p>
+          {removing && (
+            <p>
+              <StockSummary product={removing} />. Physical stock, active
+              reservations and historical transactions are not deleted.
+            </p>
+          )}
           <Button
             type="button"
             variant="secondary"
             disabled={busy}
             onClick={() => setRemoving(null)}
           >
-            Keep product
+            Cancel
           </Button>{" "}
           <Button
             type="button"
@@ -361,12 +399,27 @@ function Products() {
                 await catalogAdmin(`/products/${removing.id}/remove`, "POST", {
                   content_version: removing.content_version,
                 });
+                const removedId = removing.id;
                 setRemoving(null);
                 setOpenMenu(null);
-                setRefresh((value) => value + 1);
+                setResult((current) =>
+                  current
+                    ? {
+                        ...current,
+                        data: current.data.filter(
+                          (item) => item.id !== removedId,
+                        ),
+                        meta: {
+                          ...current.meta,
+                          total: Math.max(0, current.meta.total - 1),
+                        },
+                      }
+                    : current,
+                );
+                setRecycleTotal((value) => (value ?? 0) + 1);
                 toast.success(
-                  "Product removed",
-                  "History and stock were retained.",
+                  "Product moved to Recycle Bin",
+                  "It remains recoverable for 30 days.",
                 );
               } catch (failure) {
                 setError(
@@ -379,127 +432,8 @@ function Products() {
               }
             }}
           >
-            {busy ? "Removing…" : "Remove product"}
+            {busy ? "Moving…" : "Move to Recycle Bin"}
           </Button>
-        </Modal>
-        <Modal
-          open={!!restoringRemoved}
-          onClose={() => {
-            if (!busy) setRestoringRemoved(null);
-          }}
-          title="Restore removed product?"
-        >
-          <p>
-            Restore <strong>{restoringRemoved?.name}</strong> to its previous
-            {restoringRemoved?.status === "published"
-              ? " published state? It will be visible on the storefront again."
-              : " catalog state?"}
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => setRestoringRemoved(null)}
-          >
-            Cancel
-          </Button>{" "}
-          <Button
-            type="button"
-            loading={busy}
-            onClick={async () => {
-              if (!restoringRemoved) return;
-              setBusy(true);
-              setError("");
-              try {
-                await catalogAdmin(
-                  `/products/${restoringRemoved.id}/restore-removal`,
-                  "POST",
-                  { content_version: restoringRemoved.content_version },
-                );
-                setRestoringRemoved(null);
-                setOpenMenu(null);
-                setRefresh((value) => value + 1);
-                toast.success("Product restored");
-              } catch (failure) {
-                setError(
-                  failure instanceof Error
-                    ? failure.message
-                    : "Product could not be restored.",
-                );
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "Restoring…" : "Restore product"}
-          </Button>
-        </Modal>
-        <Modal
-          open={!!deleting}
-          onClose={() => {
-            if (!busy) {
-              setDeleting(null);
-              setDeleteError("");
-            }
-          }}
-          title="Permanently delete product?"
-        >
-          {deleting?.delete_eligibility?.allowed ? (
-            <p>
-              Permanently delete <strong>{deleting.name}</strong>? It has no
-              historical sales, stock, media or operational records. This action
-              cannot be undone.
-            </p>
-          ) : (
-            <Alert tone="error">
-              {deleting?.delete_eligibility?.reason ??
-                "This product is not eligible for permanent deletion. Remove it instead to retain its records."}
-            </Alert>
-          )}
-          {deleteError && <Alert tone="error">{deleteError}</Alert>}
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => {
-              setDeleting(null);
-              setDeleteError("");
-            }}
-          >
-            Cancel
-          </Button>{" "}
-          {deleting?.delete_eligibility?.allowed && (
-            <Button
-              type="button"
-              variant="danger"
-              loading={busy}
-              onClick={async () => {
-                if (!deleting) return;
-                setBusy(true);
-                setDeleteError("");
-                try {
-                  await catalogAdmin(`/products/${deleting.id}`, "DELETE", {
-                    content_version: deleting.content_version,
-                  });
-                  setDeleting(null);
-                  setOpenMenu(null);
-                  setRefresh((x) => x + 1);
-                  toast.success("Product deleted successfully.");
-                } catch (e) {
-                  const message =
-                    e instanceof Error
-                      ? e.message
-                      : "Product could not be deleted.";
-                  setDeleteError(message);
-                  toast.error("Product could not be deleted.", message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "Deleting…" : "Permanently delete"}
-            </Button>
-          )}
         </Modal>
         <ArchiveDialog
           product={archive}
